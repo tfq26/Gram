@@ -130,7 +130,8 @@ public enum SidecarTab
 {
     Settings,
     Artifact,
-    GitDiff
+    GitDiff,
+    GitGram
 }
 
 public sealed class DiffLine

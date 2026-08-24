@@ -27,6 +27,7 @@ builder.Services.AddScoped<Gram.Blazor.Shared.ChatStateService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IAuthService, Gram.Blazor.Shared.GramAuthService>();
 builder.Services.AddScoped<AuthenticationStateProvider, Gram.Blazor.Shared.GramAuthStateProvider>();
 builder.Services.AddScoped<Gram.Blazor.Shared.ISonnerService, Gram.Blazor.Shared.SonnerService>();
+builder.Services.AddScoped<Gram.Blazor.Shared.GitGramService>();
 
 var app = builder.Build();
 app.UseStaticFiles();

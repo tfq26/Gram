@@ -75,3 +75,4 @@ C:\Users\taufe\Projects\Gram\gram.blazor\bin\Debug\net9.0\Gram.Blazor.exe
 C:\Users\taufe\Projects\Gram\gram.blazor\obj\Debug\net9.0\compressed\hxfvsw60b6-99a99ay4nl.gz
 C:\Users\taufe\Projects\Gram\gram.blazor\obj\Debug\net9.0\compressed\59njqtchga-gkfmb5681k.gz
 C:\Users\taufe\Projects\Gram\gram.blazor\obj\Debug\net9.0\compressed\yjiocaa853-p99s2adi70.gz
+C:\Users\taufe\Projects\Gram\gram.blazor\obj\Debug\net9.0\Gram.Blazor.sourcelink.json

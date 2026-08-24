@@ -16,6 +16,7 @@
 @inject Gram.Blazor.Shared.WorkspaceTabService TabService
 @inject Gram.Blazor.Shared.IAuthService AuthService
 @inject Gram.Blazor.Shared.ISonnerService SonnerService
+@inject Gram.Blazor.Shared.GitGramService GitGram
 @implements IAsyncDisposable
 
 <PageTitle>Gram</PageTitle>
@@ -433,6 +434,9 @@
                     <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.GitDiff ? "active" : "")" @onclick="LoadGitDiff">
                         Diff
                     </button>
+                    <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.GitGram ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.GitGram">
+                        Git Gram
+                    </button>
                 </div>
 
                 <button class="btn-pane-toggle" @onclick="() => isSettingsSheetOpen = false" title="Close sidecar">
@@ -536,7 +540,7 @@
                                   placeholder="Override system prompt for this chat..."></textarea>
                     </div>
 
-                    <div class="sheet-field">
+                                    <div class="sheet-field">
                         <label class="sheet-label">Rules</label>
                         <textarea class="sheet-textarea" 
                                   @bind="Active.Rules" 
@@ -584,12 +588,17 @@
                     <div class="artifact-viewer">
                         @if (selectedArtifact != null)
                         {
-                            <div class="artifact-toolbar">
+                            <div class="artifact-toolbar" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <span style="font-weight: 600; font-size: 13px;">@selectedArtifact.FileName</span>
                                     <Badge Variant="outline" Style="font-size: 10px;">@selectedArtifact.Language</Badge>
                                 </div>
-                                <Button Variant="secondary" Size="sm" OnClick="() => selectedArtifact = null">Back</Button>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <Button Variant="default" Size="sm" OnClick="() => ApplyArtifact(selectedArtifact)">
+                                        Apply to Workspace
+                                    </Button>
+                                    <Button Variant="secondary" Size="sm" OnClick="() => selectedArtifact = null">Back</Button>
+                                </div>
                             </div>
 
                             @if (selectedArtifact.Language?.ToLowerInvariant() == "html" || selectedArtifact.FileName.EndsWith(".html") || selectedArtifact.FileName.EndsWith(".svg"))
@@ -625,7 +634,12 @@
                                                 <span style="font-weight: 600; font-size: 12.5px; color: var(--text-primary);">@art.FileName</span>
                                                 <span style="font-size: 11px; color: var(--text-muted);">@art.Title</span>
                                             </div>
-                                            <span class="mention-badge">@art.Language</span>
+                                            <div style="display: flex; align-items: center; gap: 6px;">
+                                                <span class="mention-badge">@art.Language</span>
+                                                <Button Variant="outline" Size="sm" OnClick:stopPropagation="true" OnClick="() => ApplyArtifact(art)">
+                                                    Apply
+                                                </Button>
+                                            </div>
                                         </div>
                                     }
                                 </div>
@@ -636,17 +650,35 @@
                 else if (activeSidecarTab == SidecarTab.GitDiff)
                 {
                     <div class="diff-viewer">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                             <span style="font-size: 12px; font-weight: 600;">Workspace Diffs (@activeDiffs.Count files)</span>
-                            <Button Variant="outline" Size="sm" OnClick="LoadGitDiff">Refresh</Button>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <Button Variant="default" Size="sm" Disabled="@(activeDiffs.Count == 0)" OnClick="CommitAllDiffs">
+                                    Commit All
+                                </Button>
+                                <Button Variant="outline" Size="sm" OnClick="LoadGitDiff">Refresh</Button>
+                            </div>
                         </div>
+
+                        @if (activeDiffs.Count == 0)
+                        {
+                            <div style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 24px 0;">
+                                Workspace is clean. No uncommitted modifications detected in HEAD.
+                            </div>
+                        }
 
                         @foreach (var diff in activeDiffs)
                         {
                             <div class="diff-file-card">
-                                <div class="diff-file-header">
-                                    <span>@diff.FilePath</span>
-                                    <Badge Variant="@(diff.Status == "Modified" ? "secondary" : "outline")" Style="font-size: 10px;">@diff.Status</Badge>
+                                <div class="diff-file-header" style="display: flex; align-items: center; justify-content: space-between;">
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <span>@diff.FilePath</span>
+                                        <Badge Variant="@(diff.Status == "Modified" ? "secondary" : "outline")" Style="font-size: 10px;">@diff.Status</Badge>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 4px;">
+                                        <Button Variant="outline" Size="sm" OnClick="() => StageFileDiff(diff.FilePath)">Stage</Button>
+                                        <Button Variant="destructive" Size="sm" OnClick="() => DiscardFileDiff(diff.FilePath)">Discard</Button>
+                                    </div>
                                 </div>
                                 <div class="diff-lines-container">
                                     @foreach (var line in diff.Lines)
@@ -660,6 +692,83 @@
                                 </div>
                             </div>
                         }
+                    </div>
+                }
+                else if (activeSidecarTab == SidecarTab.GitGram)
+                {
+                    <div class="git-gram-panel" style="display: flex; flex-direction: column; gap: 12px;">
+                        <!-- Active Repo & Branch Header -->
+                        <div class="telemetry-card">
+                            <div class="telemetry-header">
+                                <span class="telemetry-title">Active Repository</span>
+                                <Badge Variant="@(GitGram.ActiveRepoState.IsClean ? "outline" : "secondary")">
+                                    @(GitGram.ActiveRepoState.IsClean ? "Clean" : $"{GitGram.ActiveRepoState.ModifiedFileCount} Changed")
+                                </Badge>
+                            </div>
+                            <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); margin-top: 2px;">
+                                @(string.IsNullOrWhiteSpace(GitGram.ActiveRepoState.RepoName) ? "Local Workspace" : GitGram.ActiveRepoState.RepoName)
+                            </div>
+                            <div class="telemetry-legend" style="margin-top: 6px;">
+                                <span>Branch: <strong>@GitGram.ActiveRepoState.CurrentBranch</strong></span>
+                                <span>Model: <strong>@GitGram.AssignedModelId.Split('/')[^1]</strong></span>
+                            </div>
+                        </div>
+
+                        <!-- Quick Actions -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                            <Button Variant="outline" Size="sm" OnClick='() => GitGram.EnqueueTask(new GitGramTask { Type = GitGramTaskType.StatusInspection, Description = "Inspect workspace status" })'>
+                                Scan Repo
+                            </Button>
+                            <Button Variant="outline" Size="sm" OnClick='() => GitGram.EnqueueTask(new GitGramTask { Type = GitGramTaskType.StageAll, Description = "Stage all modified files" })'>
+                                Stage All
+                            </Button>
+                        </div>
+
+                        <!-- Autonomous VCS Task Queue -->
+                        <div class="sheet-field">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                                <label class="sheet-label" style="margin: 0;">Task Queue (@GitGram.TaskHistory.Count)</label>
+                                <span style="font-size: 10px; color: var(--text-muted);">Asynchronous Worker</span>
+                            </div>
+                            <div class="sheet-items-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto;">
+                                @if (GitGram.TaskHistory.Count == 0)
+                                {
+                                    <div style="font-size: 11.5px; color: var(--text-muted); text-align: center; padding: 12px 0;">
+                                        No pending tasks. Git Gram is idle.
+                                    </div>
+                                }
+                                @foreach (var t in GitGram.TaskHistory.Take(8))
+                                {
+                                    <div class="sheet-item-row" style="display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; padding: 6px 8px; background: var(--bg-panel-subtle); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                                            <span style="font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;">@t.Description</span>
+                                            <span style="font-size: 10px; color: var(--text-muted);">@t.CreatedAt.ToString("HH:mm:ss") · @t.Type</span>
+                                        </div>
+                                        <Badge Variant="@(t.Status == GitGramTaskStatus.Completed ? "default" : t.Status == GitGramTaskStatus.Running ? "secondary" : "outline")" Style="font-size: 9.5px;">
+                                            @t.Status
+                                        </Badge>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Audit Logs & Safety -->
+                        <div class="sheet-field">
+                            <label class="sheet-label">Audit & Command History</label>
+                            <div class="diff-lines-container" style="max-height: 120px; font-size: 10.5px; background: var(--bg-panel-subtle); padding: 6px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                                @if (GitGram.AuditLogs.Count == 0)
+                                {
+                                    <span style="color: var(--text-muted);">No commands executed yet.</span>
+                                }
+                                @foreach (var log in GitGram.AuditLogs.Take(6))
+                                {
+                                    <div style="display: flex; justify-content: space-between; color: @(log.IsSuccess ? "var(--text-secondary)" : "var(--destructive)");">
+                                        <span>@log.Command</span>
+                                        <span>@(log.ElapsedMs.ToString("0"))ms</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
                     </div>
                 }
             </div>
@@ -750,6 +859,44 @@
     {
         selectedArtifact = art;
         OpenSidecar(SidecarTab.Artifact);
+    }
+
+    private async Task ApplyArtifact(ArtifactInfo? art)
+    {
+        if (art == null) return;
+        var relPath = string.IsNullOrWhiteSpace(art.RelativePath) ? art.FileName : art.RelativePath;
+        var success = await GitGram.ApplyArtifactToWorkspaceAsync(relPath, art.Content, Environment.CurrentDirectory);
+        if (success)
+        {
+            LoadGitDiff();
+        }
+    }
+
+    private async Task StageFileDiff(string filePath)
+    {
+        var ok = await GitGram.StageFileAsync(filePath, Environment.CurrentDirectory);
+        if (ok)
+        {
+            LoadGitDiff();
+        }
+    }
+
+    private async Task DiscardFileDiff(string filePath)
+    {
+        var ok = await GitGram.DiscardFileChangesAsync(filePath, Environment.CurrentDirectory);
+        if (ok)
+        {
+            LoadGitDiff();
+        }
+    }
+
+    private async Task CommitAllDiffs()
+    {
+        var ok = await GitGram.CommitChangesAsync("chore: autonomous repository sync", Environment.CurrentDirectory);
+        if (ok)
+        {
+            LoadGitDiff();
+        }
     }
 
     private void LoadGitDiff()
@@ -912,6 +1059,8 @@
         ConversationService.OnChange += OnConversationsChanged;
         ChatStateService.OnTitleRenamed += OnExternalTitleRenamed;
         TabService.OnTabsChanged += OnTabsUpdated;
+        GitGram.OnStateChanged += OnGitGramStateChanged;
+        GitGram.SetActiveWorkspace(Environment.CurrentDirectory);
 
         if (TabService.ActiveTab?.Type == WorkspaceTabType.Chat && !string.IsNullOrWhiteSpace(TabService.ActiveTab.ChatId))
         {
@@ -926,6 +1075,11 @@
         var fav = ModelService.Models.FirstOrDefault(m => m.IsFavorite);
         activeModelId = fav?.Id ?? ModelService.Models.FirstOrDefault()?.Id ?? "";
         ChatStateService.ActiveChatTitle = Active.Title;
+    }
+
+    private void OnGitGramStateChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void OnTabsUpdated()
@@ -1572,6 +1726,8 @@
         {
             ConversationService.OnChange -= OnConversationsChanged;
             ChatStateService.OnTitleRenamed -= OnExternalTitleRenamed;
+            TabService.OnTabsChanged -= OnTabsUpdated;
+            GitGram.OnStateChanged -= OnGitGramStateChanged;
             await StopVoice();
             chatCts?.Cancel();
             dotNetHelper?.Dispose();
