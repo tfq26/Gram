@@ -1,0 +1,77 @@
+@using Gram.Blazor.Shared
+@inject ISonnerService SonnerService
+@implements IDisposable
+
+<div class="sonner-container sonner-position-@Position.ToString().ToLowerInvariant()">
+    @foreach (var toast in SonnerService.Toasts)
+    {
+        <div class="sonner-toast sonner-toast-@toast.Variant.ToString().ToLowerInvariant()" @key="toast.Id">
+            <div class="sonner-toast-icon">
+                @if (toast.Variant == SonnerToastVariant.Success)
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                }
+                else if (toast.Variant == SonnerToastVariant.Destructive)
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                }
+                else if (toast.Variant == SonnerToastVariant.Warning)
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                }
+                else if (toast.Variant == SonnerToastVariant.Info)
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                }
+            </div>
+
+            <div class="sonner-toast-content">
+                <div class="sonner-toast-title">@toast.Title</div>
+                @if (!string.IsNullOrWhiteSpace(toast.Description))
+                {
+                    <div class="sonner-toast-description">@toast.Description</div>
+                }
+            </div>
+
+            <button class="sonner-toast-close" @onclick="() => SonnerService.Dismiss(toast.Id)" title="Dismiss">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public SonnerPosition Position { get; set; } = SonnerPosition.BottomRight;
+
+    protected override void OnInitialized()
+    {
+        SonnerService.OnChange += OnToastsChanged;
+    }
+
+    private void OnToastsChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        SonnerService.OnChange -= OnToastsChanged;
+    }
+}

@@ -1,0 +1,71 @@
+@namespace Gram.Blazor.Components
+
+@code {
+    [Parameter] public string? Vendor { get; set; }
+    [Parameter] public string? ModelId { get; set; }
+    [Parameter] public int Size { get; set; } = 16;
+    [Parameter] public string Class { get; set; } = "";
+
+    private string ResolvedLogoSrc
+    {
+        get
+        {
+            var key = "";
+            if (!string.IsNullOrWhiteSpace(Vendor))
+            {
+                key = Vendor.Trim().ToLowerInvariant();
+            }
+            else if (!string.IsNullOrWhiteSpace(ModelId))
+            {
+                key = ModelId.Trim().ToLowerInvariant();
+            }
+
+            if (key.Contains("anthropic") || key.Contains("claude"))
+            {
+                return "logo/anthropic.svg";
+            }
+            if (key.Contains("openai") || key.Contains("gpt-") || key.Contains("o1") || key.Contains("o3") || key.Contains("chatgpt"))
+            {
+                return "logo/openai-light.svg";
+            }
+            if (key.Contains("deepseek"))
+            {
+                return "logo/Deepseek-logo-icon.svg.webp";
+            }
+            if (key.Contains("google") || key.Contains("gemini"))
+            {
+                return "logo/gemini.svg";
+            }
+            if (key.Contains("meta") || key.Contains("llama"))
+            {
+                return "logo/meta-12361.svg";
+            }
+            if (key.Contains("x-ai") || key.Contains("xai") || key.Contains("grok"))
+            {
+                return "logo/XAI_Logo.svg.webp";
+            }
+
+            // Use openrouter icon for models that don't fit into a specific model provider
+            return "logo/openrouter-color.svg";
+        }
+    }
+
+    private string ResolvedAlt
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(Vendor)) return Vendor;
+            if (!string.IsNullOrWhiteSpace(ModelId)) return ModelId;
+            return "AI Model";
+        }
+    }
+}
+
+<span class="model-icon-wrap @Class" style="width: @(Size)px; height: @(Size)px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden;">
+    <img src="@ResolvedLogoSrc"
+         alt="@ResolvedAlt"
+         width="@Size"
+         height="@Size"
+         style="width: 100%; height: 100%; object-fit: contain; display: block;"
+         loading="lazy" />
+</span>

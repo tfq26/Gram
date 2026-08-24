@@ -1,0 +1,1584 @@
+@page "/"
+@rendermode InteractiveServer
+@using Gram.Blazor.Shared
+@using Microsoft.AspNetCore.Components.Forms
+@inject IJSRuntime JSRuntime
+@inject Gram.Blazor.Shared.ModelService ModelService
+@inject Gram.Blazor.Shared.ChatStateService ChatStateService
+@inject Gram.Blazor.Shared.ConversationService ConversationService
+@inject Gram.Blazor.Shared.SettingsService SettingsService
+@inject Gram.Blazor.Shared.SessionStorageService SessionStorage
+@inject Gram.Blazor.Shared.StorageService StorageService
+@inject Gram.Blazor.Shared.AgentSecurityService SecurityService
+@inject Gram.Blazor.Shared.AgentOrchestrator AgentOrchestrator
+@inject Gram.Blazor.Shared.ContextBuilder ContextBuilder
+@inject NavigationManager NavManager
+@inject Gram.Blazor.Shared.WorkspaceTabService TabService
+@inject Gram.Blazor.Shared.IAuthService AuthService
+@inject Gram.Blazor.Shared.ISonnerService SonnerService
+@implements IAsyncDisposable
+
+<PageTitle>Gram</PageTitle>
+
+<div class="workspace-panes @(isSidebarOpen ? "left-open" : "left-closed") @(isSettingsSheetOpen ? "right-open" : "right-closed")">
+    <!-- Left Pane: Chats Rail -->
+    <aside class="pane pane-left @(isSidebarOpen ? "open" : "closed")">
+        <div class="pane-content">
+            <div class="rail-header">
+                <span class="rail-title">Previous Chats</span>
+                <button class="btn-pane-toggle" @onclick="() => isSidebarOpen = false" title="Close chats">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="9" y1="3" x2="9" y2="21"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <button class="btn-new-chat" @onclick="NewConversation">
+                + New chat
+            </button>
+
+            <div class="conversation-list">
+                @foreach (var chat in conversations)
+                {
+                    <div class="conversation-item @(chat.Id == activeId ? "active" : "")" 
+                         @onclick="() => SelectConversation(chat.Id)"
+                         @oncontextmenu="e => OnChatContextMenu(e, chat)"
+                         @oncontextmenu:preventDefault="true">
+                        <div class="conv-meta">
+                            <span class="conv-title">@chat.Title</span>
+                            <span class="conv-time">@chat.Updated.ToLocalTime().ToString("MMM d")</span>
+                        </div>
+                        @if (conversations.Count > 1)
+                        {
+                            <button class="conv-delete" title="Delete" @onclick:stopPropagation="true" @onclick="() => DeleteConversation(chat.Id)">✕</button>
+                        }
+                    </div>
+                }
+            </div>
+
+            <!-- Sidebar User Profile Footer -->
+            <div class="rail-user-footer" style="padding: 10px 12px; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; margin-top: auto; position: relative;">
+                @if (AuthService.CurrentUser.IsAuthenticated)
+                {
+                    <button type="button" class="user-pill" style="width: 100%; justify-content: flex-start; padding: 4px 6px; background: transparent; border: none; gap: 8px;" @onclick="() => showSidebarUserDropdown = !showSidebarUserDropdown">
+                        <Avatar Size="sm" Alt="@AuthService.CurrentUser.Name" Fallback="@(AuthService.CurrentUser.Name.FirstOrDefault().ToString().ToUpperInvariant())" />
+                        <div style="display: flex; flex-direction: column; align-items: flex-start; min-width: 0; flex: 1; text-align: left;">
+                            <span class="user-name" style="font-size: 12px; font-weight: 600; color: var(--text-primary); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@AuthService.CurrentUser.Name</span>
+                            <span style="font-size: 10px; color: var(--text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@(AuthService.CurrentUser.Email ?? "Local User")</span>
+                        </div>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.6; margin-left: auto;">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+
+                    @if (showSidebarUserDropdown)
+                    {
+                        <div class="shadcn-context-menu-backdrop" @onclick="() => showSidebarUserDropdown = false"></div>
+                        <div class="user-profile-popover" style="position: absolute; left: 10px; bottom: calc(100% + 6px); width: 210px; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 6px; box-shadow: var(--shadow-md); z-index: 9999; display: flex; flex-direction: column; gap: 2px;" @onclick:stopPropagation="true">
+                            <div style="padding: 8px 10px; border-bottom: 1px solid var(--border-color); margin-bottom: 4px;">
+                                <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@AuthService.CurrentUser.Name</div>
+                                <div style="font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@(AuthService.CurrentUser.Email ?? "Local User")</div>
+                            </div>
+
+                            <a href="/settings" class="shadcn-context-menu-item" @onclick="() => showSidebarUserDropdown = false">
+                                <span class="shadcn-context-menu-label">Settings</span>
+                            </a>
+
+                            <div class="shadcn-context-menu-separator"></div>
+
+                            <button type="button" class="shadcn-context-menu-item destructive" @onclick="HandleSidebarLogout">
+                                <span class="shadcn-context-menu-label">Sign Out</span>
+                            </button>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <button class="btn-secondary" style="width: 100%; font-size: 11.5px; padding: 5px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-panel); color: var(--text-primary); cursor: pointer;" @onclick='() => NavManager.NavigateTo("/login")'>
+                        Sign In
+                    </button>
+                }
+            </div>
+        </div>
+    </aside>
+
+    <!-- Center Pane: Main Chat Area -->
+    <main class="pane pane-center">
+        <header class="chat-header">
+            <div class="chat-header-left" style="display: flex; align-items: center; gap: 10px;">
+                @if (!isSidebarOpen)
+                {
+                    <button class="btn-pane-toggle" @onclick="() => isSidebarOpen = true" title="Show chats">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="9" y1="3" x2="9" y2="21"></line>
+                        </svg>
+                    </button>
+                }
+
+                <!-- Custom Animated Model Switcher Select -->
+                <div class="model-dropdown-wrapper">
+                    <button type="button" 
+                            class="model-dropdown-trigger @(isModelMenuOpen ? "open" : "")" 
+                            @onclick="() => isModelMenuOpen = !isModelMenuOpen"
+                            title="Switch AI model">
+                        <ModelIcon ModelId="@activeModelId" Size="14" />
+                        <span class="model-trigger-name">@(ActiveModel?.Name ?? activeModelId)</span>
+                        <svg class="model-dropdown-chevron @(isModelMenuOpen ? "open" : "")" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+
+                    @if (isModelMenuOpen)
+                    {
+                        <div class="model-dropdown-backdrop" @onclick="() => isModelMenuOpen = false"></div>
+                        <div class="model-dropdown-menu" @onclick:stopPropagation="true">
+                            @foreach (var model in ModelService.Models.OrderByDescending(m => m.IsFavorite))
+                            {
+                                var isSelected = model.Id == activeModelId;
+                                <button type="button" 
+                                        class="model-dropdown-item @(isSelected ? "active" : "")" 
+                                        @onclick="() => SelectModel(model.Id)">
+                                    <div class="model-item-info">
+                                        <ModelIcon ModelId="@model.Id" Size="14" />
+                                        <div class="model-item-text">
+                                            <span class="model-item-label">@model.Name</span>
+                                            <span class="model-item-vendor">@model.Provider · @model.Id</span>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 4px;">
+                                        @if (model.IsFavorite)
+                                        {
+                                            <span class="model-item-favorite" title="Favorite model">★</span>
+                                        }
+                                        @if (isSelected)
+                                        {
+                                            <svg class="model-item-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                            </svg>
+                                        }
+                                    </div>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="chat-actions">
+                <button class="btn-pane-toggle @(isSettingsSheetOpen ? "active" : "")" 
+                        @onclick="() => isSettingsSheetOpen = !isSettingsSheetOpen" 
+                        title="Toggle sidecar panel">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="4" y1="21" x2="4" y2="14"></line>
+                        <line x1="4" y1="10" x2="4" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12" y2="3"></line>
+                        <line x1="20" y1="21" x2="20" y2="16"></line>
+                        <line x1="20" y1="12" x2="20" y2="3"></line>
+                        <line x1="1" y1="14" x2="7" y2="14"></line>
+                        <line x1="9" y1="8" x2="15" y2="8"></line>
+                        <line x1="17" y1="16" x2="23" y2="16"></line>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <div class="messages-container" id="messagesContainer">
+            @if (Active.Messages.Count == 0)
+            {
+                <div class="harness-empty-state">
+                    <h2>How can I help?</h2>
+                    <p>Type a message or tap the microphone to speak.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var message in Active.Messages)
+                {
+                    @if (message.Role == "user")
+                    {
+                        <div class="message-entry user">
+                            <div class="user-message-row">
+                                <div class="message-body user-body">
+                                    @message.Text
+                                </div>
+                                <div class="user-avatar-wrap">
+                                    <Avatar Size="sm" Alt="@AuthService.CurrentUser.Name" Fallback="@(AuthService.CurrentUser.Name.FirstOrDefault().ToString().ToUpperInvariant())" />
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="message-entry assistant">
+                            <div class="message-header">
+                                <ModelIcon ModelId="@activeModelId" Size="14" />
+                                <span>Gram</span>
+                            </div>
+                            <div class="message-body assistant-body">
+                                @if (message.ToolCalls != null && message.ToolCalls.Count > 0)
+                                {
+                                    <div class="message-tool-calls" style="margin-bottom: 8px;">
+                                        @foreach (var tool in message.ToolCalls)
+                                        {
+                                            <ToolCallCard ToolCall="@tool" />
+                                        }
+                                    </div>
+                                }
+
+                                @if (string.IsNullOrEmpty(message.Text) && isGenerating && message == Active.Messages.LastOrDefault())
+                                {
+                                    @if (message.ToolCalls == null || message.ToolCalls.Count == 0)
+                                    {
+                                        <span class="typing-indicator" style="opacity: 0.6; font-style: italic;">Thinking...</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <MarkdownView Content="@message.Text" />
+                                }
+
+                            @if (!string.IsNullOrEmpty(message.ErrorDetail))
+                            {
+                                var msgKey = message.Timestamp.Ticks.ToString();
+                                var isExpanded = expandedErrorIds.Contains(msgKey);
+                                <div class="message-error-box">
+                                    <div class="error-header">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <circle cx="12" cy="12" r="10"></circle>
+                                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                                        </svg>
+                                        <span>An error occurred while generating this response.</span>
+                                    </div>
+                                    <button type="button" class="error-details-toggle" @onclick="() => ToggleErrorDetails(msgKey)">
+                                        @(isExpanded ? "Hide full error details ▲" : "View full error details ▼")
+                                    </button>
+                                    @if (isExpanded)
+                                    {
+                                        <pre class="error-details-pre">@message.ErrorDetail</pre>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        @if (message.Role == "assistant" && (!string.IsNullOrEmpty(message.Text) || !string.IsNullOrEmpty(message.ErrorDetail)) && !(isGenerating && message == Active.Messages.LastOrDefault()))
+                        {
+                            <div class="message-actions">
+                                <button type="button" class="btn-msg-action @(copiedMessageId == message.Timestamp.Ticks.ToString() ? "copied" : "")" 
+                                        @onclick="() => CopyResponseText(message)" 
+                                        title="Copy response">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                    </svg>
+                                    <span>@(copiedMessageId == message.Timestamp.Ticks.ToString() ? "Copied" : "Copy")</span>
+                                </button>
+
+                                <button type="button" class="btn-msg-action" 
+                                        @onclick="() => RetryResponseAsync(message)" 
+                                        disabled="@isGenerating" 
+                                        title="Retry response">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="23 4 23 10 17 10"></polyline>
+                                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                    </svg>
+                                    <span>Retry</span>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        }
+        </div>
+
+        <div class="composer-wrapper">
+            @if (attachedFiles.Count > 0)
+            {
+                <div class="attachment-tray">
+                    @foreach (var file in attachedFiles)
+                    {
+                        <div class="attachment-pill">
+                            <span class="attachment-name">@file</span>
+                            <button class="btn-remove-attachment" @onclick="() => RemoveFile(file)" title="Remove file">✕</button>
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (voiceState != VoiceState.Idle)
+            {
+                <div class="voice-banner @(voiceState == VoiceState.UserSpeaking ? "user-voice" : "assistant-voice")">
+                    <div class="voice-info">
+                        <div class="visualizer-bars" id="visualizerBars">
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                            <span class="v-bar"></span>
+                        </div>
+                        <span class="voice-label">@(voiceState == VoiceState.UserSpeaking ? "Listening to your voice..." : "Gram is speaking...")</span>
+                    </div>
+                    <button class="btn-stop-voice" @onclick="StopVoice">Stop</button>
+                </div>
+            }
+
+            <div class="composer-box">
+                <!-- Context Mentions Popup -->
+                @if (showMentionPopup && filteredMentions.Count > 0)
+                {
+                    <div class="mention-popup" @onclick:stopPropagation="true">
+                        @foreach (var m in filteredMentions)
+                        {
+                            <button type="button" class="mention-item" @onclick="() => SelectMention(m)">
+                                <div class="mention-item-left">
+                                    @if (!string.IsNullOrWhiteSpace(m.Icon))
+                                    {
+                                        <span class="mention-icon">@m.Icon</span>
+                                    }
+                                    <div style="display: flex; flex-direction: column; min-width: 0;">
+                                        <span class="mention-title">@m.Title</span>
+                                        <span class="mention-desc">@m.Description</span>
+                                    </div>
+                                </div>
+                                <span class="mention-badge">@m.Category</span>
+                            </button>
+                        }
+                    </div>
+                }
+
+                <InputFile id="fileInput" OnChange="HandleFileSelected" style="display: none;" multiple />
+
+                <div class="composer-inner">
+                    <div class="composer-actions-left">
+                        <label for="fileInput" class="btn-composer-icon" title="Attach files">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="12" y1="5" x2="12" y2="19"></line>
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                        </label>
+                    </div>
+
+                    <textarea @ref="textareaRef"
+                              id="composerTextarea"
+                              class="composer-textarea"
+                              value="@draft"
+                              @oninput="OnInputChanged"
+                              @onkeydown="HandleKeyDown"
+                              @onkeydown:preventDefault="preventEnter"
+                              placeholder="@(voiceState == VoiceState.UserSpeaking ? "Listening..." : "Message Gram (type @ for context mentions)...")"
+                              rows="1"></textarea>
+
+                    <div class="composer-actions-right">
+                        <button class="btn-composer-icon voice-btn @(voiceState != VoiceState.Idle ? "active" : "")"
+                                @onclick="ToggleVoice"
+                                title="@(voiceState == VoiceState.Idle ? "Voice input" : "Stop voice")">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                <line x1="12" y1="19" x2="12" y2="23"></line>
+                                <line x1="8" y1="23" x2="16" y2="23"></line>
+                            </svg>
+                        </button>
+
+                        @if (isGenerating)
+                        {
+                            <button class="btn-composer-send stop-btn"
+                                    @onclick="StopGeneration"
+                                    title="Stop generation">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                                </svg>
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn-composer-send"
+                                    @onclick="Send"
+                                    disabled="@(string.IsNullOrWhiteSpace(draft) && attachedFiles.Count == 0 && voiceState == VoiceState.Idle)"
+                                    title="Send">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                                    <polyline points="5 12 12 5 19 12"></polyline>
+                                </svg>
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Right Pane: Reusable Multi-Purpose Sidecar -->
+    <aside class="pane pane-right @(isSettingsSheetOpen ? "open" : "closed")">
+        <div class="pane-content">
+            <div class="sheet-header" style="justify-content: space-between; gap: 8px;">
+                <!-- Sidecar Header Mode Switcher -->
+                <div class="sidecar-header-tabs">
+                    <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.Settings ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.Settings">
+                        Settings
+                    </button>
+                    <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.Artifact ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.Artifact">
+                        Artifacts @(Active.Artifacts.Count > 0 ? $"({Active.Artifacts.Count})" : "")
+                    </button>
+                    <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.GitDiff ? "active" : "")" @onclick="LoadGitDiff">
+                        Diff
+                    </button>
+                </div>
+
+                <button class="btn-pane-toggle" @onclick="() => isSettingsSheetOpen = false" title="Close sidecar">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="sheet-body" style="padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; height: 100%;">
+                @if (activeSidecarTab == SidecarTab.Settings)
+                {
+                    <!-- Context & Token Usage Telemetry Widget -->
+                    <div class="telemetry-card">
+                        <div class="telemetry-header">
+                            <span class="telemetry-title">Context & Token Telemetry</span>
+                            <Badge Variant="secondary" Style="font-size: 10px;">
+                                @(ActiveModel?.Name ?? activeModelId)
+                            </Badge>
+                        </div>
+
+                        <div class="telemetry-grid">
+                            <div class="telemetry-metric">
+                                <span class="telemetry-metric-label">Prompt Tokens</span>
+                                <span class="telemetry-metric-value">@(Active.PromptTokens > 0 ? $"{Active.PromptTokens:N0}" : "~" + EstimateTokens(Active.Messages))</span>
+                            </div>
+                            <div class="telemetry-metric">
+                                <span class="telemetry-metric-label">Completion</span>
+                                <span class="telemetry-metric-value">@(Active.CompletionTokens > 0 ? $"{Active.CompletionTokens:N0}" : "0")</span>
+                            </div>
+                            <div class="telemetry-metric">
+                                <span class="telemetry-metric-label">Total Session</span>
+                                <span class="telemetry-metric-value">@(Active.TotalTokens > 0 ? $"{Active.TotalTokens:N0}" : "~" + EstimateTokens(Active.Messages))</span>
+                            </div>
+                            <div class="telemetry-metric">
+                                <span class="telemetry-metric-label">Latency</span>
+                                <span class="telemetry-metric-value">@(Active.LastLatencyMs > 0 ? $"{Active.LastLatencyMs}ms" : "Instant")</span>
+                            </div>
+                        </div>
+
+                        <!-- Context Window Utilization Meter -->
+                        @{
+                            var maxCtx = ActiveModel?.ContextLength ?? 128000;
+                            var currentTokens = Active.TotalTokens > 0 ? Active.TotalTokens : EstimateTokens(Active.Messages);
+                            var pct = Math.Min(100, Math.Max(1, (int)((double)currentTokens / maxCtx * 100)));
+                        }
+                        <div class="telemetry-meter-container">
+                            <div class="telemetry-meter-legend">
+                                <span>Context Window Utilization</span>
+                                <span>@pct% (@(currentTokens > 1000 ? $"{currentTokens / 1000}k" : currentTokens) / @(maxCtx >= 1000000 ? $"{maxCtx / 1000000}M" : $"{maxCtx / 1000}k"))</span>
+                            </div>
+                            <div class="telemetry-meter-bar">
+                                <div class="telemetry-meter-fill" style="width: @(pct)%;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sheet-field">
+                        <label class="sheet-label">Title</label>
+                        <input type="text" class="sheet-input" @bind="Active.Title" @bind:event="oninput" @bind:after="OnTitleChanged" placeholder="Title" />
+                    </div>
+
+                    <div class="sheet-field">
+                        <label class="sheet-label">Model</label>
+                        <select class="sheet-select" @bind="activeModelId">
+                            @foreach (var model in ModelService.Models.OrderByDescending(m => m.IsFavorite))
+                            {
+                                <option value="@model.Id">@(model.IsFavorite ? "★ " : "")@model.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="sheet-field">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <label class="sheet-label">Permissions</label>
+                            <Badge Variant="@(SecurityService.Settings.PermissionMode == ExecutionPermissionMode.FullAutonomous ? "default" : (SecurityService.Settings.PermissionMode == ExecutionPermissionMode.SafeAutoApprove ? "secondary" : "outline"))" Style="font-size: 10px;">
+                                @(SecurityService.Settings.PermissionMode == ExecutionPermissionMode.FullAutonomous ? "Autonomous" : (SecurityService.Settings.PermissionMode == ExecutionPermissionMode.SafeAutoApprove ? "Safe" : "Ask"))
+                            </Badge>
+                        </div>
+                        <select class="sheet-select" value="@SecurityService.Settings.PermissionMode" @onchange="OnPermissionModeChanged">
+                            <option value="@ExecutionPermissionMode.FullAutonomous">Autonomous</option>
+                            <option value="@ExecutionPermissionMode.SafeAutoApprove">Safe</option>
+                            <option value="@ExecutionPermissionMode.AskAlways">Ask</option>
+                        </select>
+                        <span style="font-size: 11px; color: var(--text-muted); line-height: 1.35; margin-top: 2px;">
+                            @(SecurityService.Settings.PermissionMode == ExecutionPermissionMode.FullAutonomous 
+                                ? "Autonomous: Auto-executes commands & edits within sandbox." 
+                                : (SecurityService.Settings.PermissionMode == ExecutionPermissionMode.SafeAutoApprove
+                                    ? "Safe: Auto-runs builds/tests/reads, prompts on risky actions."
+                                    : "Ask: Prompts before running any terminal commands."))
+                        </span>
+                    </div>
+
+                    <div class="sheet-field">
+                        <label class="sheet-label">System prompt</label>
+                        <textarea class="sheet-textarea" 
+                                  @bind="Active.SystemPromptOverride" 
+                                  @bind:event="oninput" 
+                                  rows="4" 
+                                  placeholder="Override system prompt for this chat..."></textarea>
+                    </div>
+
+                    <div class="sheet-field">
+                        <label class="sheet-label">Rules</label>
+                        <textarea class="sheet-textarea" 
+                                  @bind="Active.Rules" 
+                                  @bind:event="oninput" 
+                                  rows="3" 
+                                  placeholder="Specific rules for this chat..."></textarea>
+                    </div>
+
+                    @if (Active.Attachments.Count > 0)
+                    {
+                        <div class="sheet-field">
+                            <label class="sheet-label">Workspace Files (@Active.Attachments.Count)</label>
+                            <div class="sheet-items-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto;">
+                                @foreach (var att in Active.Attachments)
+                                {
+                                    <div class="sheet-item-row" style="display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; padding: 4px 6px; background: var(--bg-panel-subtle); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px;" title="@att.FileName">@att.FileName</span>
+                                        <span style="color: var(--text-muted); font-size: 10px;">@(att.SizeBytes < 1024 ? $"{att.SizeBytes}B" : $"{att.SizeBytes / 1024}KB")</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    <div class="sheet-danger-zone">
+                        <div class="sheet-danger-info">
+                            <span class="sheet-danger-title">Clear conversation</span>
+                            <span class="sheet-danger-desc">Reset messages and attachments for this session.</span>
+                        </div>
+                        <Button Variant="destructive" 
+                                Size="sm" 
+                                Class="w-full" 
+                                Disabled="@(Active.Messages.Count == 0)" 
+                                OnClick="ClearCurrentChat">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                            <span>Clear chat</span>
+                        </Button>
+                    </div>
+                }
+                else if (activeSidecarTab == SidecarTab.Artifact)
+                {
+                    <div class="artifact-viewer">
+                        @if (selectedArtifact != null)
+                        {
+                            <div class="artifact-toolbar">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-weight: 600; font-size: 13px;">@selectedArtifact.FileName</span>
+                                    <Badge Variant="outline" Style="font-size: 10px;">@selectedArtifact.Language</Badge>
+                                </div>
+                                <Button Variant="secondary" Size="sm" OnClick="() => selectedArtifact = null">Back</Button>
+                            </div>
+
+                            @if (selectedArtifact.Language?.ToLowerInvariant() == "html" || selectedArtifact.FileName.EndsWith(".html") || selectedArtifact.FileName.EndsWith(".svg"))
+                            {
+                                <div class="artifact-live-preview">
+                                    @((MarkupString)selectedArtifact.Content)
+                                </div>
+                            }
+                            else
+                            {
+                                <pre class="artifact-code-pre">@selectedArtifact.Content</pre>
+                            }
+                        }
+                        else
+                        {
+                            <div style="font-size: 12.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">
+                                Artifacts & Deliverables (@Active.Artifacts.Count)
+                            </div>
+
+                            @if (Active.Artifacts.Count == 0)
+                            {
+                                <div style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 24px 0;">
+                                    No artifacts generated yet. When models produce standalone code files, HTML snippets, or reports, they appear here.
+                                </div>
+                            }
+                            else
+                            {
+                                <div style="display: flex; flex-direction: column; gap: 6px;">
+                                    @foreach (var art in Active.Artifacts)
+                                    {
+                                        <div class="sheet-item-row" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: var(--bg-panel-subtle); border-radius: var(--radius-md); border: 1px solid var(--border-color); cursor: pointer;" @onclick="() => ViewArtifact(art)">
+                                            <div style="display: flex; flex-direction: column; min-width: 0;">
+                                                <span style="font-weight: 600; font-size: 12.5px; color: var(--text-primary);">@art.FileName</span>
+                                                <span style="font-size: 11px; color: var(--text-muted);">@art.Title</span>
+                                            </div>
+                                            <span class="mention-badge">@art.Language</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+                else if (activeSidecarTab == SidecarTab.GitDiff)
+                {
+                    <div class="diff-viewer">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="font-size: 12px; font-weight: 600;">Workspace Diffs (@activeDiffs.Count files)</span>
+                            <Button Variant="outline" Size="sm" OnClick="LoadGitDiff">Refresh</Button>
+                        </div>
+
+                        @foreach (var diff in activeDiffs)
+                        {
+                            <div class="diff-file-card">
+                                <div class="diff-file-header">
+                                    <span>@diff.FilePath</span>
+                                    <Badge Variant="@(diff.Status == "Modified" ? "secondary" : "outline")" Style="font-size: 10px;">@diff.Status</Badge>
+                                </div>
+                                <div class="diff-lines-container">
+                                    @foreach (var line in diff.Lines)
+                                    {
+                                        <div class="diff-line @line.Type">
+                                            <span class="diff-line-num">@(line.OldLineNumber?.ToString() ?? "")</span>
+                                            <span class="diff-line-num">@(line.NewLineNumber?.ToString() ?? "")</span>
+                                            <span class="diff-line-content">@line.Content</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </aside>
+</div>
+
+<ContextMenu IsOpen="@isContextMenuOpen" IsOpenChanged="v => isContextMenuOpen = v" X="@contextMenuX" Y="@contextMenuY">
+    <ContextMenuItem OnClick="() => RenameFromContextMenu(contextMenuTarget)">
+        <Icon>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+        </Icon>
+        <ChildContent>Rename</ChildContent>
+    </ContextMenuItem>
+
+    <ContextMenuItem OnClick="() => DuplicateFromContextMenu(contextMenuTarget)">
+        <Icon>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+        </Icon>
+        <ChildContent>Duplicate</ChildContent>
+    </ContextMenuItem>
+
+    <ContextMenuItem OnClick="() => CopyIdFromContextMenu(contextMenuTarget)">
+        <Icon>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+        </Icon>
+        <ChildContent>Copy ID</ChildContent>
+    </ContextMenuItem>
+
+    <ContextMenuSeparator />
+
+    <ContextMenuItem Variant="destructive" Shortcut="Del" Disabled="@(conversations.Count <= 1)" OnClick="() => DeleteFromContextMenu(contextMenuTarget)">
+        <Icon>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+        </Icon>
+        <ChildContent>Delete</ChildContent>
+    </ContextMenuItem>
+</ContextMenu>
+
+@code {
+    private enum VoiceState { Idle, UserSpeaking, GramSpeaking }
+
+    private List<Conversation> conversations => ConversationService.Conversations;
+    private string activeId = "default";
+    private string draft = "";
+    private readonly List<string> attachedFiles = new();
+    private VoiceState voiceState = VoiceState.Idle;
+    private DotNetObjectReference<Home>? dotNetHelper;
+    private ElementReference textareaRef;
+    private CancellationTokenSource? voiceCts;
+    private CancellationTokenSource? chatCts;
+    private string activeModelId = "";
+    private bool isSidebarOpen = true;
+    private bool isSettingsSheetOpen = false;
+    private SidecarTab activeSidecarTab = SidecarTab.Settings;
+    private ArtifactInfo? selectedArtifact;
+    private List<DiffFileItem> activeDiffs = new();
+    private bool preventEnter = false;
+    private bool isGenerating = false;
+    private bool isContextMenuOpen = false;
+    private bool isModelMenuOpen = false;
+    private double contextMenuX = 0;
+    private double contextMenuY = 0;
+    private Conversation? contextMenuTarget;
+    private string? copiedMessageId;
+    private readonly HashSet<string> expandedErrorIds = new();
+
+    private void OpenSidecar(SidecarTab tab)
+    {
+        activeSidecarTab = tab;
+        isSettingsSheetOpen = true;
+        StateHasChanged();
+    }
+
+    private void ViewArtifact(ArtifactInfo art)
+    {
+        selectedArtifact = art;
+        OpenSidecar(SidecarTab.Artifact);
+    }
+
+    private void LoadGitDiff()
+    {
+        try
+        {
+            activeDiffs.Clear();
+            var statusProcess = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "git",
+                    Arguments = "diff HEAD",
+                    WorkingDirectory = Environment.CurrentDirectory,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            statusProcess.Start();
+            var diffText = statusProcess.StandardOutput.ReadToEnd();
+            statusProcess.WaitForExit(3000);
+
+            if (!string.IsNullOrWhiteSpace(diffText))
+            {
+                var files = diffText.Split("diff --git ", StringSplitOptions.RemoveEmptyEntries);
+                foreach (var f in files)
+                {
+                    var lines = f.Split('\n');
+                    var header = lines.FirstOrDefault() ?? "";
+                    var fileName = header.Split(' ').LastOrDefault()?.TrimStart('b', '/') ?? "file";
+                    var diffItem = new DiffFileItem { FilePath = fileName, Status = "Modified" };
+
+                    int oldLn = 0, newLn = 0;
+                    foreach (var l in lines.Skip(1))
+                    {
+                        if (l.StartsWith("+++") || l.StartsWith("---")) continue;
+                        if (l.StartsWith("@@"))
+                        {
+                            diffItem.Lines.Add(new DiffLine { Type = "header", Content = l });
+                        }
+                        else if (l.StartsWith("+"))
+                        {
+                            newLn++;
+                            diffItem.Lines.Add(new DiffLine { Type = "add", Content = l, NewLineNumber = newLn });
+                        }
+                        else if (l.StartsWith("-"))
+                        {
+                            oldLn++;
+                            diffItem.Lines.Add(new DiffLine { Type = "delete", Content = l, OldLineNumber = oldLn });
+                        }
+                        else
+                        {
+                            oldLn++;
+                            newLn++;
+                            diffItem.Lines.Add(new DiffLine { Type = "context", Content = l, OldLineNumber = oldLn, NewLineNumber = newLn });
+                        }
+                    }
+                    activeDiffs.Add(diffItem);
+                }
+            }
+            else
+            {
+                // Fallback demo diff if git workspace is clean
+                activeDiffs.Add(new DiffFileItem
+                {
+                    FilePath = "Workspace is clean (No uncommitted changes)",
+                    Status = "Clean",
+                    Lines = [new DiffLine { Type = "header", Content = "No uncommitted modifications detected." }]
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            activeDiffs.Add(new DiffFileItem
+            {
+                FilePath = "Git Diff Error",
+                Status = "Error",
+                Lines = [new DiffLine { Type = "delete", Content = ex.Message }]
+            });
+        }
+        OpenSidecar(SidecarTab.GitDiff);
+    }
+
+    private record MentionItem(string Id, string Title, string Description, string Icon, string Category, string Insertion);
+    
+    private bool showMentionPopup = false;
+    private List<MentionItem> allMentions = new();
+    private List<MentionItem> filteredMentions = new();
+
+    private int EstimateTokens(List<Message> msgs)
+    {
+        if (msgs == null || msgs.Count == 0) return 0;
+        int chars = msgs.Sum(m => m.Text.Length + (m.Thinking?.Length ?? 0));
+        return Math.Max(1, chars / 4);
+    }
+
+    private void PopulateMentions()
+    {
+        allMentions = new List<MentionItem>
+        {
+            new("git-diff", "@git:diff", "Include uncommitted git changes & status", "", "Git", "@git:diff "),
+            new("git-branch", "@git:branch", "Include current branch and commit log", "", "Git", "@git:branch "),
+            new("web-search", "@web:", "Trigger live web search query context", "", "Web", "@web:"),
+            new("toolbox", "@toolbox", "Include active Gram Toolbox engines & MCP tools", "", "Toolbox", "@toolbox "),
+            new("docs", "@docs", "Reference workspace documentation & architecture", "", "Workspace", "@docs ")
+        };
+
+        // Add workspace files if available
+        try
+        {
+            var files = Directory.GetFiles(Environment.CurrentDirectory, "*.*", SearchOption.TopDirectoryOnly)
+                .Where(f => !Path.GetFileName(f).StartsWith(".") && !f.Contains("bin") && !f.Contains("obj"))
+                .Take(6);
+
+            foreach (var f in files)
+            {
+                var name = Path.GetFileName(f);
+                allMentions.Add(new MentionItem("file-" + name, $"@{name}", $"Attach workspace file ({Path.GetExtension(f)})", "", "File", $"@{name} "));
+            }
+        }
+        catch {}
+        filteredMentions = new List<MentionItem>(allMentions);
+    }
+
+    private void SelectMention(MentionItem mention)
+    {
+        var atIndex = draft.LastIndexOf('@');
+        if (atIndex >= 0)
+        {
+            draft = draft[..atIndex] + mention.Insertion;
+        }
+        else
+        {
+            draft += mention.Insertion;
+        }
+        showMentionPopup = false;
+        StateHasChanged();
+    }
+
+    private void SelectModel(string modelId)
+    {
+        activeModelId = modelId;
+        Active.ModelId = modelId;
+        isModelMenuOpen = false;
+        StateHasChanged();
+        _ = ConversationService.SaveConversationAsync(Active);
+    }
+
+    private readonly Conversation _fallbackConversation = new("default", "New chat", DateTimeOffset.UtcNow);
+    private Conversation Active => conversations.FirstOrDefault(x => x.Id == activeId) 
+                                   ?? conversations.FirstOrDefault() 
+                                   ?? _fallbackConversation;
+    private GramModel? ActiveModel => ModelService.Models.FirstOrDefault(m => m.Id == activeModelId);
+
+    protected override void OnInitialized()
+    {
+        dotNetHelper = DotNetObjectReference.Create(this);
+        ConversationService.OnChange += OnConversationsChanged;
+        ChatStateService.OnTitleRenamed += OnExternalTitleRenamed;
+        TabService.OnTabsChanged += OnTabsUpdated;
+
+        if (TabService.ActiveTab?.Type == WorkspaceTabType.Chat && !string.IsNullOrWhiteSpace(TabService.ActiveTab.ChatId))
+        {
+            activeId = TabService.ActiveTab.ChatId;
+        }
+        else
+        {
+            activeId = conversations.FirstOrDefault()?.Id ?? "default";
+            TabService.OpenChatTab(activeId, Active.Title);
+        }
+
+        var fav = ModelService.Models.FirstOrDefault(m => m.IsFavorite);
+        activeModelId = fav?.Id ?? ModelService.Models.FirstOrDefault()?.Id ?? "";
+        ChatStateService.ActiveChatTitle = Active.Title;
+    }
+
+    private void OnTabsUpdated()
+    {
+        _ = InvokeAsync(() =>
+        {
+            if (TabService.ActiveTab?.Type == WorkspaceTabType.Chat && !string.IsNullOrWhiteSpace(TabService.ActiveTab.ChatId))
+            {
+                if (activeId != TabService.ActiveTab.ChatId)
+                {
+                    activeId = TabService.ActiveTab.ChatId;
+                    ChatStateService.ActiveChatTitle = Active.Title;
+                    StateHasChanged();
+                }
+            }
+        });
+    }
+
+    private async Task OnExternalTitleRenamed(string newTitle)
+    {
+        Active.Title = newTitle;
+        TabService.UpdateChatTabTitle(Active.Id, newTitle);
+        await ConversationService.SaveConversationAsync(Active);
+        SonnerService.Success("Chat renamed", $"Title updated to: {newTitle}");
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void OnConversationsChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnTitleChanged()
+    {
+        ChatStateService.ActiveChatTitle = Active.Title;
+        TabService.UpdateChatTabTitle(Active.Id, Active.Title);
+        await ConversationService.SaveConversationAsync(Active);
+    }
+
+    private void NewConversation()
+    {
+        var id = Guid.NewGuid().ToString("N")[..8];
+        activeId = id;
+        TabService.OpenChatTab(id, "New chat");
+        ChatStateService.ActiveChatTitle = "New chat";
+        StateHasChanged();
+    }
+
+    private void SelectConversation(string id)
+    {
+        activeId = id;
+        var chat = conversations.FirstOrDefault(c => c.Id == id);
+        TabService.OpenChatTab(id, chat?.Title ?? "New chat");
+        ChatStateService.ActiveChatTitle = Active.Title;
+    }
+
+    private async Task DeleteConversation(string id)
+    {
+        if (conversations.Count <= 1) return;
+        var targetId = id;
+        var index = conversations.FindIndex(x => x.Id == targetId);
+        if (index >= 0)
+        {
+            if (activeId == targetId)
+            {
+                var nextIndex = index > 0 ? index - 1 : index + 1;
+                if (nextIndex < conversations.Count)
+                {
+                    activeId = conversations[nextIndex].Id;
+                    ChatStateService.ActiveChatTitle = Active.Title;
+                }
+            }
+            await ConversationService.DeleteConversationAsync(targetId);
+        }
+    }
+
+    private async Task ClearCurrentChat()
+    {
+        Active.Messages.Clear();
+        Active.Title = "New chat";
+        Active.Updated = DateTimeOffset.UtcNow;
+        attachedFiles.Clear();
+        ChatStateService.ActiveChatTitle = Active.Title;
+        await StopVoice();
+        await ConversationService.SaveConversationAsync(Active);
+        SonnerService.Success("Chat cleared", "Conversation history has been reset.");
+    }
+
+    private void OnChatContextMenu(MouseEventArgs e, Conversation chat)
+    {
+        contextMenuTarget = chat;
+        contextMenuX = Math.Min(e.ClientX, 230);
+        contextMenuY = Math.Min(e.ClientY, 560);
+        isContextMenuOpen = true;
+    }
+
+    private void RenameFromContextMenu(Conversation? chat)
+    {
+        isContextMenuOpen = false;
+        if (chat == null) return;
+        activeId = chat.Id;
+        isSettingsSheetOpen = true;
+    }
+
+    private async Task DuplicateFromContextMenu(Conversation? chat)
+    {
+        isContextMenuOpen = false;
+        if (chat == null) return;
+        var newId = Guid.NewGuid().ToString("N")[..8];
+        var duplicate = new Conversation(newId, $"{chat.Title} (Copy)", DateTimeOffset.UtcNow)
+        {
+            SystemPromptOverride = chat.SystemPromptOverride,
+            Rules = chat.Rules
+        };
+
+        foreach (var msg in chat.Messages)
+        {
+            duplicate.Messages.Add(new Message(msg.Role, msg.Text) { Timestamp = msg.Timestamp });
+        }
+
+        conversations.Insert(0, duplicate);
+        activeId = newId;
+        ChatStateService.ActiveChatTitle = duplicate.Title;
+        await ConversationService.SaveConversationAsync(duplicate);
+        SonnerService.Success("Chat duplicated", $"Created copy: {duplicate.Title}");
+    }
+
+    private async Task CopyIdFromContextMenu(Conversation? chat)
+    {
+        isContextMenuOpen = false;
+        if (chat == null) return;
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", chat.Id);
+            SonnerService.Info("ID copied", $"Conversation ID: {chat.Id}");
+        }
+        catch {}
+    }
+
+    private async Task DeleteFromContextMenu(Conversation? chat)
+    {
+        isContextMenuOpen = false;
+        if (chat == null) return;
+        await DeleteConversation(chat.Id);
+        SonnerService.Info("Chat deleted", "The conversation has been removed.");
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles(10))
+        {
+            try
+            {
+                using var stream = file.OpenReadStream(20 * 1024 * 1024);
+                var attInfo = await SessionStorage.SaveAttachmentAsync(Active.Id, file.Name, stream, file.ContentType);
+                if (!Active.Attachments.Any(a => a.FileName == attInfo.FileName))
+                {
+                    Active.Attachments.Add(attInfo);
+                }
+                if (!attachedFiles.Contains(attInfo.FileName))
+                {
+                    attachedFiles.Add(attInfo.FileName);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Home] Error uploading attachment {file.Name}: {ex.Message}");
+            }
+        }
+        await ConversationService.SaveConversationAsync(Active);
+        StateHasChanged();
+    }
+
+    private void RemoveFile(string fileName)
+    {
+        attachedFiles.Remove(fileName);
+    }
+
+    private async Task ToggleVoice()
+    {
+        if (voiceState == VoiceState.Idle)
+        {
+            voiceState = VoiceState.UserSpeaking;
+            StateHasChanged();
+
+            try
+            {
+                var success = await JSRuntime.InvokeAsync<bool>("gramAudio.startVoice", dotNetHelper, "visualizerBars");
+                if (!success)
+                {
+                    voiceState = VoiceState.Idle;
+                    StateHasChanged();
+                }
+            }
+            catch (Exception)
+            {
+                voiceState = VoiceState.Idle;
+                StateHasChanged();
+            }
+        }
+        else
+        {
+            await StopVoice();
+        }
+    }
+
+    private async Task StopVoice()
+    {
+        voiceCts?.Cancel();
+        voiceCts = null;
+        voiceState = VoiceState.Idle;
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramAudio.stopVoice", "visualizerBars");
+        }
+        catch (Exception) {}
+    }
+
+    [JSInvokable]
+    public async Task OnTranscriptReceived(string transcript)
+    {
+        if (!string.IsNullOrWhiteSpace(transcript))
+        {
+            draft = transcript;
+            StateHasChanged();
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("gramAudio.autoResizeTextarea", textareaRef);
+            }
+            catch (Exception) {}
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("gramAudio.attachComposerHandler", textareaRef, dotNetHelper);
+            }
+            catch {}
+        }
+    }
+
+    [JSInvokable]
+    public async Task SubmitComposer()
+    {
+        await Send();
+    }
+
+    private async Task OnInputChanged(ChangeEventArgs e)
+    {
+        draft = e.Value?.ToString() ?? "";
+        
+        // Context Mentions Detection
+        var atIndex = draft.LastIndexOf('@');
+        if (atIndex >= 0 && (atIndex == 0 || char.IsWhiteSpace(draft[atIndex - 1])))
+        {
+            var query = draft[(atIndex + 1)..];
+            if (!query.Contains(' '))
+            {
+                if (allMentions.Count == 0) PopulateMentions();
+                filteredMentions = string.IsNullOrWhiteSpace(query)
+                    ? new List<MentionItem>(allMentions)
+                    : allMentions.Where(m => m.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || m.Description.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+                showMentionPopup = filteredMentions.Count > 0;
+            }
+            else
+            {
+                showMentionPopup = false;
+            }
+        }
+        else
+        {
+            showMentionPopup = false;
+        }
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramAudio.autoResizeTextarea", textareaRef);
+        }
+        catch (Exception) {}
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && showMentionPopup)
+        {
+            showMentionPopup = false;
+            preventEnter = false;
+            return;
+        }
+
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            if (showMentionPopup && filteredMentions.Count > 0)
+            {
+                SelectMention(filteredMentions[0]);
+                preventEnter = true;
+                return;
+            }
+
+            preventEnter = true;
+            await Send();
+        }
+        else
+        {
+            preventEnter = false;
+        }
+    }
+
+    private async Task Send()
+    {
+        if (isGenerating) return;
+
+        var text = draft.Trim();
+        var wasVoice = voiceState == VoiceState.UserSpeaking;
+
+        if (string.IsNullOrWhiteSpace(text) && attachedFiles.Count == 0 && !wasVoice)
+        {
+            return;
+        }
+
+        draft = "";
+        try { await JSRuntime.InvokeVoidAsync("gramAudio.resetTextarea", textareaRef); } catch (Exception) {}
+
+        if (wasVoice)
+        {
+            await StopVoice();
+        }
+
+        var userMessageText = text;
+        if (wasVoice && string.IsNullOrWhiteSpace(userMessageText))
+        {
+            userMessageText = "Voice message";
+        }
+
+        if (attachedFiles.Count > 0)
+        {
+            var filesSuffix = $" [Attached: {string.Join(", ", attachedFiles)}]";
+            userMessageText = string.IsNullOrWhiteSpace(userMessageText) ? filesSuffix.Trim() : $"{userMessageText}{filesSuffix}";
+            attachedFiles.Clear();
+        }
+
+        var userMsg = new Message("user", userMessageText);
+
+        // If this conversation is not yet in the conversations list, add it now
+        if (!conversations.Any(c => c.Id == Active.Id))
+        {
+            conversations.Insert(0, Active);
+        }
+
+        Active.Messages.Add(userMsg);
+
+        // Append to transcript.jsonl
+        await SessionStorage.AppendTranscriptEntryAsync(Active.Id, new TranscriptEntry
+        {
+            Step = Active.Messages.Count,
+            Type = TranscriptEntryType.USER_INPUT,
+            Role = "user",
+            Content = userMessageText,
+            Timestamp = userMsg.Timestamp
+        });
+
+        var isFirstMessage = Active.Messages.Count(m => m.Role == "user") == 1;
+        if (isFirstMessage)
+        {
+            Active.Title = userMessageText.Length > 28 ? userMessageText[..28] + "…" : userMessageText;
+            ChatStateService.ActiveChatTitle = Active.Title;
+        }
+
+        await GenerateAssistantResponseAsync(userMessageText, isFirstMessage);
+    }
+
+    private async Task GenerateAssistantResponseAsync(string promptText, bool isFirstMessage = false)
+    {
+        var assistantMsg = new Message("assistant", "");
+        Active.Messages.Add(assistantMsg);
+        Active.Updated = DateTimeOffset.UtcNow;
+        isGenerating = true;
+        StateHasChanged();
+        _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
+
+        chatCts?.Cancel();
+        chatCts = new CancellationTokenSource();
+        var token = chatCts.Token;
+
+        var effectiveModelId = !string.IsNullOrWhiteSpace(Active.ModelId) ? Active.ModelId : activeModelId;
+        if (string.IsNullOrWhiteSpace(effectiveModelId))
+        {
+            effectiveModelId = ModelService.Models.FirstOrDefault(m => m.IsFavorite)?.Id 
+                               ?? ModelService.Models.FirstOrDefault()?.Id 
+                               ?? "anthropic/claude-3.7-sonnet";
+        }
+
+        if (isFirstMessage)
+        {
+            _ = AutoGenerateChatTitleAsync(Active, promptText, effectiveModelId);
+        }
+
+        // Assemble Context with Workspace Attachments and Rolling Memory
+        var contextResult = await ContextBuilder.AssembleContextAsync(Active);
+        var workspacePath = Environment.CurrentDirectory;
+
+        try
+        {
+            assistantMsg.ToolCalls = new List<ToolCallInfo>();
+
+            await foreach (var step in AgentOrchestrator.RunAgentLoopAsync(effectiveModelId, contextResult.Messages, workspacePath, contextResult.SystemPrompt, maxIterations: 8, cancellationToken: token))
+            {
+                if (!string.IsNullOrWhiteSpace(step.ErrorMessage))
+                {
+                    assistantMsg.ErrorDetail = step.ErrorMessage;
+                }
+
+                if (!string.IsNullOrWhiteSpace(step.ContentDelta))
+                {
+                    if (string.IsNullOrWhiteSpace(assistantMsg.Text))
+                    {
+                        assistantMsg.Text = step.ContentDelta;
+                    }
+                    else
+                    {
+                        assistantMsg.Text += "\n\n" + step.ContentDelta;
+                    }
+                }
+
+                if (step.ToolCall != null)
+                {
+                    var existing = assistantMsg.ToolCalls.FirstOrDefault(t => t.Id == step.ToolCall.Id);
+                    if (existing != null)
+                    {
+                        existing.Result = step.ToolCall.Result;
+                        existing.IsError = step.ToolCall.IsError;
+                    }
+                    else
+                    {
+                        assistantMsg.ToolCalls.Add(step.ToolCall);
+                    }
+
+                    // Record tool call entry in session storage
+                    if (!string.IsNullOrWhiteSpace(step.ToolCall.Result))
+                    {
+                        _ = SessionStorage.AppendTranscriptEntryAsync(Active.Id, new TranscriptEntry
+                        {
+                            Step = Active.Messages.Count,
+                            Type = TranscriptEntryType.TOOL_RESULT,
+                            ToolName = step.ToolCall.ToolName,
+                            ToolArgs = step.ToolCall.Arguments,
+                            ToolResult = step.ToolCall.Result,
+                            Timestamp = DateTimeOffset.UtcNow
+                        });
+                    }
+                }
+
+                if (step.PromptTokens.HasValue)
+                {
+                    Active.PromptTokens = step.PromptTokens.Value;
+                }
+                if (step.CompletionTokens.HasValue)
+                {
+                    Active.CompletionTokens = step.CompletionTokens.Value;
+                }
+                if (step.LatencyMs.HasValue)
+                {
+                    Active.LastLatencyMs = step.LatencyMs.Value;
+                }
+
+                StateHasChanged();
+                _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (string.IsNullOrWhiteSpace(assistantMsg.Text) && (assistantMsg.ToolCalls == null || assistantMsg.ToolCalls.Count == 0))
+            {
+                assistantMsg.Text = "[Generation stopped]";
+            }
+        }
+        catch (Exception ex)
+        {
+            assistantMsg.ErrorDetail = ex.Message;
+        }
+        finally
+        {
+            isGenerating = false;
+            assistantMsg.Timestamp = DateTimeOffset.UtcNow;
+
+            // Append final response to transcript.jsonl
+            await SessionStorage.AppendTranscriptEntryAsync(Active.Id, new TranscriptEntry
+            {
+                Step = Active.Messages.Count,
+                Type = TranscriptEntryType.MODEL_RESPONSE,
+                Role = "assistant",
+                Content = assistantMsg.Text,
+                Timestamp = assistantMsg.Timestamp
+            });
+
+            await ConversationService.SaveConversationAsync(Active);
+            StateHasChanged();
+            _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
+        }
+    }
+
+    private void StopGeneration()
+    {
+        chatCts?.Cancel();
+        isGenerating = false;
+        StateHasChanged();
+    }
+
+    private void ToggleErrorDetails(string messageKey)
+    {
+        if (expandedErrorIds.Contains(messageKey))
+        {
+            expandedErrorIds.Remove(messageKey);
+        }
+        else
+        {
+            expandedErrorIds.Add(messageKey);
+        }
+        StateHasChanged();
+    }
+
+    private async Task CopyResponseText(Message message)
+    {
+        if (string.IsNullOrEmpty(message.Text)) return;
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", message.Text);
+            copiedMessageId = message.Timestamp.Ticks.ToString();
+            SonnerService.Success("Copied", "Response text copied to clipboard.");
+            StateHasChanged();
+
+            _ = Task.Delay(2000).ContinueWith(_ =>
+            {
+                copiedMessageId = null;
+                _ = InvokeAsync(StateHasChanged);
+            });
+        }
+        catch (Exception ex)
+        {
+            SonnerService.Error("Copy failed", ex.Message);
+        }
+    }
+
+    private async Task RetryResponseAsync(Message assistantMessage)
+    {
+        if (isGenerating) return;
+
+        // Find the index of this assistant message in the conversation
+        var idx = Active.Messages.IndexOf(assistantMessage);
+        if (idx < 0) return;
+
+        // Locate the user prompt directly preceding or before this assistant message
+        Message? lastUserMsg = null;
+        for (int i = idx - 1; i >= 0; i--)
+        {
+            if (Active.Messages[i].Role == "user")
+            {
+                lastUserMsg = Active.Messages[i];
+                break;
+            }
+        }
+
+        if (lastUserMsg == null)
+        {
+            SonnerService.Warning("Retry unavailable", "No preceding user prompt found to retry.");
+            return;
+        }
+
+        // Remove the old assistant response attempt cleanly (hides previous attempt)
+        Active.Messages.RemoveAt(idx);
+
+        // Re-generate response using the existing user prompt in background
+        await GenerateAssistantResponseAsync(lastUserMsg.Text);
+    }
+
+    private async Task AutoGenerateChatTitleAsync(Conversation conversation, string firstPrompt, string modelId)
+    {
+        try
+        {
+            var generatedTitle = await ModelService.GenerateTitleAsync(modelId, firstPrompt);
+            if (!string.IsNullOrWhiteSpace(generatedTitle))
+            {
+                conversation.Title = generatedTitle;
+                if (conversation.Id == activeId)
+                {
+                    ChatStateService.ActiveChatTitle = generatedTitle;
+                }
+                await ConversationService.SaveConversationAsync(conversation);
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch {}
+    }
+
+    private bool showSidebarUserDropdown = false;
+
+    private async Task HandleSidebarLogout()
+    {
+        showSidebarUserDropdown = false;
+        try
+        {
+            // 1. Cancel any active streaming or voice generation safely
+            chatCts?.Cancel();
+            await StopVoice();
+
+            // 2. Safely save conversation state and tabs
+            if (Active.Messages.Count > 0)
+            {
+                await ConversationService.SaveConversationAsync(Active);
+            }
+            TabService.SaveTabs();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Home] Error saving state before sign out: {ex.Message}");
+        }
+
+        // 3. Clear auth session in database and state
+        await AuthService.LogoutAsync();
+        SonnerService.Info("Signed out", "Session ended safely.");
+
+        // 4. Redirect cleanly to login page
+        NavManager.NavigateTo("/login");
+    }
+
+    private void OnPermissionModeChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<ExecutionPermissionMode>(e.Value?.ToString(), out var mode))
+        {
+            SecurityService.UpdatePermissionMode(mode);
+            SonnerService.Info("Permissions updated", $"Agent execution mode: {mode}");
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            ConversationService.OnChange -= OnConversationsChanged;
+            ChatStateService.OnTitleRenamed -= OnExternalTitleRenamed;
+            await StopVoice();
+            chatCts?.Cancel();
+            dotNetHelper?.Dispose();
+        }
+        catch (Exception) {}
+    }
+}
+
+
+

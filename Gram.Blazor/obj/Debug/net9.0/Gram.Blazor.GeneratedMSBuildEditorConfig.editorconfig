@@ -1,0 +1,145 @@
+is_global = true
+build_property.TargetFramework = net9.0
+build_property.TargetPlatformMinVersion = 
+build_property.UsingMicrosoftNETSdkWeb = true
+build_property.ProjectTypeGuids = 
+build_property.InvariantGlobalization = true
+build_property.PlatformNeutralAssembly = 
+build_property.EnforceExtendedAnalyzerRules = 
+build_property._SupportedPlatformList = Linux,macOS,Windows
+build_property.RootNamespace = Gram.Blazor
+build_property.RootNamespace = Gram.Blazor
+build_property.ProjectDir = C:\Users\taufe\Projects\Gram\gram.blazor\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
+build_property.RazorLangVersion = 9.0
+build_property.SupportLocalizedComponentNames = 
+build_property.GenerateRazorMetadataSourceChecksumAttributes = 
+build_property.MSBuildProjectDirectory = C:\Users\taufe\Projects\Gram\gram.blazor
+build_property._RazorSourceGeneratorDebug = 
+build_property.EffectiveAnalysisLevelStyle = 9.0
+build_property.EnableCodeStyleSeverity = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/App.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xBcHAucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/AuthModal.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xBdXRoTW9kYWwucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/MarkdownView.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xNYXJrZG93blZpZXcucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ModelIcon.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xNb2RlbEljb24ucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/Routes.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xSb3V0ZXMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/Alert.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQWxlcnQucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/AlertDescription.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQWxlcnREZXNjcmlwdGlvbi5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/AlertTitle.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQWxlcnRUaXRsZS5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/Avatar.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQXZhdGFyLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/Badge.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQmFkZ2UucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/Button.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQnV0dG9uLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/Card.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQ2FyZC5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/CardContent.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQ2FyZENvbnRlbnQucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/CardDescription.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQ2FyZERlc2NyaXB0aW9uLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/CardFooter.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQ2FyZEZvb3Rlci5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/CardHeader.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQ2FyZEhlYWRlci5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/CardTitle.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQ2FyZFRpdGxlLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/ContextMenu.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQ29udGV4dE1lbnUucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/ContextMenuItem.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQ29udGV4dE1lbnVJdGVtLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/ContextMenuSeparator.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cQ29udGV4dE1lbnVTZXBhcmF0b3IucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/Input.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cSW5wdXQucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/Separator.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cU2VwYXJhdG9yLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ShadCn/Sonner.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTaGFkQ25cU29ubmVyLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/ToolCallCard.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xUb29sQ2FsbENhcmQucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Components/TopbarTabs.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xUb3BiYXJUYWJzLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Layout/MainLayout.razor]
+build_metadata.AdditionalFiles.TargetPath = TGF5b3V0XE1haW5MYXlvdXQucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Pages/Home.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcSG9tZS5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Pages/Login.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcTG9naW4ucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Pages/Settings.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcU2V0dGluZ3MucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/Pages/ToolboxHub.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcVG9vbGJveEh1Yi5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/taufe/Projects/Gram/gram.blazor/_Imports.razor]
+build_metadata.AdditionalFiles.TargetPath = X0ltcG9ydHMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 

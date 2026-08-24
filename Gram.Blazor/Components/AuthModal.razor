@@ -1,0 +1,190 @@
+@namespace Gram.Blazor.Components
+@using Gram.Blazor.Shared
+@using Gram.Blazor.Components.ShadCn
+@inject IAuthService AuthService
+@inject ISonnerService SonnerService
+@inject NavigationManager NavManager
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop" @onclick="Close">
+        <div class="modal-dialog auth-modal-dialog" style="max-width: 420px; border-radius: var(--radius-lg);" @onclick:stopPropagation="true">
+            <div class="modal-header" style="border-bottom: none; padding-bottom: 0;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="modal-title" style="font-size: 16px; font-weight: 600;">
+                        @(isSignUpTab ? "Create Gram Account" : "Sign in to Gram")
+                    </span>
+                </div>
+                <button class="btn-close-modal" @onclick="Close" title="Close">✕</button>
+            </div>
+
+            <div class="modal-body" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;">
+                <!-- Tab Switcher -->
+                <div style="display: flex; background: var(--bg-hover); padding: 3px; border-radius: var(--radius-sm); gap: 2px;">
+                    <button type="button"
+                            class="auth-tab-btn @(!isSignUpTab ? "active" : "")"
+                            style="flex: 1; padding: 6px 12px; font-size: 12.5px; font-weight: 500; border: none; border-radius: calc(var(--radius-sm) - 2px); background: @(!isSignUpTab ? "var(--bg-panel)" : "transparent"); color: var(--text-primary); cursor: pointer; transition: all 0.12s ease;"
+                            @onclick="() => { isSignUpTab = false; errorMessage = null; }">
+                        Sign In
+                    </button>
+                    <button type="button"
+                            class="auth-tab-btn @(isSignUpTab ? "active" : "")"
+                            style="flex: 1; padding: 6px 12px; font-size: 12.5px; font-weight: 500; border: none; border-radius: calc(var(--radius-sm) - 2px); background: @(isSignUpTab ? "var(--bg-panel)" : "transparent"); color: var(--text-primary); cursor: pointer; transition: all 0.12s ease;"
+                            @onclick="() => { isSignUpTab = true; errorMessage = null; }">
+                        Create Account
+                    </button>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(errorMessage))
+                {
+                    <Alert Variant="destructive">
+                        <AlertTitle>Authentication Error</AlertTitle>
+                        <AlertDescription>@errorMessage</AlertDescription>
+                    </Alert>
+                }
+
+                @if (AuthService.Settings.Provider == AuthProviderType.BetterAuth)
+                {
+                    <!-- Social Login Providers -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <Button Variant="outline" Size="sm" Class="w-full" OnClick='() => LoginWithSocial("github")'>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+                            </svg>
+                            <span>GitHub</span>
+                        </Button>
+                        <Button Variant="outline" Size="sm" Class="w-full" OnClick='() => LoginWithSocial("google")'>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <path d="M12 8v8m-4-4h8"></path>
+                            </svg>
+                            <span>Google</span>
+                        </Button>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 10px; margin: 2px 0;">
+                        <div style="flex: 1; height: 1px; background: var(--border-color);"></div>
+                        <span style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">or continue with email</span>
+                        <div style="flex: 1; height: 1px; background: var(--border-color);"></div>
+                    </div>
+                }
+
+                <form @onsubmit="HandleSubmit" style="display: flex; flex-direction: column; gap: 12px;">
+                    @if (isSignUpTab)
+                    {
+                        <div class="sheet-field">
+                            <label class="sheet-label">Full Name</label>
+                            <Input @bind-Value="nameInput" Placeholder="Ada Lovelace" Disabled="@isLoading" />
+                        </div>
+                    }
+
+                    <div class="sheet-field">
+                        <label class="sheet-label">Email Address</label>
+                        <Input @bind-Value="emailInput" Type="email" Placeholder="user@example.com" Disabled="@isLoading" />
+                    </div>
+
+                    <div class="sheet-field">
+                        <label class="sheet-label">Password</label>
+                        <Input @bind-Value="passwordInput" Type="password" Placeholder="••••••••••••" Disabled="@isLoading" />
+                    </div>
+
+                    <Button Variant="default" Size="default" Class="w-full" Type="submit" Disabled="@isLoading" Style="margin-top: 6px;">
+                        @if (isLoading)
+                        {
+                            <span>Processing...</span>
+                        }
+                        else
+                        {
+                            <span>@(isSignUpTab ? "Create Account" : "Sign In")</span>
+                        }
+                    </Button>
+                </form>
+            </div>
+            
+            <div class="modal-footer" style="background: var(--bg-panel-subtle); border-top: 1px solid var(--border-color); padding: 10px 16px; border-bottom-left-radius: var(--radius-lg); border-bottom-right-radius: var(--radius-lg); text-align: center;">
+                <span style="font-size: 11.5px; color: var(--text-muted);">
+                    Protected by <strong>Better Auth</strong> & Gram End-to-End Encryption
+                </span>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public EventCallback OnSuccess { get; set; }
+
+    private bool isSignUpTab = false;
+    private string nameInput = "";
+    private string emailInput = "";
+    private string passwordInput = "";
+    private string? errorMessage = null;
+    private bool isLoading = false;
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+
+    private void LoginWithSocial(string provider)
+    {
+        var callback = NavManager.Uri;
+        var url = AuthService.GetSocialLoginUrl(provider, callback);
+        NavManager.NavigateTo(url, forceLoad: true);
+    }
+
+    private async Task HandleSubmit()
+    {
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(emailInput))
+        {
+            errorMessage = "Please enter your email address.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(passwordInput) && AuthService.Settings.Provider == AuthProviderType.BetterAuth)
+        {
+            errorMessage = "Please enter your password.";
+            return;
+        }
+
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            AuthResult result;
+            if (isSignUpTab)
+            {
+                result = await AuthService.SignUpWithEmailAsync(nameInput, emailInput, passwordInput);
+            }
+            else
+            {
+                result = await AuthService.SignInWithEmailAsync(emailInput, passwordInput);
+            }
+
+            if (result.Success)
+            {
+                SonnerService.Success("Welcome to Gram", $"Signed in as {result.User?.Name}");
+                await Close();
+                await OnSuccess.InvokeAsync();
+            }
+            else
+            {
+                errorMessage = result.ErrorMessage ?? "Authentication failed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+}

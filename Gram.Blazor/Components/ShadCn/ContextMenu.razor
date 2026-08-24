@@ -1,0 +1,26 @@
+@namespace Gram.Blazor.Components.ShadCn
+
+@if (IsOpen)
+{
+    <div class="shadcn-context-menu-backdrop" @onclick="Close" @oncontextmenu="Close" @oncontextmenu:preventDefault="true"></div>
+    <div class="shadcn-context-menu @Class"
+         style="top: @(Y)px; left: @(X)px;"
+         @onclick:stopPropagation="true">
+        @ChildContent
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public double X { get; set; }
+    [Parameter] public double Y { get; set; }
+    [Parameter] public string Class { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    public async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

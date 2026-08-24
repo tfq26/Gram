@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="100%" height="100%" fill="none">
+  <defs>
+    <!-- Vibrant Violet to Neon Purple Gradient -->
+    <linearGradient id="gramGradientMain" x1="20%" y1="10%" x2="90%" y2="95%">
+      <stop offset="0%" stop-color="#c084fc" />
+      <stop offset="50%" stop-color="#9333ea" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+    <linearGradient id="gramGradientInner" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+    <filter id="gramGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#9333ea" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Outer Rounded Geometric 'g' Loop -->
+  <path d="M42 22 H86 C101.464 22 114 34.536 114 50 V74 C114 89.464 101.464 102 86 102 H42 C26.536 102 14 89.464 14 74 V50 C14 34.536 26.536 22 42 22 Z"
+        stroke="url(#gramGradientMain)" 
+        stroke-width="12" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"
+        filter="url(#gramGlow)" />
+
+  <!-- Inner Concentric Soft Rounded Square -->
+  <rect x="42" y="40" width="44" height="44" rx="14" 
+        stroke="url(#gramGradientInner)" 
+        stroke-width="10" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" />
+
+  <!-- Connecting Lower Tail Hook forming the complete 'g' -->
+  <path d="M86 78 V86 C86 98.15 76.15 108 64 108 H32 C23.163 108 16 100.837 16 92" 
+        stroke="url(#gramGradientMain)" 
+        stroke-width="12" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" />
+</svg>

@@ -1,0 +1,34 @@
+@namespace Gram.Blazor.Components.ShadCn
+
+<button class="shadcn-context-menu-item @(Variant == "destructive" ? "destructive" : "") @(Disabled ? "disabled" : "") @Class"
+        type="button"
+        disabled="@Disabled"
+        @onclick="HandleClick"
+        @attributes="AdditionalAttributes">
+    @if (Icon != null)
+    {
+        <span class="shadcn-context-menu-icon">@Icon</span>
+    }
+    <span class="shadcn-context-menu-label">@ChildContent</span>
+    @if (!string.IsNullOrWhiteSpace(Shortcut))
+    {
+        <span class="shadcn-context-menu-shortcut">@Shortcut</span>
+    }
+</button>
+
+@code {
+    [Parameter] public string Variant { get; set; } = "default"; // default, destructive
+    [Parameter] public string? Shortcut { get; set; }
+    [Parameter] public RenderFragment? Icon { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public bool Disabled { get; set; } = false;
+    [Parameter] public string Class { get; set; } = "";
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private async Task HandleClick(MouseEventArgs e)
+    {
+        if (Disabled) return;
+        await OnClick.InvokeAsync(e);
+    }
+}

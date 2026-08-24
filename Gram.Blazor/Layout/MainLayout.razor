@@ -1,0 +1,101 @@
+@inherits LayoutComponentBase
+@inject NavigationManager NavManager
+@inject Gram.Blazor.Shared.ThemeService ThemeService
+@inject Gram.Blazor.Shared.ChatStateService ChatStateService
+@inject Gram.Blazor.Shared.SettingsService SettingsService
+@inject Gram.Blazor.Shared.IAuthService AuthService
+@inject Gram.Blazor.Shared.ISonnerService SonnerService
+@implements IDisposable
+
+<div class="app-shell" data-theme="@ThemeService.ActiveThemeName.ToLowerInvariant().Replace(" ", "-")" style="@ThemeService.GetInlineCssVariables()">
+@if (!IsLoginPage())
+    {
+        <header class="topbar">
+            <div class="topbar-left">
+                <a class="brand" href="/" style="display: inline-flex; align-items: center; gap: 7px;">
+                    <img src="icons/gram-logo.svg" alt="Gram" style="width: 17px; height: 17px; display: block;" />
+                    <span>Gram</span>
+                </a>
+                <nav class="topbar-nav">
+                    <a class="nav-link @(IsActive("/") ? "active" : "")" href="/">Chat</a>
+                    <a class="nav-link @(IsActive("/settings") ? "active" : "")" href="/settings">Settings</a>
+                </nav>
+
+                <TopbarTabs />
+            </div>
+
+            @if (IsActive("/settings"))
+            {
+                <div class="topbar-center">
+                    <nav class="breadcrumbs">
+                        @for (int i = 0; i < SettingsService.BreadcrumbParts.Count; i++)
+                        {
+                            var index = i;
+                            var part = SettingsService.BreadcrumbParts[index];
+                            @if (index > 0)
+                            {
+                                <span class="breadcrumb-separator">/</span>
+                            }
+                            <span class="@(index == SettingsService.BreadcrumbParts.Count - 1 ? "breadcrumb-current" : "breadcrumb-part")">@part</span>
+                        }
+                    </nav>
+                </div>
+            }
+            else
+            {
+                <div class="topbar-center"></div>
+            }
+
+            <div class="topbar-right">
+                <a class="nav-link btn-toolbox-pin @(IsActive("/toolbox") ? "active" : "")" href="/toolbox" title="Toolbox & Extensions">
+                    Toolbox
+                </a>
+            </div>
+        </header>
+    }
+    <main class="page-frame @(IsLoginPage() ? "login-frame" : "")">
+        @Body
+    </main>
+    <Sonner />
+    <AuthModal @bind-IsOpen="showAuthModal" />
+</div>
+
+@code {
+    private bool showAuthModal = false;
+
+    protected override void OnInitialized()
+    {
+        ThemeService.OnChange += OnThemeChanged;
+        ChatStateService.OnChange += OnChatStateChanged;
+        SettingsService.OnBreadcrumbChanged += OnBreadcrumbChanged;
+        AuthService.OnAuthStateChanged += OnAuthChanged;
+    }
+
+    private void OnThemeChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnChatStateChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnBreadcrumbChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnAuthChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private bool IsActive(string path)
+    {
+        var uri = NavManager.ToBaseRelativePath(NavManager.Uri);
+        if (string.IsNullOrEmpty(uri) && path == "/") return true;
+        return "/" + uri.TrimEnd('/') == path.TrimEnd('/');
+    }
+
+    private bool IsLoginPage()
+    {
+        var uri = NavManager.ToBaseRelativePath(NavManager.Uri).ToLowerInvariant();
+        return uri.StartsWith("login") || uri.StartsWith("signin");
+    }
+
+    public void Dispose()
+    {
+        ThemeService.OnChange -= OnThemeChanged;
+        ChatStateService.OnChange -= OnChatStateChanged;
+        SettingsService.OnBreadcrumbChanged -= OnBreadcrumbChanged;
+        AuthService.OnAuthStateChanged -= OnAuthChanged;
+    }
+}
+
+

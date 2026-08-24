@@ -1,0 +1,638 @@
+using System.Net.Http.Headers;
+using System.Security.Claims;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Components.Authorization;
+
+namespace Gram.Blazor.Shared;
+
+public interface IAuthService
+{
+    AuthSettings Settings { get; }
+    GramUser CurrentUser { get; }
+    Task<GramUser> GetCurrentUserAsync();
+    Task<AuthResult> SignInWithEmailAsync(string email, string password);
+    Task<AuthResult> SignUpWithEmailAsync(string name, string email, string password);
+    Task<bool> ValidateSessionTokenAsync(string sessionToken);
+    Task<bool> UpdateProfileAsync(string name, string nickname);
+    Task<AuthResult> ResetPasswordAsync(string currentPassword, string newPassword);
+    Task<AuthResult> RegisterPasskeyAsync();
+    string GetSocialLoginUrl(string provider, string callbackUrl);
+    Task LogoutAsync();
+    Task SetAuthProviderAsync(AuthProviderType provider, string? betterAuthUrl = null);
+    event Action? OnAuthStateChanged;
+}
+
+public sealed class GramAuthService : IAuthService
+{
+    private readonly IConfiguration _configuration;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly StorageService _storageService;
+    private readonly SqliteDatabaseService _sqliteDb;
+    private readonly IHttpContextAccessor? _httpContextAccessor;
+    private readonly string _sessionTokenFilePath;
+    private GramUser _currentUser;
+
+    public AuthSettings Settings { get; } = new();
+    public GramUser CurrentUser => _currentUser;
+    public event Action? OnAuthStateChanged;
+
+    public GramAuthService(
+        IConfiguration configuration,
+        IHttpClientFactory httpClientFactory,
+        StorageService storageService,
+        SqliteDatabaseService sqliteDb,
+        IHttpContextAccessor? httpContextAccessor = null)
+    {
+        _configuration = configuration;
+        _httpClientFactory = httpClientFactory;
+        _storageService = storageService;
+        _sqliteDb = sqliteDb;
+        _httpContextAccessor = httpContextAccessor;
+        _sessionTokenFilePath = _storageService.GetFilePath("auth_session.json");
+
+        // Load configuration from appsettings, environment variables, or local config
+        var providerStr = _configuration["AUTH_PROVIDER"] ?? _configuration["Auth:Provider"] ?? "None";
+        if (Enum.TryParse<AuthProviderType>(providerStr, true, out var parsedProvider))
+        {
+            Settings.Provider = parsedProvider;
+        }
+
+        Settings.BetterAuthUrl = _configuration["BETTER_AUTH_URL"] ?? _configuration["Auth:BetterAuthUrl"] ?? Settings.BetterAuthUrl;
+        Settings.BetterAuthSecret = _configuration["BETTER_AUTH_SECRET"] ?? _configuration["Auth:BetterAuthSecret"];
+        Settings.OidcAuthority = _configuration["OIDC_AUTHORITY"] ?? _configuration["Auth:OidcAuthority"];
+        Settings.OidcClientId = _configuration["OIDC_CLIENT_ID"] ?? _configuration["Auth:OidcClientId"];
+        Settings.OidcClientSecret = _configuration["OIDC_CLIENT_SECRET"] ?? _configuration["Auth:OidcClientSecret"];
+        Settings.ProxyUserHeader = _configuration["PROXY_USER_HEADER"] ?? _configuration["Auth:ProxyUserHeader"] ?? Settings.ProxyUserHeader;
+        Settings.ProxyEmailHeader = _configuration["PROXY_EMAIL_HEADER"] ?? _configuration["Auth:ProxyEmailHeader"] ?? Settings.ProxyEmailHeader;
+        Settings.ProxyNameHeader = _configuration["PROXY_NAME_HEADER"] ?? _configuration["Auth:ProxyNameHeader"] ?? Settings.ProxyNameHeader;
+
+        _currentUser = InitializeUser();
+        _ = TryRestoreSessionAsync();
+    }
+
+    private GramUser InitializeUser()
+    {
+        // 1. Check for Reverse Proxy Headers (Authentik / Authelia / Traefik / Cloudflare Access)
+        if (_httpContextAccessor?.HttpContext != null)
+        {
+            var headers = _httpContextAccessor.HttpContext.Request.Headers;
+            var proxyUser = headers[Settings.ProxyUserHeader].FirstOrDefault();
+            var proxyEmail = headers[Settings.ProxyEmailHeader].FirstOrDefault();
+            var proxyName = headers[Settings.ProxyNameHeader].FirstOrDefault();
+
+            if (!string.IsNullOrWhiteSpace(proxyUser) || !string.IsNullOrWhiteSpace(proxyEmail))
+            {
+                var email = proxyEmail ?? $"{proxyUser}@internal";
+                var name = proxyName ?? proxyUser ?? email;
+                return new GramUser
+                {
+                    Id = proxyUser ?? email,
+                    Name = name,
+                    Email = email,
+                    IsAuthenticated = true,
+                    Roles = ["user"]
+                };
+            }
+        }
+
+        // 2. Default Local User (Admin on SQLite)
+        return new GramUser
+        {
+            Id = "admin-001",
+            Name = "Admin User",
+            Email = "admin@gram.local",
+            IsAuthenticated = true,
+            Roles = ["admin"]
+        };
+    }
+
+    private async Task TryRestoreSessionAsync()
+    {
+        try
+        {
+            if (File.Exists(_sessionTokenFilePath))
+            {
+                var json = await File.ReadAllTextAsync(_sessionTokenFilePath);
+                var tokenData = JsonNode.Parse(json);
+                var token = tokenData?["token"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    await ValidateSessionTokenAsync(token);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AuthService] Error restoring session: {ex.Message}");
+        }
+    }
+
+    private async Task SaveSessionTokenAsync(string? token, GramUser? user = null)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                if (File.Exists(_sessionTokenFilePath)) File.Delete(_sessionTokenFilePath);
+            }
+            else
+            {
+                var payload = new JsonObject
+                {
+                    ["token"] = token,
+                    ["userId"] = user?.Id ?? "",
+                    ["savedAt"] = DateTimeOffset.UtcNow.ToString("o")
+                };
+                await File.WriteAllTextAsync(_sessionTokenFilePath, payload.ToJsonString());
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AuthService] Error persisting session token: {ex.Message}");
+        }
+    }
+
+    public Task<GramUser> GetCurrentUserAsync()
+    {
+        return Task.FromResult(_currentUser);
+    }
+
+    public async Task<AuthResult> SignInWithEmailAsync(string email, string password)
+    {
+        if (Settings.Provider == AuthProviderType.BetterAuth)
+        {
+            return await SignInWithBetterAuthAsync(email, password);
+        }
+
+        // Native SQLite Database Auth
+        try
+        {
+            var user = await _sqliteDb.GetUserByEmailAsync(email);
+            if (user == null)
+            {
+                return new AuthResult { Success = false, ErrorMessage = "No user found with this email address." };
+            }
+
+            var isValid = SqliteDatabaseService.VerifyPassword(password, user.PasswordHash, user.Salt);
+            if (!isValid)
+            {
+                return new AuthResult { Success = false, ErrorMessage = "Incorrect password." };
+            }
+
+            var session = await _sqliteDb.CreateSessionAsync(user.Id);
+            _currentUser = new GramUser
+            {
+                Id = user.Id,
+                Name = user.Name,
+                Email = user.Email,
+                IsAuthenticated = true,
+                Roles = [user.Role],
+                SessionToken = session.Token,
+                ExpiresAt = session.ExpiresAt
+            };
+
+            await SaveSessionTokenAsync(session.Token, _currentUser);
+            OnAuthStateChanged?.Invoke();
+            return new AuthResult { Success = true, User = _currentUser, Token = session.Token };
+        }
+        catch (Exception ex)
+        {
+            return new AuthResult { Success = false, ErrorMessage = $"Database authentication error: {ex.Message}" };
+        }
+    }
+
+    public async Task<AuthResult> SignUpWithEmailAsync(string name, string email, string password)
+    {
+        if (Settings.Provider == AuthProviderType.BetterAuth)
+        {
+            return await SignUpWithBetterAuthAsync(name, email, password);
+        }
+
+        // Native SQLite Database Registration
+        try
+        {
+            var existing = await _sqliteDb.GetUserByEmailAsync(email);
+            if (existing != null)
+            {
+                return new AuthResult { Success = false, ErrorMessage = "A user with this email already exists. Please sign in." };
+            }
+
+            if (password.Length < 6)
+            {
+                return new AuthResult { Success = false, ErrorMessage = "Password must be at least 6 characters." };
+            }
+
+            var createdUser = await _sqliteDb.CreateUserAsync(email, name, password, "user");
+            var session = await _sqliteDb.CreateSessionAsync(createdUser.Id);
+
+            _currentUser = new GramUser
+            {
+                Id = createdUser.Id,
+                Name = createdUser.Name,
+                Email = createdUser.Email,
+                IsAuthenticated = true,
+                Roles = [createdUser.Role],
+                SessionToken = session.Token,
+                ExpiresAt = session.ExpiresAt
+            };
+
+            await SaveSessionTokenAsync(session.Token, _currentUser);
+            OnAuthStateChanged?.Invoke();
+            return new AuthResult { Success = true, User = _currentUser, Token = session.Token };
+        }
+        catch (Exception ex)
+        {
+            return new AuthResult { Success = false, ErrorMessage = $"Registration failed: {ex.Message}" };
+        }
+    }
+
+    private async Task<AuthResult> SignInWithBetterAuthAsync(string email, string password)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient();
+            var endpoint = $"{Settings.BetterAuthUrl.TrimEnd('/')}/api/auth/sign-in/email";
+
+            var payload = new JsonObject
+            {
+                ["email"] = email,
+                ["password"] = password
+            };
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            req.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
+
+            var res = await client.SendAsync(req);
+            var json = await res.Content.ReadAsStringAsync();
+
+            if (res.IsSuccessStatusCode)
+            {
+                var sessionRes = JsonSerializer.Deserialize<BetterAuthSessionResponse>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                var user = sessionRes?.User;
+                var token = sessionRes?.Session?.Token;
+
+                if (user != null)
+                {
+                    _currentUser = new GramUser
+                    {
+                        Id = user.Id,
+                        Name = user.Name ?? user.Email ?? email,
+                        Email = user.Email ?? email,
+                        Image = user.Image,
+                        IsAuthenticated = true,
+                        Roles = [user.Role ?? "user"],
+                        SessionToken = token
+                    };
+
+                    await SaveSessionTokenAsync(token, _currentUser);
+                    OnAuthStateChanged?.Invoke();
+                    return new AuthResult { Success = true, User = _currentUser, Token = token };
+                }
+            }
+
+            var errNode = JsonNode.Parse(json);
+            var message = errNode?["message"]?.ToString() ?? errNode?["error"]?.ToString() ?? "Invalid email or password.";
+            return new AuthResult { Success = false, ErrorMessage = message };
+        }
+        catch (Exception ex)
+        {
+            return new AuthResult { Success = false, ErrorMessage = $"Could not connect to Better Auth server ({Settings.BetterAuthUrl}): {ex.Message}" };
+        }
+    }
+
+    private async Task<AuthResult> SignUpWithBetterAuthAsync(string name, string email, string password)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient();
+            var endpoint = $"{Settings.BetterAuthUrl.TrimEnd('/')}/api/auth/sign-up/email";
+
+            var payload = new JsonObject
+            {
+                ["name"] = name,
+                ["email"] = email,
+                ["password"] = password
+            };
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            req.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
+
+            var res = await client.SendAsync(req);
+            var json = await res.Content.ReadAsStringAsync();
+
+            if (res.IsSuccessStatusCode)
+            {
+                var sessionRes = JsonSerializer.Deserialize<BetterAuthSessionResponse>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                var user = sessionRes?.User;
+                var token = sessionRes?.Session?.Token;
+
+                if (user != null)
+                {
+                    _currentUser = new GramUser
+                    {
+                        Id = user.Id,
+                        Name = user.Name ?? name,
+                        Email = user.Email ?? email,
+                        Image = user.Image,
+                        IsAuthenticated = true,
+                        Roles = [user.Role ?? "user"],
+                        SessionToken = token
+                    };
+
+                    await SaveSessionTokenAsync(token, _currentUser);
+                    OnAuthStateChanged?.Invoke();
+                    return new AuthResult { Success = true, User = _currentUser, Token = token };
+                }
+            }
+
+            var errNode = JsonNode.Parse(json);
+            var message = errNode?["message"]?.ToString() ?? errNode?["error"]?.ToString() ?? "Registration failed.";
+            return new AuthResult { Success = false, ErrorMessage = message };
+        }
+        catch (Exception ex)
+        {
+            return new AuthResult { Success = false, ErrorMessage = $"Could not connect to Better Auth server ({Settings.BetterAuthUrl}): {ex.Message}" };
+        }
+    }
+
+    public async Task<bool> ValidateSessionTokenAsync(string sessionToken)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken)) return false;
+
+        // 1. Try SQLite Database first
+        try
+        {
+            var user = await _sqliteDb.ValidateSessionAsync(sessionToken);
+            if (user != null)
+            {
+                _currentUser = new GramUser
+                {
+                    Id = user.Id,
+                    Name = user.Name,
+                    Email = user.Email,
+                    IsAuthenticated = true,
+                    Roles = [user.Role],
+                    SessionToken = sessionToken
+                };
+                OnAuthStateChanged?.Invoke();
+                return true;
+            }
+        }
+        catch {}
+
+        // 2. If Better Auth enabled, try Better Auth validation
+        if (Settings.Provider == AuthProviderType.BetterAuth)
+        {
+            try
+            {
+                var client = _httpClientFactory.CreateClient();
+                var endpoint = $"{Settings.BetterAuthUrl.TrimEnd('/')}/api/auth/get-session";
+
+                using var req = new HttpRequestMessage(HttpMethod.Get, endpoint);
+                req.Headers.Add("Authorization", $"Bearer {sessionToken}");
+
+                var res = await client.SendAsync(req);
+                if (res.IsSuccessStatusCode)
+                {
+                    var json = await res.Content.ReadAsStringAsync();
+                    var sessionRes = JsonSerializer.Deserialize<BetterAuthSessionResponse>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                    var user = sessionRes?.User;
+                    if (user != null)
+                    {
+                        _currentUser = new GramUser
+                        {
+                            Id = user.Id,
+                            Name = user.Name ?? user.Email ?? "User",
+                            Email = user.Email,
+                            Image = user.Image,
+                            IsAuthenticated = true,
+                            Roles = [user.Role ?? "user"],
+                            SessionToken = sessionToken
+                        };
+                        OnAuthStateChanged?.Invoke();
+                        return true;
+                    }
+                }
+            }
+            catch {}
+        }
+
+        return false;
+    }
+
+    public async Task<bool> UpdateProfileAsync(string name, string nickname)
+    {
+        _currentUser.Name = string.IsNullOrWhiteSpace(name) ? _currentUser.Name : name.Trim();
+        _currentUser.Nickname = string.IsNullOrWhiteSpace(nickname) ? null : nickname.Trim();
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_currentUser.Id))
+            {
+                await _sqliteDb.UpdateUserProfileAsync(_currentUser.Id, _currentUser.Name);
+            }
+        }
+        catch {}
+
+        OnAuthStateChanged?.Invoke();
+        return true;
+    }
+
+    public async Task<AuthResult> ResetPasswordAsync(string currentPassword, string newPassword)
+    {
+        if (newPassword.Length < 6)
+        {
+            return new AuthResult { Success = false, ErrorMessage = "New password must be at least 6 characters." };
+        }
+
+        // 1. Better Auth Password Reset
+        if (Settings.Provider == AuthProviderType.BetterAuth)
+        {
+            try
+            {
+                var client = _httpClientFactory.CreateClient();
+                var endpoint = $"{Settings.BetterAuthUrl.TrimEnd('/')}/api/auth/change-password";
+
+                var payload = new JsonObject
+                {
+                    ["currentPassword"] = currentPassword,
+                    ["newPassword"] = newPassword
+                };
+
+                using var req = new HttpRequestMessage(HttpMethod.Post, endpoint);
+                req.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
+                if (!string.IsNullOrWhiteSpace(_currentUser.SessionToken))
+                {
+                    req.Headers.Add("Authorization", $"Bearer {_currentUser.SessionToken}");
+                }
+
+                var res = await client.SendAsync(req);
+                if (res.IsSuccessStatusCode)
+                {
+                    return new AuthResult { Success = true };
+                }
+
+                var json = await res.Content.ReadAsStringAsync();
+                var errNode = JsonNode.Parse(json);
+                return new AuthResult { Success = false, ErrorMessage = errNode?["message"]?.ToString() ?? "Could not change password." };
+            }
+            catch (Exception ex)
+            {
+                return new AuthResult { Success = false, ErrorMessage = ex.Message };
+            }
+        }
+
+        // 2. SQLite Database Password Reset
+        try
+        {
+            var user = await _sqliteDb.GetUserByIdAsync(_currentUser.Id);
+            if (user == null && !string.IsNullOrWhiteSpace(_currentUser.Email))
+            {
+                user = await _sqliteDb.GetUserByEmailAsync(_currentUser.Email);
+            }
+
+            if (user != null)
+            {
+                var valid = SqliteDatabaseService.VerifyPassword(currentPassword, user.PasswordHash, user.Salt);
+                if (!valid)
+                {
+                    return new AuthResult { Success = false, ErrorMessage = "Current password does not match." };
+                }
+
+                await _sqliteDb.UpdatePasswordAsync(user.Id, newPassword);
+                return new AuthResult { Success = true };
+            }
+
+            return new AuthResult { Success = false, ErrorMessage = "User record not found in database." };
+        }
+        catch (Exception ex)
+        {
+            return new AuthResult { Success = false, ErrorMessage = $"Database error: {ex.Message}" };
+        }
+    }
+
+    public async Task<AuthResult> RegisterPasskeyAsync()
+    {
+        // If Better Auth enabled, invoke Passkey registration endpoint
+        if (Settings.Provider == AuthProviderType.BetterAuth)
+        {
+            try
+            {
+                var client = _httpClientFactory.CreateClient();
+                var endpoint = $"{Settings.BetterAuthUrl.TrimEnd('/')}/api/auth/passkey/generate-options";
+
+                using var req = new HttpRequestMessage(HttpMethod.Get, endpoint);
+                if (!string.IsNullOrWhiteSpace(_currentUser.SessionToken))
+                {
+                    req.Headers.Add("Authorization", $"Bearer {_currentUser.SessionToken}");
+                }
+
+                var res = await client.SendAsync(req);
+                if (res.IsSuccessStatusCode)
+                {
+                    _currentUser.HasPasskey = true;
+                    OnAuthStateChanged?.Invoke();
+                    return new AuthResult { Success = true };
+                }
+            }
+            catch (Exception ex)
+            {
+                return new AuthResult { Success = false, ErrorMessage = $"Better Auth passkey setup failed: {ex.Message}" };
+            }
+        }
+
+        // Local SQLite Passkey mode
+        _currentUser.HasPasskey = true;
+        OnAuthStateChanged?.Invoke();
+        await Task.CompletedTask;
+        return new AuthResult { Success = true };
+    }
+
+    public string GetSocialLoginUrl(string provider, string callbackUrl)
+    {
+        var baseUrl = Settings.BetterAuthUrl.TrimEnd('/');
+        var encodedCallback = Uri.EscapeDataString(callbackUrl);
+        return $"{baseUrl}/api/auth/sign-in/social?provider={provider.ToLowerInvariant()}&callbackURL={encodedCallback}";
+    }
+
+    public async Task LogoutAsync()
+    {
+        var token = _currentUser.SessionToken;
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            try { await _sqliteDb.InvalidateSessionAsync(token); } catch {}
+        }
+
+        await SaveSessionTokenAsync(null);
+
+        _currentUser = new GramUser
+        {
+            Id = "guest",
+            Name = "Guest",
+            Email = null,
+            IsAuthenticated = false,
+            Roles = []
+        };
+
+        OnAuthStateChanged?.Invoke();
+    }
+
+    public async Task SetAuthProviderAsync(AuthProviderType provider, string? betterAuthUrl = null)
+    {
+        Settings.Provider = provider;
+        if (!string.IsNullOrWhiteSpace(betterAuthUrl))
+        {
+            Settings.BetterAuthUrl = betterAuthUrl;
+        }
+
+        if (provider == AuthProviderType.None)
+        {
+            _currentUser = InitializeUser();
+        }
+
+        OnAuthStateChanged?.Invoke();
+        await Task.CompletedTask;
+    }
+}
+
+public sealed class GramAuthStateProvider : AuthenticationStateProvider, IDisposable
+{
+    private readonly IAuthService _authService;
+
+    public GramAuthStateProvider(IAuthService authService)
+    {
+        _authService = authService;
+        _authService.OnAuthStateChanged += NotifyStateChanged;
+    }
+
+    public override Task<AuthenticationState> GetAuthenticationStateAsync()
+    {
+        var principal = _authService.CurrentUser.ToClaimsPrincipal();
+        return Task.FromResult(new AuthenticationState(principal));
+    }
+
+    private void NotifyStateChanged()
+    {
+        NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
+    }
+
+    public void Dispose()
+    {
+        _authService.OnAuthStateChanged -= NotifyStateChanged;
+    }
+}

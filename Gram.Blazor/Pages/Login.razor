@@ -1,0 +1,198 @@
+@page "/login"
+@page "/signin"
+@rendermode InteractiveServer
+@using Gram.Blazor.Shared
+@using Gram.Blazor.Components.ShadCn
+@inject IAuthService AuthService
+@inject ISonnerService SonnerService
+@inject NavigationManager NavManager
+
+<PageTitle>Sign In · Gram</PageTitle>
+
+<div class="gram-auth-page-purple">
+    <!-- Left Column: Purple Dark Minimalist Authentication Form -->
+    <div class="gram-auth-form-column">
+        <div class="gram-auth-form-box">
+            
+            <!-- Minimal Geometric Gram Brand Glyph -->
+            <div class="gram-auth-icon-wrap" style="padding: 4px;">
+                <img src="icons/gram-logo.svg" alt="Gram Logo" style="width: 28px; height: 28px; display: block;" />
+            </div>
+
+            <!-- Header -->
+            <div class="gram-auth-headings">
+                <h1 class="gram-auth-heading-title">
+                    @(isSignUpMode ? "Create an account" : "Welcome back")
+                </h1>
+                <div class="gram-auth-heading-sub">
+                    @if (isSignUpMode)
+                    {
+                        <span>Already have an account?</span>
+                        <button type="button" class="gram-auth-text-link" @onclick="() => { isSignUpMode = false; errorMessage = null; }">
+                            Sign in
+                        </button>
+                    }
+                    else
+                    {
+                        <span>Don't have an account yet?</span>
+                        <button type="button" class="gram-auth-text-link" @onclick="() => { isSignUpMode = true; errorMessage = null; }">
+                            Sign up now
+                        </button>
+                    }
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <div class="gram-auth-alert-error">
+                    @errorMessage
+                </div>
+            }
+
+            <!-- Form -->
+            <form @onsubmit="HandleSubmit" class="gram-auth-form-body">
+                @if (isSignUpMode)
+                {
+                    <div class="gram-auth-field">
+                        <input type="text"
+                               class="gram-auth-dark-input"
+                               @bind="nameInput"
+                               placeholder="Full name"
+                               disabled="@isLoading" />
+                    </div>
+                }
+
+                <div class="gram-auth-field">
+                    <input type="email"
+                           class="gram-auth-dark-input"
+                           @bind="emailInput"
+                           placeholder="Email address"
+                           required
+                           disabled="@isLoading" />
+                </div>
+
+                <div class="gram-auth-field has-toggle">
+                    <input type="@(showPassword ? "text" : "password")"
+                           class="gram-auth-dark-input"
+                           @bind="passwordInput"
+                           placeholder="Password"
+                           required
+                           disabled="@isLoading" />
+                    
+                    <button type="button" class="gram-auth-eye-btn" @onclick="() => showPassword = !showPassword" tabindex="-1" title="Toggle password visibility">
+                        @if (showPassword)
+                        {
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                                <line x1="1" y1="1" x2="23" y2="23"></line>
+                            </svg>
+                        }
+                        else
+                        {
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                        }
+                    </button>
+                </div>
+
+                <!-- Remember Me & Help -->
+                <div class="gram-auth-meta-row">
+                    <label class="gram-auth-remember">
+                        <input type="checkbox" class="gram-auth-check" @bind="rememberMe" />
+                        <span>Remember me</span>
+                    </label>
+
+                    @if (!isSignUpMode)
+                    {
+                        <a href="javascript:void(0)" class="gram-auth-text-link sm" @onclick='() => SonnerService.Info("Database User", "You can sign up for a new account or sign in with your SQLite credentials.")'>
+                            Need help?
+                        </a>
+                    }
+                </div>
+
+                <!-- Action Button -->
+                <button type="submit" class="gram-auth-submit-btn" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span>Authenticating...</span>
+                    }
+                    else
+                    {
+                        <span>@(isSignUpMode ? "Create account" : "Log in")</span>
+                    }
+                </button>
+            </form>
+
+        </div>
+    </div>
+
+    <!-- Right Column: Crisp, Sharp Geometric Architecture (No Blur) -->
+    <div class="gram-auth-image-column">
+        <img class="gram-auth-unsplash-img" 
+             src="https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1920&q=90" 
+             alt="Dark Geometric Architecture" />
+    </div>
+</div>
+
+@code {
+    private bool isSignUpMode = false;
+    private bool isLoading = false;
+    private bool showPassword = false;
+    private bool rememberMe = true;
+
+    private string nameInput = "";
+    private string emailInput = "";
+    private string passwordInput = "";
+    private string? errorMessage;
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    private async Task HandleSubmit()
+    {
+        if (string.IsNullOrWhiteSpace(emailInput) || string.IsNullOrWhiteSpace(passwordInput))
+        {
+            errorMessage = "Please enter your email and password.";
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            AuthResult result;
+            if (isSignUpMode)
+            {
+                result = await AuthService.SignUpWithEmailAsync(nameInput, emailInput, passwordInput);
+            }
+            else
+            {
+                result = await AuthService.SignInWithEmailAsync(emailInput, passwordInput);
+            }
+
+            if (result.Success)
+            {
+                SonnerService.Success("Welcome back", $"Signed in as {result.User?.Name ?? emailInput}");
+                var redirectTarget = !string.IsNullOrWhiteSpace(ReturnUrl) ? ReturnUrl : "/";
+                NavManager.NavigateTo(redirectTarget);
+            }
+            else
+            {
+                errorMessage = result.ErrorMessage ?? "Invalid email or password.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Authentication error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+}

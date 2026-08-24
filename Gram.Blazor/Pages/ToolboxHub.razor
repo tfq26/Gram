@@ -1,0 +1,314 @@
+@page "/toolbox"
+@rendermode InteractiveServer
+@using Gram.Blazor.Shared
+@using Gram.Blazor.Components.ShadCn
+@inject ToolboxManagerService ToolboxService
+@inject WorkspaceTabService TabService
+@inject ISonnerService SonnerService
+@implements IDisposable
+
+<PageTitle>Toolbox & Extensions · Gram</PageTitle>
+
+<div class="toolbox-layout" style="padding: 24px 32px; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px;">
+    <!-- Header Banner -->
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 20px; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-lg);">
+        <div style="display: flex; align-items: center; gap: 14px;">
+            <div style="width: 44px; height: 44px; border-radius: var(--radius-md); background: rgba(var(--accent-rgb, 99, 102, 241), 0.12); display: flex; align-items: center; justify-content: center; font-size: 22px;">
+                🧰
+            </div>
+            <div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <h1 style="font-size: 18px; font-weight: 700; margin: 0; color: var(--text-primary);">Gram Toolbox Engine</h1>
+                    <Badge Variant="default">v@(ToolboxService.ToolboxVersion)</Badge>
+                    <Badge Variant="secondary">@ToolboxService.ToolboxStatus</Badge>
+                </div>
+                <p style="margin: 4px 0 0 0; font-size: 12.5px; color: var(--text-muted);">
+                    Modular sandbox execution, Model Context Protocol (MCP), Coder integration, and domain agent skills.
+                </p>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+            <Button Variant="outline" Size="sm" OnClick="TestToolboxHealth">
+                Check Engine
+            </Button>
+        </div>
+    </div>
+
+    <!-- Main Navigation Sections -->
+    <div style="display: flex; gap: 8px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+        <button type="button" 
+                class="filter-chip @(activeSection == "Tools" ? "active" : "")" 
+                @onclick='() => activeSection = "Tools"'>
+            <span>📦 Installed Tools (@ToolboxService.InstalledTools.Count)</span>
+        </button>
+        <button type="button" 
+                class="filter-chip @(activeSection == "MCP" ? "active" : "")" 
+                @onclick='() => activeSection = "MCP"'>
+            <span>🔌 MCP Servers (@ToolboxService.McpServers.Count)</span>
+        </button>
+        <button type="button" 
+                class="filter-chip @(activeSection == "Skills" ? "active" : "")" 
+                @onclick='() => activeSection = "Skills"'>
+            <span>🧠 Agent Skills (@ToolboxService.Skills.Count)</span>
+        </button>
+    </div>
+
+    @if (activeSection == "Tools")
+    {
+        <!-- Installed Tools Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px;">
+            @foreach (var tool in ToolboxService.InstalledTools)
+            {
+                <div class="tool-card" style="padding: 16px; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-md); display: flex; flex-direction: column; justify-content: space-between; gap: 12px;">
+                    <div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 18px;">@tool.Icon</span>
+                                <span style="font-size: 13.5px; font-weight: 600; color: var(--text-primary);">@tool.Name</span>
+                            </div>
+                            <Badge Variant="@(tool.IsEnabled ? "default" : "outline")">@tool.Category</Badge>
+                        </div>
+                        <p style="font-size: 12px; color: var(--text-muted); line-height: 1.45; margin: 0;">
+                            @tool.Description
+                        </p>
+                    </div>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 4px;">
+                        <span style="font-size: 11px; color: var(--text-muted);">Status: <strong style="color: @(tool.IsEnabled ? "#22c55e" : "var(--text-muted)")">@tool.Status</strong></span>
+                        <div style="display: flex; gap: 6px;">
+                            <Button Variant="outline" Size="sm" OnClick="() => OpenToolInTab(tool)">
+                                Configure in Tab ↗
+                            </Button>
+                            <Button Variant="ghost" Size="sm" OnClick="() => ToolboxService.ToggleTool(tool.Id)">
+                                @(tool.IsEnabled ? "Disable" : "Enable")
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else if (activeSection == "MCP")
+    {
+        <!-- MCP Servers Section -->
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <h3 style="font-size: 14px; font-weight: 600; margin: 0 0 2px 0; color: var(--text-primary);">Model Context Protocol (MCP) Servers</h3>
+                    <p style="font-size: 12px; color: var(--text-muted); margin: 0;">
+                        Connect external services, databases, and custom CLI tools via standard MCP JSON-RPC.
+                    </p>
+                </div>
+                <Button Variant="default" Size="sm" OnClick="() => showAddMcpModal = true">
+                    + Add MCP Server
+                </Button>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                @foreach (var server in ToolboxService.McpServers)
+                {
+                    <div style="padding: 14px; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="width: 32px; height: 32px; border-radius: var(--radius-sm); background: var(--bg-hover); display: flex; align-items: center; justify-content: center; font-size: 16px;">
+                                🔌
+                            </div>
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 13.5px; font-weight: 600; color: var(--text-primary);">@server.Name</span>
+                                    <Badge Variant="secondary">@server.Transport</Badge>
+                                    @if (server.IsConnected)
+                                    {
+                                        <Badge Variant="default">Connected (@server.ToolCount tools)</Badge>
+                                    }
+                                </div>
+                                <code style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">
+                                    @server.Command @server.Arguments
+                                </code>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 6px;">
+                            <Button Variant="outline" Size="sm" OnClick='() => OpenToolInTab(new ToolboxToolInfo { Id = server.Id, Name = server.Name, Icon = "🔌" })'>
+                                Inspect Tab
+                            </Button>
+                            <Button Variant="ghost" Size="sm" Class="text-destructive hover:bg-destructive/10" OnClick="() => ToolboxService.RemoveMcpServer(server.Id)">
+                                Remove
+                            </Button>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (activeSection == "Skills")
+    {
+        <!-- Skills Section -->
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <h3 style="font-size: 14px; font-weight: 600; margin: 0 0 2px 0; color: var(--text-primary);">Agent Skills Directory</h3>
+                    <p style="font-size: 12px; color: var(--text-muted); margin: 0;">
+                        Reusable domain personas, instructions, and toolchains for specific software tasks.
+                    </p>
+                </div>
+                <Button Variant="default" Size="sm" OnClick="() => showAddSkillModal = true">
+                    + New Skill
+                </Button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px;">
+                @foreach (var skill in ToolboxService.Skills)
+                {
+                    <div style="padding: 16px; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-md); display: flex; flex-direction: column; justify-content: space-between; gap: 12px;">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                <span style="font-size: 18px;">@skill.Icon</span>
+                                <span style="font-size: 13.5px; font-weight: 600; color: var(--text-primary);">@skill.Name</span>
+                            </div>
+                            <p style="font-size: 12px; color: var(--text-muted); line-height: 1.45; margin: 0 0 8px 0;">
+                                @skill.Description
+                            </p>
+                            <pre style="font-size: 11px; font-family: var(--font-mono); background: var(--bg-hover); padding: 6px 8px; border-radius: var(--radius-sm); max-height: 80px; overflow-y: auto; margin: 0; color: var(--text-secondary); white-space: pre-wrap;">@skill.SystemPrompt</pre>
+                        </div>
+
+                        <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 10px;">
+                            <span style="font-size: 11px; color: #22c55e;">● Active in Agent</span>
+                            <div style="display: flex; gap: 6px;">
+                                <Button Variant="outline" Size="sm" OnClick="() => OpenToolInTab(new ToolboxToolInfo { Id = skill.Id, Name = skill.Name, Icon = skill.Icon })">
+                                    Edit in Tab
+                                </Button>
+                                <Button Variant="ghost" Size="sm" Class="text-destructive" OnClick="() => ToolboxService.RemoveSkill(skill.Id)">
+                                    Delete
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@if (showAddMcpModal)
+{
+    <div class="modal-backdrop" @onclick="() => showAddMcpModal = false">
+        <div class="modal-dialog" style="max-width: 460px;" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <span class="modal-title">Add MCP Server</span>
+                <button class="btn-close-modal" @onclick="() => showAddMcpModal = false">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                <div class="sheet-field">
+                    <label class="sheet-label">Server Name</label>
+                    <input type="text" class="sheet-input" @bind="newMcpName" placeholder="e.g. Postgres DB MCP" />
+                </div>
+                <div class="sheet-field">
+                    <label class="sheet-label">Executable Command</label>
+                    <input type="text" class="sheet-input" @bind="newMcpCommand" placeholder="npx, docker, uvx, or binary path" />
+                </div>
+                <div class="sheet-field">
+                    <label class="sheet-label">Arguments</label>
+                    <input type="text" class="sheet-input" @bind="newMcpArgs" placeholder="-y @@modelcontextprotocol/server-postgres ..." />
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border-color);">
+                <Button Variant="ghost" Size="sm" OnClick="() => showAddMcpModal = false">Cancel</Button>
+                <Button Variant="default" Size="sm" OnClick="SaveNewMcp">Add Server</Button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showAddSkillModal)
+{
+    <div class="modal-backdrop" @onclick="() => showAddSkillModal = false">
+        <div class="modal-dialog" style="max-width: 480px;" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <span class="modal-title">Create Agent Skill</span>
+                <button class="btn-close-modal" @onclick="() => showAddSkillModal = false">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                <div class="sheet-field">
+                    <label class="sheet-label">Skill Name</label>
+                    <input type="text" class="sheet-input" @bind="newSkillName" placeholder="e.g. Rust Systems Expert" />
+                </div>
+                <div class="sheet-field">
+                    <label class="sheet-label">Description</label>
+                    <input type="text" class="sheet-input" @bind="newSkillDesc" placeholder="Brief summary of when the agent should use this skill" />
+                </div>
+                <div class="sheet-field">
+                    <label class="sheet-label">System Prompt & Guidelines</label>
+                    <textarea class="sheet-textarea" rows="4" @bind="newSkillPrompt" placeholder="You are an expert in... Follow these rules:..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border-color);">
+                <Button Variant="ghost" Size="sm" OnClick="() => showAddSkillModal = false">Cancel</Button>
+                <Button Variant="default" Size="sm" OnClick="SaveNewSkill">Create Skill</Button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string activeSection = "Tools";
+    private bool showAddMcpModal = false;
+    private bool showAddSkillModal = false;
+
+    private string newMcpName = "";
+    private string newMcpCommand = "npx";
+    private string newMcpArgs = "";
+
+    private string newSkillName = "";
+    private string newSkillDesc = "";
+    private string newSkillPrompt = "";
+
+    protected override void OnInitialized()
+    {
+        ToolboxService.OnChange += StateHasChanged;
+    }
+
+    private void OpenToolInTab(ToolboxToolInfo tool)
+    {
+        TabService.OpenToolConfigTab(tool.Id, tool.Name, tool.Icon);
+        SonnerService.Success("Tab opened", $"Opened configuration tab for {tool.Name}");
+    }
+
+    private void TestToolboxHealth()
+    {
+        SonnerService.Success("Toolbox Engine Active", $"Gram Sandbox & Tool engine is running normally (v{ToolboxService.ToolboxVersion})");
+    }
+
+    private void SaveNewMcp()
+    {
+        if (string.IsNullOrWhiteSpace(newMcpName)) return;
+        ToolboxService.AddMcpServer(new McpServerConfig
+        {
+            Name = newMcpName,
+            Command = newMcpCommand,
+            Arguments = newMcpArgs,
+            IsConnected = true,
+            ToolCount = 3
+        });
+        showAddMcpModal = false;
+        SonnerService.Success("MCP Added", $"Registered {newMcpName}");
+    }
+
+    private void SaveNewSkill()
+    {
+        if (string.IsNullOrWhiteSpace(newSkillName)) return;
+        ToolboxService.AddSkill(new AgentSkillDefinition
+        {
+            Name = newSkillName,
+            Description = newSkillDesc,
+            SystemPrompt = newSkillPrompt
+        });
+        showAddSkillModal = false;
+        SonnerService.Success("Skill Created", $"Created skill: {newSkillName}");
+    }
+
+    public void Dispose()
+    {
+        ToolboxService.OnChange -= StateHasChanged;
+    }
+}

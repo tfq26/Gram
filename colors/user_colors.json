@@ -1,0 +1,131 @@
+{
+  "activeTheme": "Carbon Black",
+  "recentThemes": [
+    {
+      "name": "Monochrome",
+      "colors": {
+        "bgBody": "#000000",
+        "bgPanel": "#111412",
+        "bgSubtle": "#222823",
+        "border": "#575A5E",
+        "textPrimary": "#F4F7F5",
+        "textSecondary": "#A7A2A9",
+        "buttonPrimary": "#F4F7F5",
+        "buttonText": "#000000",
+        "accent": "#F4F7F5",
+        "accentText": "#F4F7F5",
+        "color1": "#000000",
+        "color2": "#A7A2A9",
+        "color3": "#F4F7F5",
+        "color4": "#575A5E",
+        "color5": "#222823"
+      },
+      "lastUsed": "2026-08-23T02:15:45.5877078+00:00"
+    },
+    {
+      "name": "Carbon Black",
+      "colors": {
+        "bgBody": "#050505",
+        "bgPanel": "#0d0d0d",
+        "bgSubtle": "#141414",
+        "border": "#242424",
+        "textPrimary": "#f4f4f5",
+        "textSecondary": "#8e8e93",
+        "buttonPrimary": "#ffffff",
+        "buttonText": "#000000",
+        "accent": "#ffffff",
+        "accentText": "#ffffff",
+        "color1": "#050505",
+        "color2": "#0d0d0d",
+        "color3": "#242424",
+        "color4": "#8e8e93",
+        "color5": "#ffffff"
+      },
+      "lastUsed": "2026-08-23T02:15:47.6162786+00:00"
+    },
+    {
+      "name": "Obsidian Purple",
+      "colors": {
+        "bgBody": "#07050a",
+        "bgPanel": "#0d0a14",
+        "bgSubtle": "#120e1b",
+        "border": "#241b36",
+        "textPrimary": "#f3f0fa",
+        "textSecondary": "#a89ec2",
+        "buttonPrimary": "#9333ea",
+        "buttonText": "#ffffff",
+        "accent": "#9333ea",
+        "accentText": "#c084fc",
+        "color1": "#07050a",
+        "color2": "#120e1b",
+        "color3": "#241b36",
+        "color4": "#c084fc",
+        "color5": "#9333ea"
+      },
+      "lastUsed": "2026-08-23T02:15:39.5287542+00:00"
+    },
+    {
+      "name": "Carbon Amber",
+      "colors": {
+        "bgBody": "#0a0a08",
+        "bgPanel": "#110f0a",
+        "bgSubtle": "#17140e",
+        "border": "#2e271a",
+        "textPrimary": "#fbf7ee",
+        "textSecondary": "#c2b69d",
+        "buttonPrimary": "#d97706",
+        "buttonText": "#000000",
+        "accent": "#d97706",
+        "accentText": "#fbbf24",
+        "color1": "#0a0a08",
+        "color2": "#171612",
+        "color3": "#2e271a",
+        "color4": "#fbbf24",
+        "color5": "#d97706"
+      },
+      "lastUsed": "2026-08-23T02:15:38.7616251+00:00"
+    },
+    {
+      "name": "Cyber Emerald",
+      "colors": {
+        "bgBody": "#050a07",
+        "bgPanel": "#08120d",
+        "bgSubtle": "#0d1811",
+        "border": "#172e21",
+        "textPrimary": "#ecfdf5",
+        "textSecondary": "#a7cfb9",
+        "buttonPrimary": "#059669",
+        "buttonText": "#ffffff",
+        "accent": "#059669",
+        "accentText": "#34d399",
+        "color1": "#050a07",
+        "color2": "#0d1811",
+        "color3": "#172e21",
+        "color4": "#34d399",
+        "color5": "#059669"
+      },
+      "lastUsed": "2026-08-23T02:15:37.7289345+00:00"
+    },
+    {
+      "name": "Nordic Slate",
+      "colors": {
+        "bgBody": "#06090e",
+        "bgPanel": "#0a111c",
+        "bgSubtle": "#0f1622",
+        "border": "#1a2538",
+        "textPrimary": "#f0f6fc",
+        "textSecondary": "#9bb2d1",
+        "buttonPrimary": "#2563eb",
+        "buttonText": "#ffffff",
+        "accent": "#2563eb",
+        "accentText": "#60a5fa",
+        "color1": "#06090e",
+        "color2": "#0f1622",
+        "color3": "#1a2538",
+        "color4": "#60a5fa",
+        "color5": "#2563eb"
+      },
+      "lastUsed": "2026-08-23T02:15:36.7169024+00:00"
+    }
+  ]
+}

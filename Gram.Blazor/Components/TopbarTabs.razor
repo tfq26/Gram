@@ -1,0 +1,96 @@
+@namespace Gram.Blazor.Components
+@using Gram.Blazor.Shared
+@using Gram.Blazor.Components.ShadCn
+@inject WorkspaceTabService TabService
+@inject ToolboxManagerService ToolboxService
+@inject NavigationManager NavManager
+@implements IDisposable
+
+<div class="topbar-tabs-container">
+    <div class="topbar-divider"></div>
+
+    <div class="topbar-tabs-list">
+        @foreach (var tab in TabService.OpenTabs)
+        {
+            var isTabActive = TabService.ActiveTabId == tab.Id;
+            <div class="topbar-tab @(isTabActive ? "active" : "")"
+                 @onclick="() => HandleTabClick(tab)"
+                 title="@tab.Title">
+                <span class="topbar-tab-title">@tab.Title</span>
+                @if (TabService.OpenTabs.Count > 1 && !tab.IsPinned)
+                {
+                    <button class="topbar-tab-close" @onclick:stopPropagation="true" @onclick="() => TabService.CloseTab(tab.Id)" title="Close tab">
+                        ✕
+                    </button>
+                }
+            </div>
+        }
+
+        <button class="btn-new-tab" @onclick="CreateNewChatTab" title="Open new chat tab">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+        </button>
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        TabService.OnTabsChanged += OnTabsChanged;
+        ToolboxService.OnChange += OnToolboxChanged;
+    }
+
+    private void OnTabsChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnToolboxChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void HandleTabClick(WorkspaceTab tab)
+    {
+        TabService.SelectTab(tab.Id);
+        if (tab.Type == WorkspaceTabType.Chat)
+        {
+            if (!NavManager.Uri.EndsWith("/"))
+            {
+                NavManager.NavigateTo("/");
+            }
+        }
+        else if (tab.Type == WorkspaceTabType.ToolboxOverview || tab.Type == WorkspaceTabType.ToolConfig)
+        {
+            if (!NavManager.Uri.Contains("/toolbox"))
+            {
+                NavManager.NavigateTo("/toolbox");
+            }
+        }
+    }
+
+    private void CreateNewChatTab()
+    {
+        var newChatId = Guid.NewGuid().ToString("N")[..8];
+        TabService.OpenChatTab(newChatId, "New chat");
+        if (!NavManager.Uri.EndsWith("/"))
+        {
+            NavManager.NavigateTo("/");
+        }
+    }
+
+    private void OpenToolboxHub()
+    {
+        TabService.OpenToolboxTab();
+        if (!NavManager.Uri.Contains("/toolbox"))
+        {
+            NavManager.NavigateTo("/toolbox");
+        }
+    }
+
+    private bool IsToolboxActive()
+    {
+        return TabService.ActiveTab?.Type == WorkspaceTabType.ToolboxOverview || TabService.ActiveTab?.Type == WorkspaceTabType.ToolConfig;
+    }
+
+    public void Dispose()
+    {
+        TabService.OnTabsChanged -= OnTabsChanged;
+        ToolboxService.OnChange -= OnToolboxChanged;
+    }
+}

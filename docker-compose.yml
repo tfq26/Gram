@@ -1,0 +1,41 @@
+services:
+  gram:
+    build:
+      context: ./Gram.Blazor
+      dockerfile: Dockerfile
+    container_name: gram
+    restart: unless-stopped
+    ports:
+      - "${GRAM_PORT:-7337}:7337"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - GRAM_DATA_DIR=/app/data
+      
+      # Authentication Mode: "None" (default), "BetterAuth", "ProxyHeader", or "Oidc"
+      - AUTH_PROVIDER=${AUTH_PROVIDER:-None}
+      
+      # Better Auth (For Cloud Deployments)
+      - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost:3000}
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-}
+      
+      # OpenID Connect (For Authentik / Keycloak self-hosting)
+      - OIDC_AUTHORITY=${OIDC_AUTHORITY:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      
+      # Reverse Proxy Forward-Auth Header names
+      - PROXY_USER_HEADER=${PROXY_USER_HEADER:-X-authentik-username}
+      - PROXY_EMAIL_HEADER=${PROXY_EMAIL_HEADER:-X-authentik-email}
+      - PROXY_NAME_HEADER=${PROXY_NAME_HEADER:-X-authentik-name}
+      
+      # Local AI (Ollama)
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      
+      # Cloud AI (OpenRouter)
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    extra_hosts:
+      # Allows container to reach Ollama / LM Studio running on host OS
+      - "host.docker.internal:host-gateway"

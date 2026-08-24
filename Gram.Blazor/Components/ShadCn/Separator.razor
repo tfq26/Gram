@@ -1,0 +1,7 @@
+<div class="shadcn-separator shadcn-separator-@Orientation.ToLowerInvariant() @Class" role="separator" @attributes="AdditionalAttributes"></div>
+
+@code {
+    [Parameter] public string Orientation { get; set; } = "horizontal"; // horizontal, vertical
+    [Parameter] public string Class { get; set; } = "";
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
+}

@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "dgSpecHash": "JDVjFXX9as4=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\taufe\\Projects\\Gram\\gram.blazor\\Gram.Blazor.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\taufe\\.nuget\\packages\\markdig\\0.40.0\\markdig.0.40.0.nupkg.sha512",
+    "C:\\Users\\taufe\\.nuget\\packages\\microsoft.data.sqlite\\9.0.0\\microsoft.data.sqlite.9.0.0.nupkg.sha512",
+    "C:\\Users\\taufe\\.nuget\\packages\\microsoft.data.sqlite.core\\9.0.0\\microsoft.data.sqlite.core.9.0.0.nupkg.sha512",
+    "C:\\Users\\taufe\\.nuget\\packages\\sqlite\\3.53.4\\sqlite.3.53.4.nupkg.sha512",
+    "C:\\Users\\taufe\\.nuget\\packages\\sqlitepclraw.bundle_e_sqlite3\\3.0.5\\sqlitepclraw.bundle_e_sqlite3.3.0.5.nupkg.sha512",
+    "C:\\Users\\taufe\\.nuget\\packages\\sqlitepclraw.config.e_sqlite3\\3.0.5\\sqlitepclraw.config.e_sqlite3.3.0.5.nupkg.sha512",
+    "C:\\Users\\taufe\\.nuget\\packages\\sqlitepclraw.core\\3.0.5\\sqlitepclraw.core.3.0.5.nupkg.sha512",
+    "C:\\Users\\taufe\\.nuget\\packages\\sqlitepclraw.provider.e_sqlite3\\3.0.5\\sqlitepclraw.provider.e_sqlite3.3.0.5.nupkg.sha512"
+  ],
+  "logs": []
+}
