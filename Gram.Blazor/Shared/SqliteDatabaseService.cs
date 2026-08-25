@@ -12,6 +12,7 @@ public sealed class UserRecord
     public string PasswordHash { get; set; } = "";
     public string Salt { get; set; } = "";
     public string Role { get; set; } = "user";
+    public string? Image { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -23,10 +24,12 @@ public sealed class UserSessionRecord
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
-public sealed class SqliteDatabaseService
+public sealed class SqliteDatabaseService : IDatabaseProvider
 {
     private readonly string _dbPath;
     private readonly string _connectionString;
+
+    public string ProviderName => "SQLite (Local / Mini-Gram)";
 
     public SqliteDatabaseService(StorageService storageService)
     {
@@ -39,6 +42,12 @@ public sealed class SqliteDatabaseService
         }.ToString();
 
         InitializeDatabase();
+    }
+
+    public Task InitializeAsync(CancellationToken ct = default)
+    {
+        InitializeDatabase();
+        return Task.CompletedTask;
     }
 
     private void InitializeDatabase()
@@ -55,6 +64,7 @@ public sealed class SqliteDatabaseService
                 password_hash TEXT NOT NULL,
                 salt TEXT NOT NULL,
                 role TEXT NOT NULL DEFAULT 'user',
+                image TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -66,10 +76,33 @@ public sealed class SqliteDatabaseService
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS conversations (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                model_id TEXT,
+                system_prompt TEXT,
+                rules TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                data_json TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
             CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
         ";
         cmd.ExecuteNonQuery();
+
+        // Ensure image column exists on older schemas
+        try
+        {
+            using var alterCmd = conn.CreateCommand();
+            alterCmd.CommandText = "ALTER TABLE users ADD COLUMN image TEXT;";
+            alterCmd.ExecuteNonQuery();
+        }
+        catch {}
 
         // Seed default admin user if database is empty
         SeedDefaultAdmin(conn);
@@ -103,7 +136,7 @@ public sealed class SqliteDatabaseService
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, email, name, password_hash, salt, role, created_at FROM users WHERE LOWER(email) = LOWER(@email);";
+        cmd.CommandText = "SELECT id, email, name, password_hash, salt, role, created_at, image FROM users WHERE LOWER(email) = LOWER(@email);";
         cmd.Parameters.AddWithValue("@email", email.Trim());
 
         using var reader = await cmd.ExecuteReaderAsync();
@@ -117,7 +150,8 @@ public sealed class SqliteDatabaseService
                 PasswordHash = reader.GetString(3),
                 Salt = reader.GetString(4),
                 Role = reader.GetString(5),
-                CreatedAt = DateTime.Parse(reader.GetString(6))
+                CreatedAt = DateTime.Parse(reader.GetString(6)),
+                Image = reader.IsDBNull(7) ? null : reader.GetString(7)
             };
         }
         return null;
@@ -129,7 +163,7 @@ public sealed class SqliteDatabaseService
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, email, name, password_hash, salt, role, created_at FROM users WHERE id = @id;";
+        cmd.CommandText = "SELECT id, email, name, password_hash, salt, role, created_at, image FROM users WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", id);
 
         using var reader = await cmd.ExecuteReaderAsync();
@@ -143,7 +177,8 @@ public sealed class SqliteDatabaseService
                 PasswordHash = reader.GetString(3),
                 Salt = reader.GetString(4),
                 Role = reader.GetString(5),
-                CreatedAt = DateTime.Parse(reader.GetString(6))
+                CreatedAt = DateTime.Parse(reader.GetString(6)),
+                Image = reader.IsDBNull(7) ? null : reader.GetString(7)
             };
         }
         return null;
@@ -218,7 +253,7 @@ public sealed class SqliteDatabaseService
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
-            SELECT u.id, u.email, u.name, u.password_hash, u.salt, u.role, u.created_at, s.expires_at
+            SELECT u.id, u.email, u.name, u.password_hash, u.salt, u.role, u.created_at, s.expires_at, u.image
             FROM sessions s
             JOIN users u ON s.user_id = u.id
             WHERE s.token = @token;
@@ -243,7 +278,8 @@ public sealed class SqliteDatabaseService
                 PasswordHash = reader.GetString(3),
                 Salt = reader.GetString(4),
                 Role = reader.GetString(5),
-                CreatedAt = DateTime.Parse(reader.GetString(6))
+                CreatedAt = DateTime.Parse(reader.GetString(6)),
+                Image = reader.IsDBNull(8) ? null : reader.GetString(8)
             };
         }
         return null;
@@ -260,13 +296,21 @@ public sealed class SqliteDatabaseService
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task<bool> UpdateUserProfileAsync(string userId, string name)
+    public async Task<bool> UpdateUserProfileAsync(string userId, string name, string? image = null)
     {
         using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE users SET name = @name WHERE id = @id;";
+        if (image != null)
+        {
+            cmd.CommandText = "UPDATE users SET name = @name, image = @image WHERE id = @id;";
+            cmd.Parameters.AddWithValue("@image", image);
+        }
+        else
+        {
+            cmd.CommandText = "UPDATE users SET name = @name WHERE id = @id;";
+        }
         cmd.Parameters.AddWithValue("@name", name.Trim());
         cmd.Parameters.AddWithValue("@id", userId);
         var rows = await cmd.ExecuteNonQueryAsync();
@@ -288,6 +332,102 @@ public sealed class SqliteDatabaseService
         cmd.Parameters.AddWithValue("@id", userId);
         var rows = await cmd.ExecuteNonQueryAsync();
         return rows > 0;
+    }
+
+    public async Task<List<ConversationMeta>> ListConversationsAsync(string userId, CancellationToken ct = default)
+    {
+        var list = new List<ConversationMeta>();
+        using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id, title, created_at, updated_at, model_id, system_prompt, rules FROM conversations WHERE user_id = @user_id ORDER BY updated_at DESC;";
+        cmd.Parameters.AddWithValue("@user_id", userId);
+
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            list.Add(new ConversationMeta
+            {
+                Id = reader.GetString(0),
+                Title = reader.GetString(1),
+                Created = DateTimeOffset.Parse(reader.GetString(2)),
+                Updated = DateTimeOffset.Parse(reader.GetString(3)),
+                ModelId = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                SystemPromptOverride = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                Rules = reader.IsDBNull(6) ? "" : reader.GetString(6)
+            });
+        }
+        return list;
+    }
+
+    public async Task<Conversation?> GetConversationAsync(string conversationId, string userId, CancellationToken ct = default)
+    {
+        using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT data_json FROM conversations WHERE id = @id AND user_id = @user_id;";
+        cmd.Parameters.AddWithValue("@id", conversationId);
+        cmd.Parameters.AddWithValue("@user_id", userId);
+
+        var json = await cmd.ExecuteScalarAsync(ct) as string;
+        if (string.IsNullOrEmpty(json)) return null;
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<Conversation>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> SaveConversationAsync(Conversation conversation, string userId, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(conversation);
+            using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO conversations (id, user_id, title, model_id, system_prompt, rules, created_at, updated_at, data_json)
+                VALUES (@id, @user_id, @title, @model_id, @system_prompt, @rules, @created_at, @updated_at, @data_json)
+                ON CONFLICT (id) DO UPDATE 
+                SET title = @title, model_id = @model_id, system_prompt = @system_prompt, rules = @rules, updated_at = @updated_at, data_json = @data_json;
+            """;
+            cmd.Parameters.AddWithValue("@id", conversation.Id);
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            cmd.Parameters.AddWithValue("@title", conversation.Title);
+            cmd.Parameters.AddWithValue("@model_id", (object?)conversation.ModelId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@system_prompt", (object?)conversation.SystemPromptOverride ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@rules", (object?)conversation.Rules ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@created_at", conversation.Created.ToString("o"));
+            cmd.Parameters.AddWithValue("@updated_at", conversation.Updated.ToString("o"));
+            cmd.Parameters.AddWithValue("@data_json", json);
+
+            return await cmd.ExecuteNonQueryAsync(ct) > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> DeleteConversationAsync(string conversationId, string userId, CancellationToken ct = default)
+    {
+        using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM conversations WHERE id = @id AND user_id = @user_id;";
+        cmd.Parameters.AddWithValue("@id", conversationId);
+        cmd.Parameters.AddWithValue("@user_id", userId);
+
+        return await cmd.ExecuteNonQueryAsync(ct) > 0;
     }
 
     public static bool VerifyPassword(string enteredPassword, string storedHash, string salt)

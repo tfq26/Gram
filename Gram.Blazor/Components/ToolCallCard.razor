@@ -2,91 +2,80 @@
 @using Gram.Blazor.Shared
 @using Gram.Blazor.Components.ShadCn
 
-<div class="tool-call-card @(ToolCall.IsError ? "error" : (string.IsNullOrWhiteSpace(ToolCall.Result) ? "running" : "success"))">
-    <div class="tool-call-header" @onclick="ToggleExpand">
-        <div class="tool-call-meta">
-            <span class="tool-call-icon">
-                @switch (ToolCall.ToolName.ToLowerInvariant())
-                {
-                    case "view_file":
-                        <span>📄</span>
-                        break;
-                    case "write_file":
-                    case "edit_file":
-                        <span>✏️</span>
-                        break;
-                    case "run_command":
-                        <span>▶️</span>
-                        break;
-                    case "list_directory":
-                    case "find_files":
-                        <span>📁</span>
-                        break;
-                    case "grep_search":
-                        <span>🔍</span>
-                        break;
-                    case "git_list_repos":
-                    case "git_read_file":
-                    case "git_commit_file":
-                    case "git_create_pr":
-                        <span>🐙</span>
-                        break;
-                    default:
-                        <span>⚡</span>
-                        break;
-                }
-            </span>
-            <span class="tool-call-name">@ToolCall.ToolName</span>
-            <span class="tool-call-args-preview">@GetArgsSummary()</span>
-        </div>
-
-        <div class="tool-call-status">
-            @if (string.IsNullOrWhiteSpace(ToolCall.Result) && !ToolCall.IsError)
-            {
-                <span class="tool-status-badge running">
-                    <span class="spinner-dot"></span> Running
-                </span>
-            }
-            else if (ToolCall.IsError)
-            {
-                <span class="tool-status-badge error">Failed</span>
-            }
-            else
-            {
-                <span class="tool-status-badge success">Completed</span>
-            }
-
-            <svg class="tool-chevron @(isExpanded ? "expanded" : "")" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
+@if (IsSearchTool)
+{
+    <div class="tool-call-card tool-search-card @(ToolCall.IsError ? "error" : (string.IsNullOrWhiteSpace(ToolCall.Result) ? "running" : "success"))">
+        <div class="tool-search-status">
+            <span class="tool-search-dot @(string.IsNullOrWhiteSpace(ToolCall.Result) && !ToolCall.IsError ? "active" : "")"></span>
+            <span>@SearchStatus</span>
         </div>
     </div>
+}
+else
+{
+    <div class="tool-call-card @(ToolCall.IsError ? "error" : (string.IsNullOrWhiteSpace(ToolCall.Result) ? "running" : "success"))">
+        <div class="tool-call-header" @onclick="ToggleExpand">
+            <div class="tool-call-meta">
+                <span class="tool-call-name">@ToolCall.ToolName</span>
+                <span class="tool-call-args-preview">@GetArgsSummary()</span>
+            </div>
 
-    @if (isExpanded)
-    {
-        <div class="tool-call-body">
-            @if (!string.IsNullOrWhiteSpace(ToolCall.Arguments))
-            {
-                <div class="tool-section">
-                    <span class="tool-section-label">Parameters</span>
-                    <pre class="tool-code-block">@ToolCall.Arguments</pre>
-                </div>
-            }
+            <div class="tool-call-status">
+                @if (string.IsNullOrWhiteSpace(ToolCall.Result) && !ToolCall.IsError)
+                {
+                    <span class="tool-status-badge running">
+                        <span class="spinner-dot"></span> Running
+                    </span>
+                }
+                else if (ToolCall.IsError)
+                {
+                    <span class="tool-status-badge error">Failed</span>
+                }
+                else
+                {
+                    <span class="tool-status-badge success">Completed</span>
+                }
 
-            @if (!string.IsNullOrWhiteSpace(ToolCall.Result))
-            {
-                <div class="tool-section">
-                    <span class="tool-section-label">Output</span>
-                    <pre class="tool-code-block @(ToolCall.IsError ? "error-output" : "")">@ToolCall.Result</pre>
-                </div>
-            }
+                <svg class="tool-chevron @(isExpanded ? "expanded" : "")" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </div>
         </div>
-    }
-</div>
+
+        @if (isExpanded)
+        {
+            <div class="tool-call-body">
+                @if (!string.IsNullOrWhiteSpace(ToolCall.Arguments))
+                {
+                    <div class="tool-section">
+                        <span class="tool-section-label">Parameters</span>
+                        <pre class="tool-code-block">@ToolCall.Arguments</pre>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(ToolCall.Result))
+                {
+                    <div class="tool-section">
+                        <span class="tool-section-label">Output</span>
+                        <pre class="tool-code-block @(ToolCall.IsError ? "error-output" : "")">@ToolCall.Result</pre>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
 
 @code {
     [Parameter] public ToolCallInfo ToolCall { get; set; } = new();
     private bool isExpanded = false;
+
+    private bool IsSearchTool => ToolCall.ToolName.Equals("search_web", StringComparison.OrdinalIgnoreCase);
+
+    private string SearchStatus => ToolCall.IsError
+        ? "Search failed"
+        : string.IsNullOrWhiteSpace(ToolCall.Result)
+            ? "Searching sources…"
+            : "Searched sources · information found";
 
     private void ToggleExpand()
     {

@@ -1,0 +1,14 @@
+.git
+.github
+.vs
+.vscode
+.gemini
+brain
+venv
+.venv
+bin
+obj
+**/bin
+**/obj
+**/node_modules
+.DS_Store

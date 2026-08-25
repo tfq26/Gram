@@ -1,5 +1,6 @@
 @page "/login"
 @page "/signin"
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 @rendermode InteractiveServer
 @using Gram.Blazor.Shared
 @using Gram.Blazor.Components.ShadCn
@@ -149,6 +150,15 @@
 
     [SupplyParameterFromQuery(Name = "returnUrl")]
     public string? ReturnUrl { get; set; }
+
+    protected override void OnInitialized()
+    {
+        if (AuthService.CurrentUser.IsAuthenticated)
+        {
+            var redirectTarget = !string.IsNullOrWhiteSpace(ReturnUrl) && !ReturnUrl.Contains("login", StringComparison.OrdinalIgnoreCase) && !ReturnUrl.Contains("signin", StringComparison.OrdinalIgnoreCase) ? ReturnUrl : "/";
+            NavManager.NavigateTo(redirectTarget);
+        }
+    }
 
     private async Task HandleSubmit()
     {

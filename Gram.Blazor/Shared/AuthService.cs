@@ -17,6 +17,7 @@ public interface IAuthService
     Task<AuthResult> SignUpWithEmailAsync(string name, string email, string password);
     Task<bool> ValidateSessionTokenAsync(string sessionToken);
     Task<bool> UpdateProfileAsync(string name, string nickname);
+    Task<bool> UpdateAvatarAsync(string? imageBase64OrUrl);
     Task<AuthResult> ResetPasswordAsync(string currentPassword, string newPassword);
     Task<AuthResult> RegisterPasskeyAsync();
     string GetSocialLoginUrl(string provider, string callbackUrl);
@@ -30,7 +31,7 @@ public sealed class GramAuthService : IAuthService
     private readonly IConfiguration _configuration;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly StorageService _storageService;
-    private readonly SqliteDatabaseService _sqliteDb;
+    private readonly IDatabaseProvider _db;
     private readonly IHttpContextAccessor? _httpContextAccessor;
     private readonly string _sessionTokenFilePath;
     private GramUser _currentUser;
@@ -43,13 +44,13 @@ public sealed class GramAuthService : IAuthService
         IConfiguration configuration,
         IHttpClientFactory httpClientFactory,
         StorageService storageService,
-        SqliteDatabaseService sqliteDb,
+        IDatabaseProvider db,
         IHttpContextAccessor? httpContextAccessor = null)
     {
         _configuration = configuration;
         _httpClientFactory = httpClientFactory;
         _storageService = storageService;
-        _sqliteDb = sqliteDb;
+        _db = db;
         _httpContextAccessor = httpContextAccessor;
         _sessionTokenFilePath = _storageService.GetFilePath("auth_session.json");
 
@@ -98,14 +99,14 @@ public sealed class GramAuthService : IAuthService
             }
         }
 
-        // 2. Default Local User (Admin on SQLite)
+        // 2. Default: Unauthenticated Guest (Requires login)
         return new GramUser
         {
-            Id = "admin-001",
-            Name = "Admin User",
-            Email = "admin@gram.local",
-            IsAuthenticated = true,
-            Roles = ["admin"]
+            Id = "",
+            Name = "Guest",
+            Email = "",
+            IsAuthenticated = false,
+            Roles = []
         };
     }
 
@@ -170,7 +171,7 @@ public sealed class GramAuthService : IAuthService
         // Native SQLite Database Auth
         try
         {
-            var user = await _sqliteDb.GetUserByEmailAsync(email);
+            var user = await _db.GetUserByEmailAsync(email);
             if (user == null)
             {
                 return new AuthResult { Success = false, ErrorMessage = "No user found with this email address." };
@@ -182,12 +183,13 @@ public sealed class GramAuthService : IAuthService
                 return new AuthResult { Success = false, ErrorMessage = "Incorrect password." };
             }
 
-            var session = await _sqliteDb.CreateSessionAsync(user.Id);
+            var session = await _db.CreateSessionAsync(user.Id);
             _currentUser = new GramUser
             {
                 Id = user.Id,
                 Name = user.Name,
                 Email = user.Email,
+                Image = user.Image,
                 IsAuthenticated = true,
                 Roles = [user.Role],
                 SessionToken = session.Token,
@@ -214,7 +216,7 @@ public sealed class GramAuthService : IAuthService
         // Native SQLite Database Registration
         try
         {
-            var existing = await _sqliteDb.GetUserByEmailAsync(email);
+            var existing = await _db.GetUserByEmailAsync(email);
             if (existing != null)
             {
                 return new AuthResult { Success = false, ErrorMessage = "A user with this email already exists. Please sign in." };
@@ -225,8 +227,8 @@ public sealed class GramAuthService : IAuthService
                 return new AuthResult { Success = false, ErrorMessage = "Password must be at least 6 characters." };
             }
 
-            var createdUser = await _sqliteDb.CreateUserAsync(email, name, password, "user");
-            var session = await _sqliteDb.CreateSessionAsync(createdUser.Id);
+            var createdUser = await _db.CreateUserAsync(email, name, password, "user");
+            var session = await _db.CreateSessionAsync(createdUser.Id);
 
             _currentUser = new GramUser
             {
@@ -373,7 +375,7 @@ public sealed class GramAuthService : IAuthService
         // 1. Try SQLite Database first
         try
         {
-            var user = await _sqliteDb.ValidateSessionAsync(sessionToken);
+            var user = await _db.ValidateSessionAsync(sessionToken);
             if (user != null)
             {
                 _currentUser = new GramUser
@@ -381,6 +383,7 @@ public sealed class GramAuthService : IAuthService
                     Id = user.Id,
                     Name = user.Name,
                     Email = user.Email,
+                    Image = user.Image,
                     IsAuthenticated = true,
                     Roles = [user.Role],
                     SessionToken = sessionToken
@@ -444,8 +447,27 @@ public sealed class GramAuthService : IAuthService
         {
             if (!string.IsNullOrWhiteSpace(_currentUser.Id))
             {
-                await _sqliteDb.UpdateUserProfileAsync(_currentUser.Id, _currentUser.Name);
+                await _db.UpdateUserProfileAsync(_currentUser.Id, _currentUser.Name, _currentUser.Image);
             }
+            await SaveSessionTokenAsync(_currentUser.SessionToken, _currentUser);
+        }
+        catch {}
+
+        OnAuthStateChanged?.Invoke();
+        return true;
+    }
+
+    public async Task<bool> UpdateAvatarAsync(string? imageBase64OrUrl)
+    {
+        _currentUser.Image = string.IsNullOrWhiteSpace(imageBase64OrUrl) ? null : imageBase64OrUrl.Trim();
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_currentUser.Id))
+            {
+                await _db.UpdateUserProfileAsync(_currentUser.Id, _currentUser.Name, _currentUser.Image);
+            }
+            await SaveSessionTokenAsync(_currentUser.SessionToken, _currentUser);
         }
         catch {}
 
@@ -500,10 +522,10 @@ public sealed class GramAuthService : IAuthService
         // 2. SQLite Database Password Reset
         try
         {
-            var user = await _sqliteDb.GetUserByIdAsync(_currentUser.Id);
+            var user = await _db.GetUserByIdAsync(_currentUser.Id);
             if (user == null && !string.IsNullOrWhiteSpace(_currentUser.Email))
             {
-                user = await _sqliteDb.GetUserByEmailAsync(_currentUser.Email);
+                user = await _db.GetUserByEmailAsync(_currentUser.Email);
             }
 
             if (user != null)
@@ -514,7 +536,7 @@ public sealed class GramAuthService : IAuthService
                     return new AuthResult { Success = false, ErrorMessage = "Current password does not match." };
                 }
 
-                await _sqliteDb.UpdatePasswordAsync(user.Id, newPassword);
+                await _db.UpdatePasswordAsync(user.Id, newPassword);
                 return new AuthResult { Success = true };
             }
 
@@ -575,7 +597,7 @@ public sealed class GramAuthService : IAuthService
         var token = _currentUser.SessionToken;
         if (!string.IsNullOrWhiteSpace(token))
         {
-            try { await _sqliteDb.InvalidateSessionAsync(token); } catch {}
+            try { await _db.InvalidateSessionAsync(token); } catch {}
         }
 
         await SaveSessionTokenAsync(null);

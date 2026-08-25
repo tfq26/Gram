@@ -3,6 +3,7 @@
 @using Gram.Blazor.Components.ShadCn
 @inject WorkspaceTabService TabService
 @inject ToolboxManagerService ToolboxService
+@inject ChatStateService ChatStateService
 @inject NavigationManager NavManager
 @implements IDisposable
 
@@ -66,9 +67,8 @@
 
     private void CreateNewChatTab()
     {
-        var newChatId = Guid.NewGuid().ToString("N")[..8];
-        TabService.OpenChatTab(newChatId, "New chat");
-        if (!NavManager.Uri.EndsWith("/"))
+        ChatStateService.RequestNewChat();
+        if (!NavManager.Uri.EndsWith("/") && !NavManager.Uri.EndsWith("/#"))
         {
             NavManager.NavigateTo("/");
         }

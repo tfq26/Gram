@@ -9,8 +9,10 @@ window.gramAudio = {
     recognition: null,
     dotNetRef: null,
     isListening: false,
+    audioLevel: 0,
+    outputDeviceId: '',
 
-    startVoice: async function (dotNetHelper, visualizerContainerId) {
+    startVoice: async function (dotNetHelper, visualizerContainerId, inputDeviceId) {
         this.dotNetRef = dotNetHelper;
         try {
             // 1. Initialize Microphone Audio Stream & Analyser
@@ -21,7 +23,10 @@ window.gramAudio = {
                 await this.audioContext.resume();
             }
 
-            this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            const audio = inputDeviceId
+                ? { deviceId: { exact: inputDeviceId } }
+                : true;
+            this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
             this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = 64;
@@ -76,6 +81,30 @@ window.gramAudio = {
         }
     },
 
+    restartVoiceCapture: async function (dotNetHelper, visualizerContainerId, inputDeviceId) {
+        this.stopVoice(visualizerContainerId);
+        return await this.startVoice(dotNetHelper, visualizerContainerId, inputDeviceId);
+    },
+
+    getAudioDevices: async function () {
+        if (!navigator.mediaDevices?.enumerateDevices) return [];
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        return devices
+            .filter(device => device.kind === 'audioinput' || device.kind === 'audiooutput')
+            .map(device => ({
+                kind: device.kind,
+                deviceId: device.deviceId,
+                label: device.label || ''
+            }));
+    },
+
+    setOutputDevice: function (deviceId) {
+        // Output routing is applied by the future speech playback element.
+        // Keep the selected sink here so the voice UI and playback share one source of truth.
+        this.outputDeviceId = deviceId || '';
+    },
+
     startVisualizerLoop: function (visualizerContainerId) {
         const bufferLength = this.analyser.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
@@ -92,15 +121,24 @@ window.gramAudio = {
             if (container) {
                 const bars = container.querySelectorAll('.v-bar');
                 if (bars.length > 0) {
-                    const step = Math.floor(bufferLength / bars.length);
+                    const step = Math.max(1, Math.floor(bufferLength / bars.length));
+                    let total = 0;
                     for (let i = 0; i < bars.length; i++) {
-                        const val = dataArray[i * step] || 0;
-                        // Minimum height 3px, scales up to 26px when volume detected
-                        const height = Math.max(3, Math.min(26, Math.round((val / 255) * 26)));
-                        const opacity = val > 15 ? 0.95 : 0.35;
+                        const start = i * step;
+                        const end = Math.min(bufferLength, start + Math.max(1, Math.floor(step * 0.8)));
+                        let bandTotal = 0;
+                        for (let j = start; j < end; j++) bandTotal += dataArray[j] || 0;
+                        const val = bandTotal / Math.max(1, end - start);
+                        const level = Math.min(1, (val / 255) * 2.1);
+                        total += level;
+                        // Keep the resting state calm while making speech feel immediate.
+                        const height = Math.max(4, Math.min(15, Math.round(4 + level * 13)));
+                        const opacity = Math.max(0.35, Math.min(1, 0.35 + level * 0.75));
                         bars[i].style.height = `${height}px`;
-                        bars[i].style.opacity = opacity;
+                        bars[i].style.opacity = opacity.toFixed(2);
                     }
+                    this.audioLevel += ((total / bars.length) - this.audioLevel) * 0.24;
+                    container.style.setProperty('--audio-level', this.audioLevel.toFixed(3));
                 }
             }
 
@@ -112,6 +150,7 @@ window.gramAudio = {
 
     stopVoice: function (visualizerContainerId) {
         this.isListening = false;
+        this.audioLevel = 0;
 
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
@@ -148,9 +187,10 @@ window.gramAudio = {
         if (container) {
             const bars = container.querySelectorAll('.v-bar');
             bars.forEach(bar => {
-                bar.style.height = '3px';
+                bar.style.height = '4px';
                 bar.style.opacity = '0.35';
             });
+            container.style.setProperty('--audio-level', '0');
         }
     },
 
@@ -178,16 +218,6 @@ window.gramAudio = {
         if (!textareaElement) return;
         if (textareaElement._gramAttached) return;
         textareaElement._gramAttached = true;
-
-        textareaElement.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                e.stopPropagation();
-                if (dotNetHelper) {
-                    dotNetHelper.invokeMethodAsync('SubmitComposer');
-                }
-            }
-        });
 
         textareaElement.addEventListener('input', function () {
             gramAudio.autoResizeTextarea(textareaElement);

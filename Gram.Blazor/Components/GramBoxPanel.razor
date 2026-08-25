@@ -1,0 +1,196 @@
+@namespace Gram.Blazor.Components
+@using Gram.Blazor.Shared
+@using Gram.Blazor.Components.ShadCn
+@inject IGramBoxService GramBox
+@inject ISonnerService SonnerService
+@implements IDisposable
+
+<div class="grambox-panel" style="display: flex; flex-direction: column; gap: 14px;">
+    <!-- Engine Header Card -->
+    <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-weight: 600; font-size: 13.5px; color: var(--text-primary);">Gram Box Worktree Engine</span>
+                <Badge Variant="default" Style="font-size: 10px;">0MB Idle RAM</Badge>
+                <Badge Variant="outline" Style="font-size: 10px;">APFS / CoW</Badge>
+            </div>
+            <span style="font-size: 11px; color: #22c55e; font-weight: 500;">Active</span>
+        </div>
+
+        <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.4;">
+            @GramBox.StatusMessage
+        </div>
+
+        <div style="display: flex; gap: 6px; margin-top: 4px;">
+            <Button Variant="outline" Size="sm" OnClick="() => showNewSandboxDialog = true">
+                + New Worktree Sandbox
+            </Button>
+        </div>
+    </div>
+
+    <!-- Active Sandboxes List -->
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">
+                Active Sandboxes (@GramBox.ActiveSessions.Count)
+            </span>
+        </div>
+
+        @if (GramBox.ActiveSessions.Count == 0)
+        {
+            <div style="padding: 24px; text-align: center; border: 1px dashed var(--border-color); border-radius: var(--radius-md); color: var(--text-muted); font-size: 12px;">
+                No active worktree sandboxes.<br />Agents will automatically create worktrees or you can create one above.
+            </div>
+        }
+        else
+        {
+            @foreach (var session in GramBox.ActiveSessions)
+            {
+                var isSelected = GramBox.ActiveSession?.Id == session.Id;
+                <div class="sandbox-card @(isSelected ? "selected" : "")" 
+                     style="background: var(--bg-panel); border: 1px solid @(isSelected ? "var(--accent-color, #6366f1)" : "var(--border-color)"); border-radius: var(--radius-md); padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-weight: 600; font-size: 13px; color: var(--text-primary);">@session.Name</span>
+                            <Badge Variant="outline" Style="font-size: 10px; font-family: monospace;">@session.BranchName</Badge>
+                        </div>
+                        <Badge Variant="@(session.Status == SandboxStatus.RunningCommand ? "default" : "secondary")" Style="font-size: 10px;">
+                            @session.Status
+                        </Badge>
+                    </div>
+
+                    <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        @session.WorktreePath
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(session.CurrentCommand))
+                    {
+                        <div style="background: var(--bg-code, #111); padding: 6px 8px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #38bdf8;">
+                            &gt; @session.CurrentCommand
+                        </div>
+                    }
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 8px; margin-top: 2px;">
+                        <div style="display: flex; gap: 6px;">
+                            <Button Variant="outline" Size="sm" OnClick="() => ViewDiff(session)">
+                                Diff
+                            </Button>
+                            <Button Variant="outline" Size="sm" OnClick="() => PromptExec(session)">
+                                Exec
+                            </Button>
+                        </div>
+
+                        <div style="display: flex; gap: 6px;">
+                            <Button Variant="destructive" Size="sm" OnClick="() => CloseSandbox(session.Id)">
+                                Prune
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <!-- New Sandbox Modal / Inline Dialog -->
+    @if (showNewSandboxDialog)
+    {
+        <div style="background: var(--bg-panel-subtle, #1e1b2e); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+            <span style="font-weight: 600; font-size: 13px;">Create New Parallel Worktree Sandbox</span>
+            <input type="text" class="sheet-input" placeholder="Task Name (e.g. Auth System Refactor)" @bind="newTaskName" />
+            <input type="text" class="sheet-input" placeholder="Optional Branch (e.g. feat/auth-v2)" @bind="newBranchName" />
+            <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                <Button Variant="secondary" Size="sm" OnClick="() => showNewSandboxDialog = false">Cancel</Button>
+                <Button Variant="default" Size="sm" OnClick="CreateNewSandbox">Create Worktree</Button>
+            </div>
+        </div>
+    }
+
+    <!-- Diff Viewer Modal -->
+    @if (activeDiff != null)
+    {
+        <div style="background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-weight: 600; font-size: 13px;">Sandbox Diff (@activeDiff.BranchName)</span>
+                <Button Variant="ghost" Size="sm" OnClick="() => activeDiff = null">✕</Button>
+            </div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">
+                @activeDiff.FilesChanged files changed (+@activeDiff.Insertions / -@activeDiff.Deletions)
+            </div>
+            <pre style="background: #0d0b14; padding: 10px; border-radius: 6px; font-size: 11px; overflow-x: auto; max-height: 250px; color: #e2e8f0; font-family: monospace;">@activeDiff.DiffContent</pre>
+        </div>
+    }
+</div>
+
+@code {
+    private bool showNewSandboxDialog = false;
+    private string newTaskName = "";
+    private string newBranchName = "";
+    private SandboxDiffSummary? activeDiff = null;
+
+    protected override void OnInitialized()
+    {
+        GramBox.OnStatusChanged += OnStatusChanged;
+    }
+
+    private void OnStatusChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task CreateNewSandbox()
+    {
+        if (string.IsNullOrWhiteSpace(newTaskName)) return;
+
+        try
+        {
+            var session = await GramBox.CreateSandboxAsync(Environment.CurrentDirectory, newBranchName, newTaskName);
+            SonnerService.Success("Worktree created", $"Sandbox {session.Id} is ready on {session.BranchName}");
+            showNewSandboxDialog = false;
+            newTaskName = "";
+            newBranchName = "";
+        }
+        catch (Exception ex)
+        {
+            SonnerService.Error("Failed to create worktree", ex.Message);
+        }
+    }
+
+    private async Task ViewDiff(GramBoxSandboxSession session)
+    {
+        try
+        {
+            activeDiff = await GramBox.GetDiffAsync(session.Id);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            SonnerService.Error("Failed to load diff", ex.Message);
+        }
+    }
+
+    private async Task PromptExec(GramBoxSandboxSession session)
+    {
+        // Quick health check execution
+        var res = await GramBox.ExecuteAsync("git status --short", session.Id);
+        if (res.Success)
+        {
+            SonnerService.Info($"Status for {session.Id}", string.IsNullOrWhiteSpace(res.Stdout) ? "Clean worktree." : res.Stdout);
+        }
+        else
+        {
+            SonnerService.Error("Execution error", res.Stderr);
+        }
+    }
+
+    private async Task CloseSandbox(string sandboxId)
+    {
+        var ok = await GramBox.CloseSandboxAsync(sandboxId);
+        if (ok)
+        {
+            SonnerService.Info("Sandbox removed", $"Pruned worktree {sandboxId}");
+        }
+    }
+
+    public void Dispose()
+    {
+        GramBox.OnStatusChanged -= OnStatusChanged;
+    }
+}

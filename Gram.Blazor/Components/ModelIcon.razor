@@ -20,6 +20,14 @@
                 key = ModelId.Trim().ToLowerInvariant();
             }
 
+            if (key == "gram-q-plus" || key.Contains("google") || key.Contains("gemini"))
+            {
+                return "logo/gemini.svg";
+            }
+            if (key == "gram-q" || key.Contains("groq") || key.Contains("meta") || key.Contains("llama"))
+            {
+                return "logo/meta-12361.svg";
+            }
             if (key.Contains("anthropic") || key.Contains("claude"))
             {
                 return "logo/anthropic.svg";
@@ -32,13 +40,9 @@
             {
                 return "logo/Deepseek-logo-icon.svg.webp";
             }
-            if (key.Contains("google") || key.Contains("gemini"))
+            if (key.Contains("cloudflare"))
             {
-                return "logo/gemini.svg";
-            }
-            if (key.Contains("meta") || key.Contains("llama"))
-            {
-                return "logo/meta-12361.svg";
+                return "logo/Cloudflare.svg";
             }
             if (key.Contains("x-ai") || key.Contains("xai") || key.Contains("grok"))
             {

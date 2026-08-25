@@ -16,10 +16,12 @@ public sealed class Conversation
     public List<ArtifactInfo> Artifacts { get; set; } = [];
     public string? ContextSummary { get; set; }
     public int PromptTokens { get; set; }
+    public int CachedPromptTokens { get; set; }
     public int CompletionTokens { get; set; }
     public int TotalTokens => PromptTokens + CompletionTokens;
     public long LastLatencyMs { get; set; }
     public double EstimatedCostUsd { get; set; }
+    public int ContextSummaryMessageCount { get; set; }
 
     public Conversation() {}
 
@@ -131,7 +133,8 @@ public enum SidecarTab
     Settings,
     Artifact,
     GitDiff,
-    GitGram
+    GitGram,
+    Sandboxes
 }
 
 public sealed class DiffLine
@@ -182,6 +185,12 @@ public sealed class ChatStateService
 
     public event Action? OnChange;
     public event Func<string, Task>? OnTitleRenamed;
+    public event Action? OnNewChatRequested;
+
+    public void RequestNewChat()
+    {
+        OnNewChatRequested?.Invoke();
+    }
 
     public async Task RenameActiveChatAsync(string newTitle)
     {

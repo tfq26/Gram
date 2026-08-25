@@ -99,15 +99,17 @@ public sealed class ModelService
             Console.WriteLine($"[ModelService] Error loading providers: {ex.Message}");
         }
 
-        // Initialize default supported providers
+        // Initialize default supported providers (Groq is internal engine only and omitted from BYOK providers)
         Providers =
         [
-            new ProviderConfig { Id = "openrouter", Type = ProviderType.OpenRouter, Name = "OpenRouter", BaseUrl = "https://openrouter.ai/api/v1" },
+            new ProviderConfig { Id = "google", Type = ProviderType.Google, Name = "Google Gemini", BaseUrl = "https://generativelanguage.googleapis.com/v1beta/openai" },
+            new ProviderConfig { Id = "cloudflare", Type = ProviderType.CustomOpenAI, Name = "Cloudflare Workers AI", BaseUrl = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1" },
             new ProviderConfig { Id = "openai", Type = ProviderType.OpenAI, Name = "OpenAI", BaseUrl = "https://api.openai.com/v1" },
             new ProviderConfig { Id = "anthropic", Type = ProviderType.Anthropic, Name = "Anthropic", BaseUrl = "https://api.anthropic.com/v1" },
-            new ProviderConfig { Id = "google", Type = ProviderType.Google, Name = "Google Gemini" },
-            new ProviderConfig { Id = "ollama", Type = ProviderType.Ollama, Name = "Ollama (Local)", BaseUrl = "http://localhost:11434" },
-            new ProviderConfig { Id = "xai", Type = ProviderType.xAI, Name = "xAI (Grok)", BaseUrl = "https://api.x.ai/v1" }
+            new ProviderConfig { Id = "openrouter", Type = ProviderType.OpenRouter, Name = "OpenRouter", BaseUrl = "https://openrouter.ai/api/v1" },
+            new ProviderConfig { Id = "xai", Type = ProviderType.xAI, Name = "xAI (Grok)", BaseUrl = "https://api.x.ai/v1" },
+            new ProviderConfig { Id = "deepseek", Type = ProviderType.CustomOpenAI, Name = "DeepSeek", BaseUrl = "https://api.deepseek.com/v1" },
+            new ProviderConfig { Id = "ollama", Type = ProviderType.Ollama, Name = "Ollama (Local)", BaseUrl = "http://localhost:11434" }
         ];
     }
 
@@ -131,13 +133,45 @@ public sealed class ModelService
             Console.WriteLine($"[ModelService] Error loading models: {ex.Message}");
         }
 
-        // Default seed models if none exist
+        // Default seed models (Gram Q, Gram Q+, and BYOK models)
         Models =
         [
-            new GramModel { Id = "anthropic/claude-3.7-sonnet", Name = "Claude 3.7 Sonnet", Provider = "OpenRouter", ContextLength = 200000, IsFavorite = true },
-            new GramModel { Id = "openai/gpt-4o", Name = "GPT-4o", Provider = "OpenRouter", ContextLength = 128000, IsFavorite = true },
-            new GramModel { Id = "deepseek/deepseek-r1", Name = "DeepSeek R1", Provider = "OpenRouter", ContextLength = 64000, IsFavorite = false },
-            new GramModel { Id = "google/gemini-2.5-flash", Name = "Gemini 2.5 Flash", Provider = "OpenRouter", ContextLength = 1000000, IsFavorite = false }
+            new GramModel 
+            { 
+                Id = "gram-q", 
+                Name = "Gram Q", 
+                Provider = "Groq", 
+                Description = "Ultra-fast daily model · Powered by Groq (Llama 3.3 70B)", 
+                ContextLength = 128000, 
+                IsFavorite = true 
+            },
+            new GramModel 
+            { 
+                Id = "gram-q-plus", 
+                Name = "Gram Q+", 
+                Provider = "Google", 
+                Description = "Advanced flagship · Powered by Google Gemini 2.0 Flash (1M Context)", 
+                ContextLength = 1000000, 
+                IsFavorite = true 
+            },
+            new GramModel 
+            { 
+                Id = "anthropic/claude-3.7-sonnet", 
+                Name = "Claude 3.7 Sonnet (BYOK)", 
+                Provider = "Anthropic", 
+                Description = "Requires Anthropic API Key in Settings", 
+                ContextLength = 200000, 
+                IsFavorite = false 
+            },
+            new GramModel 
+            { 
+                Id = "openai/gpt-4o", 
+                Name = "GPT-4o (BYOK)", 
+                Provider = "OpenAI", 
+                Description = "Requires OpenAI API Key in Settings", 
+                ContextLength = 128000, 
+                IsFavorite = false 
+            }
         ];
     }
 
@@ -164,12 +198,24 @@ public sealed class ModelService
             Console.WriteLine($"[ModelService] Error loading secure keys: {ex.Message}");
         }
 
-        // Fallback: Read from environment variables if not already saved
+        // User BYOK fallback: Read environment variables for BYOK providers
+        CheckAndApplyEnvironmentKey("cloudflare", "CLOUDFLARE_API_KEY", "CF_API_KEY", "CF_TOKEN");
         CheckAndApplyEnvironmentKey("openrouter", "OPENROUTER_API_KEY", "OPENROUTER_KEY", "GRAM_API_KEY");
         CheckAndApplyEnvironmentKey("openai", "OPENAI_API_KEY");
         CheckAndApplyEnvironmentKey("anthropic", "ANTHROPIC_API_KEY");
-        CheckAndApplyEnvironmentKey("google", "GEMINI_API_KEY", "GOOGLE_API_KEY");
         CheckAndApplyEnvironmentKey("xai", "XAI_API_KEY", "GROK_API_KEY");
+        CheckAndApplyEnvironmentKey("deepseek", "DEEPSEEK_API_KEY");
+    }
+
+    public string? GetInternalApiKey(string providerId)
+    {
+        return providerId.ToLowerInvariant() switch
+        {
+            "groq" => Environment.GetEnvironmentVariable("GROQ_API_KEY") ?? Environment.GetEnvironmentVariable("GRAM_GROQ_KEY") ?? GetApiKey("groq"),
+            "google" => Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? Environment.GetEnvironmentVariable("GOOGLE_API_KEY") ?? GetApiKey("google"),
+            "cloudflare" => Environment.GetEnvironmentVariable("CLOUDFLARE_API_KEY") ?? Environment.GetEnvironmentVariable("CF_API_KEY") ?? GetApiKey("cloudflare"),
+            _ => GetApiKey(providerId)
+        };
     }
 
     private void CheckAndApplyEnvironmentKey(string providerId, params string[] envVarNames)
@@ -386,6 +432,136 @@ public sealed class ModelService
             }
         }
         SaveModels();
+    }
+
+    public async Task<List<DiscoveredModel>> DiscoverModelsAsync(string? providerFilter = null)
+    {
+        var allDiscovered = new List<DiscoveredModel>();
+
+        // 1. Anthropic Flagship Models
+        if (string.IsNullOrWhiteSpace(providerFilter) || providerFilter.Equals("Anthropic", StringComparison.OrdinalIgnoreCase))
+        {
+            allDiscovered.AddRange(
+            [
+                new() { Id = "anthropic/claude-3.7-sonnet", Name = "Claude 3.7 Sonnet", Provider = "Anthropic", ContextLength = 200000, Description = "Hybrid reasoning and coding flagship by Anthropic" },
+                new() { Id = "anthropic/claude-3.5-sonnet", Name = "Claude 3.5 Sonnet", Provider = "Anthropic", ContextLength = 200000, Description = "Frontier agentic and coding intelligence" },
+                new() { Id = "anthropic/claude-3.5-haiku", Name = "Claude 3.5 Haiku", Provider = "Anthropic", ContextLength = 200000, Description = "High-speed compact agentic model" },
+                new() { Id = "anthropic/claude-3-opus", Name = "Claude 3 Opus", Provider = "Anthropic", ContextLength = 200000, Description = "Deep analytical and architectural reasoning" }
+            ]);
+        }
+
+        // 2. OpenAI Flagship Models
+        if (string.IsNullOrWhiteSpace(providerFilter) || providerFilter.Equals("OpenAI", StringComparison.OrdinalIgnoreCase))
+        {
+            allDiscovered.AddRange(
+            [
+                new() { Id = "openai/gpt-4.5-preview", Name = "GPT-4.5 Preview", Provider = "OpenAI", ContextLength = 128000, Description = "OpenAI's largest knowledge and reasoning model" },
+                new() { Id = "openai/gpt-4o", Name = "GPT-4o", Provider = "OpenAI", ContextLength = 128000, Description = "Versatile flagship multimodal intelligence" },
+                new() { Id = "openai/gpt-4o-mini", Name = "GPT-4o Mini", Provider = "OpenAI", ContextLength = 128000, Description = "Affordable, fast, lightweight model" },
+                new() { Id = "openai/o1", Name = "OpenAI o1", Provider = "OpenAI", ContextLength = 200000, Description = "Deep reasoning and scientific problem solving" },
+                new() { Id = "openai/o3-mini", Name = "OpenAI o3-mini", Provider = "OpenAI", ContextLength = 200000, Description = "High-speed coding and STEM reasoning" }
+            ]);
+        }
+
+        // 3. Google Gemini Models
+        if (string.IsNullOrWhiteSpace(providerFilter) || providerFilter.Equals("Google", StringComparison.OrdinalIgnoreCase))
+        {
+            allDiscovered.AddRange(
+            [
+                new() { Id = "google/gemini-2.5-flash", Name = "Gemini 2.5 Flash", Provider = "Google", ContextLength = 1000000, Description = "Next-gen ultra-fast 1M context flagship" },
+                new() { Id = "google/gemini-2.5-pro", Name = "Gemini 2.5 Pro", Provider = "Google", ContextLength = 2000000, Description = "Frontier reasoning and deep analysis with 2M context" },
+                new() { Id = "google/gemini-2.0-flash", Name = "Gemini 2.0 Flash", Provider = "Google", ContextLength = 1000000, Description = "Multimodal high-speed engine by Google" },
+                new() { Id = "google/gemini-1.5-pro", Name = "Gemini 1.5 Pro", Provider = "Google", ContextLength = 2000000, Description = "Long-context reasoning flagship" },
+                new() { Id = "google/gemini-1.5-flash", Name = "Gemini 1.5 Flash", Provider = "Google", ContextLength = 1000000, Description = "Fast, efficient general purpose model" }
+            ]);
+        }
+
+        // 4. Cloudflare Workers AI Models
+        if (string.IsNullOrWhiteSpace(providerFilter) || providerFilter.Equals("Cloudflare", StringComparison.OrdinalIgnoreCase))
+        {
+            allDiscovered.AddRange(
+            [
+                new() { Id = "cloudflare/@cf/meta/llama-3.3-70b-instruct", Name = "Llama 3.3 70B Instruct", Provider = "Cloudflare", ContextLength = 128000, Description = "Meta's flagship open model running on Cloudflare Edge" },
+                new() { Id = "cloudflare/@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", Name = "DeepSeek R1 Distill 32B", Provider = "Cloudflare", ContextLength = 64000, Description = "High performance reasoning on Cloudflare Edge" },
+                new() { Id = "cloudflare/@cf/meta/llama-3.1-8b-instruct", Name = "Llama 3.1 8B Instruct", Provider = "Cloudflare", ContextLength = 128000, Description = "Low latency edge instruction model" },
+                new() { Id = "cloudflare/@cf/qwen/qwen2.5-coder-32b-instruct", Name = "Qwen 2.5 Coder 32B", Provider = "Cloudflare", ContextLength = 32000, Description = "Code generation and repair specialist" }
+            ]);
+        }
+
+        // 5. DeepSeek Models
+        if (string.IsNullOrWhiteSpace(providerFilter) || providerFilter.Equals("DeepSeek", StringComparison.OrdinalIgnoreCase))
+        {
+            allDiscovered.AddRange(
+            [
+                new() { Id = "deepseek/deepseek-chat", Name = "DeepSeek V3", Provider = "DeepSeek", ContextLength = 64000, Description = "High capability general purpose open-architecture model" },
+                new() { Id = "deepseek/deepseek-reasoner", Name = "DeepSeek R1", Provider = "DeepSeek", ContextLength = 64000, Description = "Advanced reasoning and mathematical synthesis" }
+            ]);
+        }
+
+        // 6. xAI (Grok) Models
+        if (string.IsNullOrWhiteSpace(providerFilter) || providerFilter.Equals("xAI", StringComparison.OrdinalIgnoreCase))
+        {
+            allDiscovered.AddRange(
+            [
+                new() { Id = "xai/grok-2-1212", Name = "Grok 2", Provider = "xAI", ContextLength = 128000, Description = "State of the art frontier intelligence by xAI" },
+                new() { Id = "xai/grok-2-vision-1212", Name = "Grok 2 Vision", Provider = "xAI", ContextLength = 128000, Description = "Multimodal reasoning and vision by xAI" },
+                new() { Id = "xai/grok-beta", Name = "Grok Beta", Provider = "xAI", ContextLength = 128000, Description = "Direct knowledge engine by xAI" }
+            ]);
+        }
+
+        // 7. Ollama Local Models
+        if (string.IsNullOrWhiteSpace(providerFilter) || providerFilter.Equals("Ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var ollamaBase = Providers.FirstOrDefault(p => p.Id == "ollama")?.BaseUrl ?? "http://localhost:11434";
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{ollamaBase.TrimEnd('/')}/api/tags");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                var res = await httpClient.SendAsync(req, cts.Token);
+                if (res.IsSuccessStatusCode)
+                {
+                    var json = await res.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("models", out var modelsArr) && modelsArr.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var m in modelsArr.EnumerateArray())
+                        {
+                            var modelName = m.GetProperty("name").GetString() ?? "";
+                            allDiscovered.Add(new DiscoveredModel
+                            {
+                                Id = $"ollama/{modelName}",
+                                Name = modelName,
+                                Provider = "Ollama",
+                                ContextLength = 32000,
+                                Description = "Local model hosted via Ollama"
+                            });
+                        }
+                    }
+                }
+            }
+            catch {}
+        }
+
+        // 8. OpenRouter Live Catalog
+        if (string.IsNullOrWhiteSpace(providerFilter) || providerFilter.Equals("OpenRouter", StringComparison.OrdinalIgnoreCase))
+        {
+            var openRouterList = await FetchOpenRouterModelsAsync();
+            foreach (var orModel in openRouterList)
+            {
+                if (!allDiscovered.Any(m => m.Id.Equals(orModel.Id, StringComparison.OrdinalIgnoreCase)))
+                {
+                    allDiscovered.Add(orModel);
+                }
+            }
+        }
+
+        // Set favorite state from currently saved models
+        foreach (var dm in allDiscovered)
+        {
+            dm.IsFavorite = Models.Any(m => m.Id.Equals(dm.Id, StringComparison.OrdinalIgnoreCase) && m.IsFavorite);
+        }
+
+        return allDiscovered;
     }
 
     public async Task<List<DiscoveredModel>> FetchOpenRouterModelsAsync(string? apiKey = null)
@@ -990,12 +1166,27 @@ public sealed class ModelService
             }
         }
 
+        var cacheableSystem = string.IsNullOrWhiteSpace(systemPrompt)
+            ? Array.Empty<object>()
+            : new object[]
+            {
+                new
+                {
+                    type = "text",
+                    text = systemPrompt,
+                    cache_control = new { type = "ephemeral" }
+                }
+            };
+
         var payload = new
         {
             model = modelId,
             max_tokens = 4096,
-            system = systemPrompt ?? "",
+            system = cacheableSystem,
             messages,
+            // Anthropic automatically advances this breakpoint as the
+            // conversation grows while reusing the stable system prefix.
+            cache_control = new { type = "ephemeral" },
             stream = true
         };
 
@@ -1072,4 +1263,3 @@ public sealed class ProviderHealthStatus
     public string Message { get; set; } = "Not checked";
     public DateTimeOffset? LastChecked { get; set; }
 }
-

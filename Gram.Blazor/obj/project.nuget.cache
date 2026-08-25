@@ -1,17 +1,20 @@
 {
   "version": 2,
-  "dgSpecHash": "JDVjFXX9as4=",
+  "dgSpecHash": "V6StpmIFkd8=",
   "success": true,
-  "projectFilePath": "C:\\Users\\taufe\\Projects\\Gram\\gram.blazor\\Gram.Blazor.csproj",
+  "projectFilePath": "/Users/taufeeqali/Projects/Gram/Gram.Blazor/Gram.Blazor.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\taufe\\.nuget\\packages\\markdig\\0.40.0\\markdig.0.40.0.nupkg.sha512",
-    "C:\\Users\\taufe\\.nuget\\packages\\microsoft.data.sqlite\\9.0.0\\microsoft.data.sqlite.9.0.0.nupkg.sha512",
-    "C:\\Users\\taufe\\.nuget\\packages\\microsoft.data.sqlite.core\\9.0.0\\microsoft.data.sqlite.core.9.0.0.nupkg.sha512",
-    "C:\\Users\\taufe\\.nuget\\packages\\sqlite\\3.53.4\\sqlite.3.53.4.nupkg.sha512",
-    "C:\\Users\\taufe\\.nuget\\packages\\sqlitepclraw.bundle_e_sqlite3\\3.0.5\\sqlitepclraw.bundle_e_sqlite3.3.0.5.nupkg.sha512",
-    "C:\\Users\\taufe\\.nuget\\packages\\sqlitepclraw.config.e_sqlite3\\3.0.5\\sqlitepclraw.config.e_sqlite3.3.0.5.nupkg.sha512",
-    "C:\\Users\\taufe\\.nuget\\packages\\sqlitepclraw.core\\3.0.5\\sqlitepclraw.core.3.0.5.nupkg.sha512",
-    "C:\\Users\\taufe\\.nuget\\packages\\sqlitepclraw.provider.e_sqlite3\\3.0.5\\sqlitepclraw.provider.e_sqlite3.3.0.5.nupkg.sha512"
+    "/Users/taufeeqali/.nuget/packages/markdig/0.40.0/markdig.0.40.0.nupkg.sha512",
+    "/Users/taufeeqali/.nuget/packages/microsoft.data.sqlite/9.0.0/microsoft.data.sqlite.9.0.0.nupkg.sha512",
+    "/Users/taufeeqali/.nuget/packages/microsoft.data.sqlite.core/9.0.0/microsoft.data.sqlite.core.9.0.0.nupkg.sha512",
+    "/Users/taufeeqali/.nuget/packages/microsoft.extensions.dependencyinjection.abstractions/9.0.0/microsoft.extensions.dependencyinjection.abstractions.9.0.0.nupkg.sha512",
+    "/Users/taufeeqali/.nuget/packages/microsoft.extensions.logging.abstractions/9.0.0/microsoft.extensions.logging.abstractions.9.0.0.nupkg.sha512",
+    "/Users/taufeeqali/.nuget/packages/npgsql/10.0.3/npgsql.10.0.3.nupkg.sha512",
+    "/Users/taufeeqali/.nuget/packages/sqlite/3.53.4/sqlite.3.53.4.nupkg.sha512",
+    "/Users/taufeeqali/.nuget/packages/sqlitepclraw.bundle_e_sqlite3/3.0.5/sqlitepclraw.bundle_e_sqlite3.3.0.5.nupkg.sha512",
+    "/Users/taufeeqali/.nuget/packages/sqlitepclraw.config.e_sqlite3/3.0.5/sqlitepclraw.config.e_sqlite3.3.0.5.nupkg.sha512",
+    "/Users/taufeeqali/.nuget/packages/sqlitepclraw.core/3.0.5/sqlitepclraw.core.3.0.5.nupkg.sha512",
+    "/Users/taufeeqali/.nuget/packages/sqlitepclraw.provider.e_sqlite3/3.0.5/sqlitepclraw.provider.e_sqlite3.3.0.5.nupkg.sha512"
   ],
   "logs": []
 }

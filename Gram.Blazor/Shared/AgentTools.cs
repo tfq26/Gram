@@ -20,7 +20,10 @@ public sealed class AgentToolDefinition
             {
                 ["name"] = Name,
                 ["description"] = Description,
-                ["parameters"] = Parameters
+                // JsonNode instances can only have one parent. Tool definitions are reused
+                // across agent-loop iterations, so clone the schema before attaching it to
+                // the request payload.
+                ["parameters"] = Parameters.DeepClone()
             }
         };
     }
@@ -38,7 +41,7 @@ public sealed class ToolExecutionResult
 
 public interface IAgentToolRegistry
 {
-    List<AgentToolDefinition> GetAvailableTools(bool isLocalEnvironment, GitAccount? activeGitAccount = null);
+    List<AgentToolDefinition> GetAvailableTools(bool isLocalEnvironment, GitAccount? activeGitAccount = null, string? intent = null);
     Task<ToolExecutionResult> ExecuteToolAsync(string name, string callId, string argumentsJson, string workspacePath, GitAccount? activeGitAccount = null, CancellationToken cancellationToken = default);
 }
 
@@ -47,21 +50,27 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
     private readonly GitService _gitService;
     private readonly AgentSecurityService _securityService;
     private readonly ToolboxManagerService _toolboxService;
+    private readonly GramToolKernel _toolKernel;
+    private readonly IGramBoxService? _gramBoxService;
     private readonly HttpClient _httpClient;
 
     public AgentToolRegistry(
         GitService gitService, 
-        AgentSecurityService securityService, 
+        AgentSecurityService securityService,
         ToolboxManagerService toolboxService,
+        GramToolKernel toolKernel,
+        IGramBoxService? gramBoxService = null,
         HttpClient? httpClient = null)
     {
         _gitService = gitService;
         _securityService = securityService;
         _toolboxService = toolboxService;
+        _toolKernel = toolKernel;
+        _gramBoxService = gramBoxService;
         _httpClient = httpClient ?? new HttpClient();
     }
 
-    public List<AgentToolDefinition> GetAvailableTools(bool isLocalEnvironment, GitAccount? activeGitAccount = null)
+    public List<AgentToolDefinition> GetAvailableTools(bool isLocalEnvironment, GitAccount? activeGitAccount = null, string? intent = null)
     {
         var tools = new List<AgentToolDefinition>();
 
@@ -312,7 +321,134 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
             });
         }
 
-        return tools;
+        // Gram Box Multi-Worktree Parallel Sandbox Tools (Zero-Interruption Agent Autonomy)
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_create_sandbox",
+            Description = "Provision an isolated Git Worktree sandbox environment linked to the current repository for parallel feature development, experimentation, or test runs without touching the main workspace.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["taskName"] = new JsonObject { ["type"] = "string", ["description"] = "Short name or description of the task (e.g. 'Auth Refactor', 'Unit Test Suite')." },
+                    ["branchName"] = new JsonObject { ["type"] = "string", ["description"] = "Optional custom branch name for the worktree (e.g. 'feat/auth-v2')." }
+                },
+                ["required"] = new JsonArray { "taskName" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_exec",
+            Description = "Execute shell commands inside an isolated Git Worktree sandbox with 100% agent autonomy (0 approval prompts, low CPU priority nice +10, 0MB idle RAM).",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["command"] = new JsonObject { ["type"] = "string", ["description"] = "The shell command to execute inside the sandbox worktree." },
+                    ["sandboxId"] = new JsonObject { ["type"] = "string", ["description"] = "Optional ID of the target worktree sandbox (defaults to active sandbox)." },
+                    ["relativeSubDir"] = new JsonObject { ["type"] = "string", ["description"] = "Optional relative subfolder within the worktree." },
+                    ["timeoutSeconds"] = new JsonObject { ["type"] = "integer", ["description"] = "Optional timeout in seconds (default 120)." }
+                },
+                ["required"] = new JsonArray { "command" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_list_sandboxes",
+            Description = "List all active parallel Git Worktree sandboxes, branch names, execution statuses, and disk metrics.",
+            Parameters = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_write_file",
+            Description = "Write or edit a file directly in the specified sandbox worktree.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["filePath"] = new JsonObject { ["type"] = "string", ["description"] = "Relative path of file inside the worktree sandbox." },
+                    ["content"] = new JsonObject { ["type"] = "string", ["description"] = "The file text content to write." },
+                    ["sandboxId"] = new JsonObject { ["type"] = "string", ["description"] = "Optional ID of the target worktree sandbox." }
+                },
+                ["required"] = new JsonArray { "filePath", "content" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_read_file",
+            Description = "Read a file from the specified sandbox worktree.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["filePath"] = new JsonObject { ["type"] = "string", ["description"] = "Relative path of file inside the worktree sandbox." },
+                    ["sandboxId"] = new JsonObject { ["type"] = "string", ["description"] = "Optional ID of the target worktree sandbox." }
+                },
+                ["required"] = new JsonArray { "filePath" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_get_diff",
+            Description = "Extract colorized git diff of all modifications made in a sandbox worktree compared to base branch.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["sandboxId"] = new JsonObject { ["type"] = "string", ["description"] = "Optional ID of the target worktree sandbox." }
+                }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_commit_sandbox",
+            Description = "Commit all changes in the sandbox worktree with a commit message.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["commitMessage"] = new JsonObject { ["type"] = "string", ["description"] = "Commit message describing the changes." },
+                    ["sandboxId"] = new JsonObject { ["type"] = "string", ["description"] = "Optional ID of the target worktree sandbox." }
+                },
+                ["required"] = new JsonArray { "commitMessage" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_close_sandbox",
+            Description = "Clean up and remove an isolated worktree sandbox and delete its ephemeral scratchpad.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["sandboxId"] = new JsonObject { ["type"] = "string", ["description"] = "The ID of the sandbox to remove (e.g. 'sb-abc12345')." }
+                },
+                ["required"] = new JsonArray { "sandboxId" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_status",
+            Description = "Get the health, active engine, and resource telemetry of the Gram Box sandbox engine.",
+            Parameters = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }
+        });
+
+        return ToolSelectionPolicy.SelectForIntent(tools, intent);
     }
 
     public async Task<ToolExecutionResult> ExecuteToolAsync(
@@ -775,10 +911,15 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                 {
                     var sb = new StringBuilder();
                     sb.AppendLine($"# Gram Toolbox v{_toolboxService.ToolboxVersion} ({_toolboxService.ToolboxStatus})\n");
-                    sb.AppendLine("## Installed Toolbox Engines & Sandboxes:");
-                    foreach (var t in _toolboxService.InstalledTools)
+                    sb.AppendLine("## Kernel-registered tools:");
+                    foreach (var t in _toolKernel.GetTools())
                     {
-                        sb.AppendLine($"- **{t.Name}** (`{t.Id}`): {t.Description} [Category: {t.Category} | Status: {t.Status}]");
+                        var parallel = t.SupportsParallelExecution ? "parallel-safe" : "serialized";
+                        sb.AppendLine($"- **{t.Name}** (`{t.Id}`): {t.Description} [Category: {t.Category} | Kind: {t.Kind} | Risk: {t.Risk} | Isolation: {t.Isolation} | ~{t.ExpectedLatencyMs}ms | {parallel}]");
+                        if (t.Capabilities.Count > 0)
+                        {
+                            sb.AppendLine($"  Capabilities: {string.Join(", ", t.Capabilities)}");
+                        }
                     }
 
                     if (_toolboxService.McpServers.Count > 0)
@@ -817,76 +958,20 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         break;
                     }
 
-                    switch (toolId.ToLowerInvariant())
-                    {
-                        case "embedded-sandbox":
-                        case "coder-cde":
-                            result.Output = $"[Toolbox Sandbox: {tool.Name}]\nAction: {action}\nStatus: Sandbox runtime ready.\nPayload: {payload}\nExecution: Command safely isolated in sandbox runtime.";
-                            break;
-
-                        case "tree-sitter-ast":
-                            result.Output = $"[Toolbox Semantic AST: {tool.Name}]\nAction: {action}\nSyntax Tree Analysis: Completed. AST tokens parsed for symbols in payload.";
-                            break;
-
-                        case "lsp-diagnostics":
-                            result.Output = $"[Toolbox LSP Bridge: {tool.Name}]\nAction: {action}\nCompiler Diagnostics: 0 Errors, 0 Warnings detected across workspace.";
-                            break;
-
-                        case "git-gram":
+                    var kernelResult = await _toolKernel.ExecuteAsync(
+                        toolId,
+                        action,
+                        new JsonObject { ["payload"] = payload },
+                        new GramToolExecutionContext
                         {
-                            try
-                            {
-                                var gitArgs = action.ToLowerInvariant() switch
-                                {
-                                    "status" => "status --short",
-                                    "branch" => "branch -a",
-                                    "log" => "log -n 5 --oneline",
-                                    "diff" => "diff HEAD",
-                                    "commit" => $"commit -m \"{(string.IsNullOrWhiteSpace(payload) ? "chore: autonomous update" : payload.Replace("\"", "\\\""))}\"",
-                                    "create_branch" => $"checkout -b \"{(string.IsNullOrWhiteSpace(payload) ? "feature/gram-update" : payload.Trim())}\"",
-                                    _ => $"status --short"
-                                };
+                            WorkspacePath = workspacePath,
+                            RepositoryPath = workspacePath,
+                            ApprovalGranted = _securityService.Settings.PermissionMode == ExecutionPermissionMode.FullAutonomous
+                        },
+                        cancellationToken);
 
-                                var gitProc = new System.Diagnostics.Process
-                                {
-                                    StartInfo = new System.Diagnostics.ProcessStartInfo
-                                    {
-                                        FileName = "git",
-                                        Arguments = gitArgs,
-                                        WorkingDirectory = workspacePath,
-                                        RedirectStandardOutput = true,
-                                        RedirectStandardError = true,
-                                        UseShellExecute = false,
-                                        CreateNoWindow = true
-                                    }
-                                };
-                                gitProc.Start();
-                                var gitOutput = await gitProc.StandardOutput.ReadToEndAsync(cancellationToken);
-                                var gitErr = await gitProc.StandardError.ReadToEndAsync(cancellationToken);
-                                await gitProc.WaitForExitAsync(cancellationToken);
-
-                                result.Output = $"[Git Gram: Autonomous VCS Specialist]\nAction: {action}\nResult:\n{(string.IsNullOrWhiteSpace(gitOutput) ? (string.IsNullOrWhiteSpace(gitErr) ? "Workspace clean / Command completed with no output." : gitErr) : gitOutput)}";
-                            }
-                            catch (Exception ex)
-                            {
-                                result.IsError = true;
-                                result.Output = $"Git Gram execution failed: {ex.Message}";
-                            }
-                            break;
-                        }
-
-                        case "playwright-browser":
-                            result.Output = $"[Toolbox Playwright Visual QA: {tool.Name}]\nAction: {action}\nHeadless Browser: Page loaded successfully. Rendering verified.";
-                            break;
-
-                        case "ripgrep-fd":
-                            result.Output = $"[Toolbox Fast Search Engine: {tool.Name}]\nAction: {action}\nSearch Index: Search indexed across workspace directories.";
-                            break;
-
-                        default:
-                            result.Output = $"[Toolbox Tool: {tool.Name}]\nAction: {action} executed successfully.";
-                            break;
-                    }
+                    result.IsError = !kernelResult.IsSuccess;
+                    result.Output = $"[Toolbox: Controlled Tool Kernel]\nTool: {tool.Name}\nAction: {action}\nStatus: {kernelResult.Status}\nResult:\n{kernelResult.Output}";
                     break;
                 }
 
@@ -918,6 +1003,196 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         body = body[..12000] + "\n\n...[content truncated]...";
                     }
                     result.Output = body;
+                    break;
+                }
+
+                case "grambox_create_sandbox":
+                {
+                    if (_gramBoxService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Gram Box service is not registered.";
+                        break;
+                    }
+
+                    var taskName = args?["taskName"]?.ToString() ?? "Agent Task";
+                    var branchName = args?["branchName"]?.ToString();
+
+                    var session = await _gramBoxService.CreateSandboxAsync(workspacePath, branchName, taskName, cancellationToken);
+                    result.Output = $"[Gram Box Worktree Sandbox Created]\nSandbox ID: {session.Id}\nTask Name: {session.Name}\nBranch: {session.BranchName}\nWorktree Path: {session.WorktreePath}\nStatus: {session.Status}\nResource Footprint: 0MB Idle RAM / APFS Copy-on-Write";
+                    break;
+                }
+
+                case "grambox_exec":
+                {
+                    if (_gramBoxService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Gram Box service is not registered.";
+                        break;
+                    }
+
+                    var command = args?["command"]?.ToString() ?? "";
+                    var sandboxId = args?["sandboxId"]?.ToString();
+                    var relativeDir = args?["relativeSubDir"]?.ToString();
+                    var timeout = args?["timeoutSeconds"]?.GetValue<int>() ?? 120;
+
+                    if (string.IsNullOrWhiteSpace(command))
+                    {
+                        result.IsError = true;
+                        result.Output = "No command provided for grambox_exec.";
+                        break;
+                    }
+
+                    // Complete agent autonomy inside the worktree sandbox (nice +10, low CPU, 0MB idle RAM)
+                    var execRes = await _gramBoxService.ExecuteAsync(command, sandboxId, relativeDir, timeout, cancellationToken);
+                    if (!execRes.Success)
+                    {
+                        result.IsError = true;
+                        result.Output = $"[Gram Box Exit Code: {execRes.ExitCode} | Sandbox: {execRes.SandboxId}]\n{execRes.Stderr}\n{execRes.ErrorMessage}";
+                    }
+                    else
+                    {
+                        result.Output = string.IsNullOrWhiteSpace(execRes.Stdout) 
+                            ? (string.IsNullOrWhiteSpace(execRes.Stderr) ? $"[Gram Box Sandbox {execRes.SandboxId}] Command executed successfully with no output." : execRes.Stderr)
+                            : execRes.Stdout;
+                    }
+                    break;
+                }
+
+                case "grambox_list_sandboxes":
+                {
+                    if (_gramBoxService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Gram Box service is not registered.";
+                        break;
+                    }
+
+                    var sessions = _gramBoxService.ActiveSessions;
+                    if (sessions.Count == 0)
+                    {
+                        result.Output = "No active worktree sandboxes. Create one with `grambox_create_sandbox`.";
+                        break;
+                    }
+
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"Active Worktree Sandboxes ({sessions.Count}):");
+                    foreach (var s in sessions)
+                    {
+                        sb.AppendLine($"- ID: {s.Id} | Task: {s.Name} | Branch: {s.BranchName} | Status: {s.Status} | Path: {s.WorktreePath}");
+                    }
+                    result.Output = sb.ToString().TrimEnd();
+                    break;
+                }
+
+                case "grambox_write_file":
+                {
+                    if (_gramBoxService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Gram Box service is not registered.";
+                        break;
+                    }
+
+                    var filePath = args?["filePath"]?.ToString() ?? "";
+                    var content = args?["content"]?.ToString() ?? "";
+                    var sandboxId = args?["sandboxId"]?.ToString();
+
+                    var ok = await _gramBoxService.WriteFileAsync(filePath, content, sandboxId, cancellationToken);
+                    if (!ok)
+                    {
+                        result.IsError = true;
+                        result.Output = $"Failed to write file '{filePath}' into sandbox.";
+                    }
+                    else
+                    {
+                        result.Output = $"Successfully wrote '{filePath}' in sandbox worktree.";
+                    }
+                    break;
+                }
+
+                case "grambox_read_file":
+                {
+                    if (_gramBoxService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Gram Box service is not registered.";
+                        break;
+                    }
+
+                    var filePath = args?["filePath"]?.ToString() ?? "";
+                    var sandboxId = args?["sandboxId"]?.ToString();
+                    var content = await _gramBoxService.ReadFileAsync(filePath, sandboxId, cancellationToken);
+                    if (content == null)
+                    {
+                        result.IsError = true;
+                        result.Output = $"File not found or could not be read from sandbox: {filePath}";
+                    }
+                    else
+                    {
+                        result.Output = content;
+                    }
+                    break;
+                }
+
+                case "grambox_get_diff":
+                {
+                    if (_gramBoxService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Gram Box service is not registered.";
+                        break;
+                    }
+
+                    var sandboxId = args?["sandboxId"]?.ToString();
+                    var diff = await _gramBoxService.GetDiffAsync(sandboxId, cancellationToken);
+                    result.Output = $"[Gram Box Diff | Sandbox: {diff.SandboxId} | Branch: {diff.BranchName}]\nFiles Changed: {diff.FilesChanged} (+{diff.Insertions} / -{diff.Deletions})\n\n{(string.IsNullOrWhiteSpace(diff.DiffContent) ? "No uncommitted changes in worktree." : diff.DiffContent)}";
+                    break;
+                }
+
+                case "grambox_commit_sandbox":
+                {
+                    if (_gramBoxService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Gram Box service is not registered.";
+                        break;
+                    }
+
+                    var commitMsg = args?["commitMessage"]?.ToString() ?? "Agent update in sandbox worktree";
+                    var sandboxId = args?["sandboxId"]?.ToString();
+                    var ok = await _gramBoxService.CommitChangesAsync(commitMsg, sandboxId, cancellationToken);
+                    result.Output = ok ? $"Successfully committed changes to sandbox branch: \"{commitMsg}\"" : "Failed to commit changes in sandbox.";
+                    break;
+                }
+
+                case "grambox_close_sandbox":
+                {
+                    if (_gramBoxService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Gram Box service is not registered.";
+                        break;
+                    }
+
+                    var sandboxId = args?["sandboxId"]?.ToString() ?? "";
+                    var ok = await _gramBoxService.CloseSandboxAsync(sandboxId, force: true, cancellationToken);
+                    result.Output = ok ? $"Sandbox worktree '{sandboxId}' successfully removed and cleaned up." : $"Failed to remove sandbox '{sandboxId}'.";
+                    break;
+                }
+
+                case "grambox_status":
+                {
+                    if (_gramBoxService == null)
+                    {
+                        result.Output = "Gram Box: Service not enabled.";
+                        break;
+                    }
+
+                    var activeCount = _gramBoxService.ActiveSessions.Count;
+                    var current = _gramBoxService.ActiveSession;
+                    result.Output = $"[Gram Box Multi-Worktree Engine]\nEngine: {_gramBoxService.ActiveEngine}\nStatus: {_gramBoxService.StatusMessage}\nActive Worktree Sessions: {activeCount}\nCurrent Active Sandbox: {(current != null ? $"{current.Id} ({current.BranchName})" : "None")}\nMemory Footprint: 0MB Idle RAM\nCPU Priority: BelowNormal / nice +10 (Zero Host Lag)";
                     break;
                 }
 

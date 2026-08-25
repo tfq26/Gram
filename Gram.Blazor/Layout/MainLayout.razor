@@ -54,7 +54,16 @@
         </header>
     }
     <main class="page-frame @(IsLoginPage() ? "login-frame" : "")">
-        @Body
+        @if (!IsLoginPage() && !AuthService.CurrentUser.IsAuthenticated)
+        {
+            <div style="display: flex; justify-content: center; align-items: center; height: 100%; color: var(--text-muted); font-size: 14px;">
+                <span>Redirecting to sign in...</span>
+            </div>
+        }
+        else
+        {
+            @Body
+        }
     </main>
     <Sonner />
     <AuthModal @bind-IsOpen="showAuthModal" />
@@ -69,12 +78,44 @@
         ChatStateService.OnChange += OnChatStateChanged;
         SettingsService.OnBreadcrumbChanged += OnBreadcrumbChanged;
         AuthService.OnAuthStateChanged += OnAuthChanged;
+        NavManager.LocationChanged += OnLocationChanged;
+
+        CheckAuthentication();
+    }
+
+    protected override void OnParametersSet()
+    {
+        CheckAuthentication();
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        CheckAuthentication();
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void OnThemeChanged() => _ = InvokeAsync(StateHasChanged);
     private void OnChatStateChanged() => _ = InvokeAsync(StateHasChanged);
     private void OnBreadcrumbChanged() => _ = InvokeAsync(StateHasChanged);
-    private void OnAuthChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnAuthChanged()
+    {
+        CheckAuthentication();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void CheckAuthentication()
+    {
+        if (!IsLoginPage() && !AuthService.CurrentUser.IsAuthenticated)
+        {
+            var relativePath = NavManager.ToBaseRelativePath(NavManager.Uri);
+            var returnUrl = string.IsNullOrWhiteSpace(relativePath) ? "/" : "/" + relativePath;
+            if (returnUrl.Contains("login", StringComparison.OrdinalIgnoreCase) || returnUrl.Contains("signin", StringComparison.OrdinalIgnoreCase))
+            {
+                returnUrl = "/";
+            }
+            NavManager.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}");
+        }
+    }
 
     private bool IsActive(string path)
     {
@@ -95,6 +136,7 @@
         ChatStateService.OnChange -= OnChatStateChanged;
         SettingsService.OnBreadcrumbChanged -= OnBreadcrumbChanged;
         AuthService.OnAuthStateChanged -= OnAuthChanged;
+        NavManager.LocationChanged -= OnLocationChanged;
     }
 }
 

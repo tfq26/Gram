@@ -33,14 +33,14 @@ public sealed class AuthSettings
 
 public sealed class GramUser
 {
-    public string Id { get; set; } = "local-admin";
-    public string Name { get; set; } = "Local Admin";
-    public string? Nickname { get; set; } = "Admin";
-    public string? Email { get; set; } = "admin@local.gram";
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "Guest";
+    public string? Nickname { get; set; }
+    public string? Email { get; set; }
     public string? Image { get; set; }
-    public bool IsAuthenticated { get; set; } = true;
+    public bool IsAuthenticated { get; set; } = false;
     public bool HasPasskey { get; set; } = false;
-    public List<string> Roles { get; set; } = ["admin"];
+    public List<string> Roles { get; set; } = [];
     public string? SessionToken { get; set; }
     public DateTimeOffset? ExpiresAt { get; set; }
 

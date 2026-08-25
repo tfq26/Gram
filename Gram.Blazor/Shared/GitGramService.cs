@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace Gram.Blazor.Shared;
@@ -47,6 +48,7 @@ public sealed class GitGramLogEntry
     public int ExitCode { get; set; }
     public string Output { get; set; } = "";
     public bool IsSuccess => ExitCode == 0;
+    public bool BlockedByPolicy { get; set; }
     public double ElapsedMs { get; set; }
 }
 
@@ -62,6 +64,14 @@ public sealed class GitGramRepoState
     public string LastCommitHash { get; set; } = "";
     public string LastCommitMessage { get; set; } = "";
     public DateTime LastCheckedUtc { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class GitGramActionResult
+{
+    public bool Success { get; init; }
+    public string Output { get; init; } = "";
+    public string? ErrorCode { get; init; }
+    public JsonObject Data { get; init; } = new();
 }
 
 public sealed class GitGramService
@@ -129,7 +139,12 @@ public sealed class GitGramService
     {
         try
         {
-            var targetFull = Path.GetFullPath(Path.Combine(workspacePath, relativeFilePath));
+            if (!TryResolveWorkspacePath(workspacePath, relativeFilePath, out var targetFull))
+            {
+                _sonner.Error($"Refused to write outside the active workspace: {relativeFilePath}", "Git Gram File Safety");
+                return false;
+            }
+
             var dir = Path.GetDirectoryName(targetFull);
             if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
             {
@@ -157,6 +172,12 @@ public sealed class GitGramService
 
     public async Task<bool> DiscardFileChangesAsync(string relativeFilePath, string workspacePath)
     {
+        if (!TryResolveWorkspacePath(workspacePath, relativeFilePath, out _))
+        {
+            _sonner.Error($"Refused to discard outside the active workspace: {relativeFilePath}", "Git Gram File Safety");
+            return false;
+        }
+
         var task = EnqueueTask(new GitGramTask
         {
             Type = GitGramTaskType.DiscardFile,
@@ -170,6 +191,12 @@ public sealed class GitGramService
 
     public async Task<bool> StageFileAsync(string relativeFilePath, string workspacePath)
     {
+        if (!TryResolveWorkspacePath(workspacePath, relativeFilePath, out _))
+        {
+            _sonner.Error($"Refused to stage outside the active workspace: {relativeFilePath}", "Git Gram File Safety");
+            return false;
+        }
+
         var task = EnqueueTask(new GitGramTask
         {
             Type = GitGramTaskType.StageFile,
@@ -194,12 +221,144 @@ public sealed class GitGramService
         return task.Status == GitGramTaskStatus.Completed;
     }
 
-    private async Task WaitForTaskAsync(string taskId)
+    public async Task<GitGramActionResult> ExecuteControlledActionAsync(
+        string action,
+        string? payload,
+        string workspacePath,
+        CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(workspacePath) && Directory.Exists(workspacePath))
+        {
+            SetActiveWorkspace(workspacePath);
+        }
+
+        var normalizedAction = (action ?? "status").Trim().ToLowerInvariant();
+        switch (normalizedAction)
+        {
+            case "status":
+            {
+                var task = EnqueueTask(new GitGramTask
+                {
+                    Type = GitGramTaskType.StatusInspection,
+                    Description = "Inspect repository status through Git Gram"
+                });
+                await WaitForTaskAsync(task.Id, cancellationToken);
+                return TaskResult(task, new JsonObject
+                {
+                    ["branch"] = ActiveRepoState.CurrentBranch,
+                    ["isClean"] = ActiveRepoState.IsClean,
+                    ["modifiedFiles"] = ActiveRepoState.ModifiedFileCount,
+                    ["stagedFiles"] = ActiveRepoState.StagedFileCount,
+                    ["untrackedFiles"] = ActiveRepoState.UntrackedFileCount
+                });
+            }
+
+            case "stage_all":
+            {
+                var task = EnqueueTask(new GitGramTask
+                {
+                    Type = GitGramTaskType.StageAll,
+                    Description = "Stage all changes through Git Gram"
+                });
+                await WaitForTaskAsync(task.Id, cancellationToken);
+                return TaskResult(task);
+            }
+
+            case "stage_file":
+                return await ExecuteExistingActionAsync(StageFileAsync(payload ?? "", workspacePath), normalizedAction, cancellationToken);
+
+            case "discard_file":
+                return await ExecuteExistingActionAsync(DiscardFileChangesAsync(payload ?? "", workspacePath), normalizedAction, cancellationToken);
+
+            case "commit":
+            {
+                if (!IsAutonomousCommitEnabled)
+                {
+                    return new GitGramActionResult
+                    {
+                        ErrorCode = "autonomous_commit_disabled",
+                        Output = "Git Gram autonomous commits are disabled by policy."
+                    };
+                }
+
+                return await ExecuteExistingActionAsync(CommitChangesAsync(payload ?? "chore: autonomous repository update", workspacePath), normalizedAction, cancellationToken);
+            }
+
+            case "create_branch":
+            {
+                var task = EnqueueTask(new GitGramTask
+                {
+                    Type = GitGramTaskType.BranchCreate,
+                    Payload = payload,
+                    Description = $"Create branch '{payload}' through Git Gram"
+                });
+                await WaitForTaskAsync(task.Id, cancellationToken);
+                return TaskResult(task);
+            }
+
+            case "branch":
+                return new GitGramActionResult
+                {
+                    Success = true,
+                    Output = $"Current branch: {ActiveRepoState.CurrentBranch}",
+                    Data = new JsonObject { ["currentBranch"] = ActiveRepoState.CurrentBranch }
+                };
+
+            case "log":
+                return new GitGramActionResult
+                {
+                    Success = true,
+                    Output = string.Join(Environment.NewLine, AuditLogs.Take(10).Select(x => $"{x.Command} ({x.ElapsedMs:0}ms)")),
+                    Data = new JsonObject { ["entries"] = AuditLogs.Take(10).Count() }
+                };
+
+            case "diff":
+            {
+                var task = EnqueueTask(new GitGramTask
+                {
+                    Type = GitGramTaskType.DiffAnalysis,
+                    Description = "Analyze repository diff through Git Gram"
+                });
+                await WaitForTaskAsync(task.Id, cancellationToken);
+                return TaskResult(task);
+            }
+
+            default:
+                return new GitGramActionResult
+                {
+                    ErrorCode = "unsupported_git_action",
+                    Output = $"Git Gram does not support the action '{action}'."
+                };
+        }
+    }
+
+    private static async Task<GitGramActionResult> ExecuteExistingActionAsync(Task<bool> operation, string action, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var success = await operation;
+        return new GitGramActionResult
+        {
+            Success = success,
+            Output = success ? $"Git Gram completed '{action}'." : $"Git Gram failed '{action}'.",
+            ErrorCode = success ? null : "git_operation_failed"
+        };
+    }
+
+    private static GitGramActionResult TaskResult(GitGramTask task, JsonObject? data = null) => new()
+    {
+        Success = task.Status == GitGramTaskStatus.Completed,
+        Output = task.ResultOutput ?? $"Git Gram task {task.Status}.",
+        ErrorCode = task.Status == GitGramTaskStatus.Completed ? null : $"git_task_{task.Status.ToString().ToLowerInvariant()}",
+        Data = data ?? new JsonObject { ["taskId"] = task.Id, ["status"] = task.Status.ToString() }
+    };
+
+    private async Task WaitForTaskAsync(string taskId, CancellationToken cancellationToken = default)
     {
         var maxWait = TimeSpan.FromSeconds(8);
         var sw = Stopwatch.StartNew();
         while (sw.Elapsed < maxWait)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var t = TaskHistory.FirstOrDefault(x => x.Id == taskId);
             if (t != null && t.Status != GitGramTaskStatus.Queued && t.Status != GitGramTaskStatus.Running)
             {
@@ -261,8 +420,8 @@ public sealed class GitGramService
             {
                 case GitGramTaskType.StatusInspection:
                 {
-                    var statusRes = await RunRawGitAsync("status --porcelain -b", repoDir);
-                    var logRes = await RunRawGitAsync("log -n 1 --pretty=format:\"%h|%s\"", repoDir);
+                    var statusRes = await RunGitAsync(repoDir, "status", "--porcelain", "-b");
+                    var logRes = await RunGitAsync(repoDir, "log", "-n", "1", "--pretty=format:%h|%s");
 
                     ParsePorcelainStatus(statusRes.Output);
 
@@ -281,7 +440,7 @@ public sealed class GitGramService
                 case GitGramTaskType.BranchCreate:
                 {
                     var branchName = string.IsNullOrWhiteSpace(task.Payload) ? "feature/gram-update" : SanitizeBranchName(task.Payload);
-                    var res = await RunRawGitAsync($"checkout -b \"{branchName}\"", repoDir);
+                    var res = await RunGitAsync(repoDir, "checkout", "-b", branchName);
                     if (res.IsSuccess)
                     {
                         ActiveRepoState.CurrentBranch = branchName;
@@ -300,7 +459,7 @@ public sealed class GitGramService
 
                 case GitGramTaskType.StageAll:
                 {
-                    var res = await RunRawGitAsync("add -A", repoDir);
+                    var res = await RunGitAsync(repoDir, "add", "-A");
                     task.Status = res.IsSuccess ? GitGramTaskStatus.Completed : GitGramTaskStatus.Failed;
                     task.ResultOutput = res.Output;
                     await RefreshStatusAsync(repoDir);
@@ -315,7 +474,7 @@ public sealed class GitGramService
                         task.ResultOutput = "Target file path required for staging.";
                         break;
                     }
-                    var res = await RunRawGitAsync($"add \"{task.TargetFilePath}\"", repoDir);
+                    var res = await RunGitAsync(repoDir, "add", "--", task.TargetFilePath);
                     task.Status = res.IsSuccess ? GitGramTaskStatus.Completed : GitGramTaskStatus.Failed;
                     task.ResultOutput = res.Output;
                     await RefreshStatusAsync(repoDir);
@@ -331,7 +490,7 @@ public sealed class GitGramService
                         break;
                     }
 
-                    var res = await RunRawGitAsync($"restore \"{task.TargetFilePath}\"", repoDir);
+                    var res = await RunGitAsync(repoDir, "restore", "--", task.TargetFilePath);
                     task.Status = res.IsSuccess ? GitGramTaskStatus.Completed : GitGramTaskStatus.Failed;
                     task.ResultOutput = res.Output;
                     if (res.IsSuccess)
@@ -345,9 +504,8 @@ public sealed class GitGramService
                 case GitGramTaskType.SemanticCommit:
                 {
                     var msg = string.IsNullOrWhiteSpace(task.Payload) ? "chore: autonomous repository update" : task.Payload.Trim();
-                    await RunRawGitAsync("add -A", repoDir);
-                    var cleanMsg = msg.Replace("\"", "\\\"");
-                    var res = await RunRawGitAsync($"commit -m \"{cleanMsg}\"", repoDir);
+                    await RunGitAsync(repoDir, "add", "-A");
+                    var res = await RunGitAsync(repoDir, "commit", "-m", msg);
 
                     if (res.IsSuccess)
                     {
@@ -367,7 +525,7 @@ public sealed class GitGramService
 
                 case GitGramTaskType.DiffAnalysis:
                 {
-                    var res = await RunRawGitAsync("diff HEAD", repoDir);
+                    var res = await RunGitAsync(repoDir, "diff", "HEAD");
                     task.Status = res.IsSuccess ? GitGramTaskStatus.Completed : GitGramTaskStatus.Failed;
                     task.ResultOutput = res.Output;
                     break;
@@ -392,7 +550,7 @@ public sealed class GitGramService
 
     private async Task RefreshStatusAsync(string repoDir)
     {
-        var statusRes = await RunRawGitAsync("status --porcelain -b", repoDir);
+        var statusRes = await RunGitAsync(repoDir, "status", "--porcelain", "-b");
         ParsePorcelainStatus(statusRes.Output);
     }
 
@@ -446,29 +604,27 @@ public sealed class GitGramService
         ActiveRepoState.LastCheckedUtc = DateTime.UtcNow;
     }
 
-    private async Task<GitGramLogEntry> RunRawGitAsync(string arguments, string workingDirectory)
+    private async Task<GitGramLogEntry> RunGitAsync(string workingDirectory, params string[] arguments)
     {
-        if (EnforceStrictSafety)
+        var command = $"git {string.Join(' ', arguments.Select(QuoteForLog))}";
+        if (EnforceStrictSafety && IsBlockedGitOperation(arguments))
         {
-            var lower = arguments.ToLowerInvariant();
-            if (lower.Contains("reset --hard") || lower.Contains("clean -fd") || lower.Contains("push --force") || lower.Contains("branch -d"))
+            var blockedLog = new GitGramLogEntry
             {
-                var blockedLog = new GitGramLogEntry
-                {
-                    Command = $"git {arguments}",
-                    ExitCode = -1,
-                    Output = "Blocked by Git Gram Strict Safety Guardrails. Destructive history modifications require explicit user confirmation.",
-                    ElapsedMs = 0
-                };
-                AuditLogs.Insert(0, blockedLog);
-                return blockedLog;
-            }
+                Command = command,
+                ExitCode = -1,
+                BlockedByPolicy = true,
+                Output = "Blocked by Git Gram Strict Safety Guardrails. Destructive history modifications require explicit user confirmation.",
+                ElapsedMs = 0
+            };
+            AuditLogs.Insert(0, blockedLog);
+            return blockedLog;
         }
 
         var sw = Stopwatch.StartNew();
         var entry = new GitGramLogEntry
         {
-            Command = $"git {arguments}"
+            Command = command
         };
 
         try
@@ -478,7 +634,6 @@ public sealed class GitGramService
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "git",
-                    Arguments = arguments,
                     WorkingDirectory = workingDirectory,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -486,6 +641,11 @@ public sealed class GitGramService
                     CreateNoWindow = true
                 }
             };
+
+            foreach (var argument in arguments)
+            {
+                proc.StartInfo.ArgumentList.Add(argument);
+            }
 
             proc.Start();
             var outText = await proc.StandardOutput.ReadToEndAsync();
@@ -512,6 +672,43 @@ public sealed class GitGramService
         }
 
         return entry;
+    }
+
+    private static bool IsBlockedGitOperation(IReadOnlyList<string> arguments)
+    {
+        var verb = arguments.FirstOrDefault()?.ToLowerInvariant() ?? "";
+        var lower = arguments.Select(x => x.ToLowerInvariant()).ToArray();
+
+        return (verb == "reset" && lower.Contains("--hard"))
+            || (verb == "clean" && lower.Any(x => x.Contains("-f") && x.Contains("d")))
+            || (verb == "push" && lower.Any(x => x is "--force" or "-f" or "--force-with-lease"))
+            || (verb == "branch" && lower.Any(x => x is "-d" or "-D" or "--delete"));
+    }
+
+    private static string QuoteForLog(string value)
+    {
+        return value.IndexOfAny([' ', '\"', '\\']) >= 0 ? $"\"{value.Replace("\"", "\\\"")}\"" : value;
+    }
+
+    private static bool TryResolveWorkspacePath(string workspacePath, string relativePath, out string fullPath)
+    {
+        fullPath = "";
+        if (string.IsNullOrWhiteSpace(workspacePath) || string.IsNullOrWhiteSpace(relativePath))
+            return false;
+
+        try
+        {
+            var fullRoot = Path.GetFullPath(workspacePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            fullPath = Path.GetFullPath(Path.Combine(workspacePath, relativePath));
+            return fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            fullPath = "";
+            return false;
+        }
     }
 
     private static string SanitizeBranchName(string name)
