@@ -1921,6 +1921,20 @@
             if (notification.IsExhausted)
             {
                 SonnerService.Error("Quota exhausted", notification.Message, 7000);
+                if (isGenerating)
+                {
+                    try
+                    {
+                        chatCts?.Cancel();
+                    }
+                    catch { }
+                    isGenerating = false;
+                    var lastAssistant = Active.Messages.LastOrDefault(m => m.Role == "assistant");
+                    if (lastAssistant != null && string.IsNullOrWhiteSpace(lastAssistant.Text))
+                    {
+                        lastAssistant.Text = $"⚠️ Generation stopped: {notification.Message}";
+                    }
+                }
             }
             else
             {

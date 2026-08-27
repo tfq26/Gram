@@ -308,13 +308,11 @@ public sealed class AgentOrchestrator
                 yield break;
             }
 
-            var maxRetries = 4;
             HttpResponseMessage? response = null;
             string? networkError = null;
 
-            for (var retry = 0; retry <= maxRetries; retry++)
+            using (var req = new HttpRequestMessage(HttpMethod.Post, endpoint))
             {
-                using var req = new HttpRequestMessage(HttpMethod.Post, endpoint);
                 if (!string.IsNullOrWhiteSpace(apiKey) && providerId != "ollama")
                 {
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
@@ -341,23 +339,6 @@ public sealed class AgentOrchestrator
                 requestTimer.Stop();
                 if (response != null) _quotaTracker?.RecordResponse(quotaKey, response, requestTimer.ElapsedMilliseconds);
                 else _quotaTracker?.RecordUsage(quotaKey, 0, null, null, null, requestTimer.ElapsedMilliseconds);
-
-                if (response != null && (int)response.StatusCode == 429 && retry < maxRetries)
-                {
-                    var delayMs = (int)(Math.Pow(2, retry + 1) * 1000) + Random.Shared.Next(400, 900);
-                    if (response.Headers.TryGetValues("retry-after", out var values))
-                    {
-                        var val = values.FirstOrDefault();
-                        if (double.TryParse(val, out var sec))
-                        {
-                            delayMs = (int)(sec * 1000) + Random.Shared.Next(300, 600);
-                        }
-                    }
-                    await Task.Delay(Math.Min(delayMs, 12000), cancellationToken);
-                    continue;
-                }
-
-                break;
             }
 
             if (networkError != null || response == null)
