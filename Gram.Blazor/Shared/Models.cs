@@ -79,7 +79,8 @@ public enum MentionKind
     Web,
     Toolbox,
     Docs,
-    Artifact
+    Artifact,
+    Presentation
 }
 
 public sealed class MentionReference

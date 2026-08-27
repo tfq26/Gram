@@ -4,9 +4,9 @@ using System.Text;
 
 namespace Gram.Blazor.Shared;
 
-public sealed record MentionResolutionResult(string Context, string? ForcedWebSearchQuery)
+public sealed record MentionResolutionResult(string Context, string? ForcedWebSearchQuery, bool IsPresentationRequested = false)
 {
-    public static readonly MentionResolutionResult Empty = new("", null);
+    public static readonly MentionResolutionResult Empty = new("", null, false);
 }
 
 public sealed class MentionResolver
@@ -32,12 +32,17 @@ public sealed class MentionResolver
         var root = Path.GetFullPath(workspacePath);
         var context = new StringBuilder();
         string? forcedWebSearchQuery = null;
+        bool isPresentationRequested = false;
 
         foreach (var mention in mentions.DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase).Take(10))
         {
             cancellationToken.ThrowIfCancellationRequested();
             switch (mention.Kind)
             {
+                case MentionKind.Presentation:
+                    isPresentationRequested = true;
+                    context.AppendLine("<presentation_mode>Explicit presentation generation requested. Design, draft, and assemble an interactive slide deck on the requested topic using create_presentation_project.</presentation_mode>");
+                    break;
                 case MentionKind.File:
                     await AppendAttachmentAsync(context, conversation, mention.Target, cancellationToken);
                     break;
@@ -68,7 +73,7 @@ public sealed class MentionResolver
             if (context.Length > 48000) break;
         }
 
-        return new MentionResolutionResult(Trim(context.ToString(), 48000), forcedWebSearchQuery);
+        return new MentionResolutionResult(Trim(context.ToString(), 48000), forcedWebSearchQuery, isPresentationRequested);
     }
 
     private async Task AppendAttachmentAsync(StringBuilder context, Conversation conversation, string attachmentTarget, CancellationToken cancellationToken)

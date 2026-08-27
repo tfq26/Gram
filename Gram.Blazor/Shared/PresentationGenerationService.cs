@@ -51,16 +51,51 @@ public sealed class PresentationGenerationService : IDisposable
 
     public event Action<ContentProject>? ProjectUpdated;
 
-    public static bool IsPresentationRequest(string? prompt)
+    public static bool IsPresentationRequest(string? prompt, IReadOnlyList<MentionReference>? mentions = null)
     {
+        if (mentions != null && mentions.Any(m => m.Kind == MentionKind.Presentation || m.Target.Equals("presentation", StringComparison.OrdinalIgnoreCase) || m.Id.Equals("presentation", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
         if (string.IsNullOrWhiteSpace(prompt)) return false;
-        var text = prompt.ToLowerInvariant();
-        return text.Contains("presentation")
-            || text.Contains("powerpoint")
-            || text.Contains("power point")
-            || text.Contains("slide deck")
-            || text.Contains("slides")
-            || text.Contains("pptx");
+        var text = prompt.Trim().ToLowerInvariant();
+
+        if (text.StartsWith("@presentation") || text.Contains("@presentation")) return true;
+
+        var explicitCreationVerbs = new[] { "create", "make", "generate", "build", "design", "draft", "prepare", "compose", "assemble", "produce", "write" };
+        var presentationNouns = new[] { "presentation", "powerpoint", "power point", "slide deck", "slides", "pitch deck", "deck", "pptx" };
+
+        foreach (var noun in presentationNouns)
+        {
+            if (text.Contains(noun))
+            {
+                foreach (var verb in explicitCreationVerbs)
+                {
+                    if (text.Contains($"{verb} a {noun}") ||
+                        text.Contains($"{verb} the {noun}") ||
+                        text.Contains($"{verb} me a {noun}") ||
+                        text.Contains($"{verb} {noun}") ||
+                        text.Contains($"{verb} us a {noun}") ||
+                        text.Contains($"{verb} our {noun}"))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if (text.StartsWith("presentation on") || text.StartsWith("presentation about") ||
+            text.StartsWith("presentation for") || text.StartsWith("slides on") ||
+            text.StartsWith("slides about") || text.StartsWith("slides for") ||
+            text.StartsWith("slide deck on") || text.StartsWith("slide deck about") ||
+            text.StartsWith("slide deck for") || text.StartsWith("deck on") ||
+            text.StartsWith("deck about") || text.StartsWith("deck for"))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     public PresentationGenerationService(

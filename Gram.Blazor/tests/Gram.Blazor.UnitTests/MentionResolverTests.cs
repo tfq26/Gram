@@ -107,6 +107,41 @@ public sealed class MentionResolverTests : IDisposable
         Assert.Equal("Pages/Home.razor", mention.Target);
     }
 
+    [Fact]
+    public async Task PresentationMention_FlagsPresentationModeAndAppendsInstruction()
+    {
+        var mentions = new List<MentionReference>
+        {
+            new() { Id = "presentation", Kind = MentionKind.Presentation, Label = "Presentation Deck", Target = "presentation" }
+        };
+
+        var result = await _resolver.ResolveAsync(
+            mentions,
+            new Conversation(),
+            _workspace,
+            "Autonomous Agents in Production");
+
+        Assert.True(result.IsPresentationRequested);
+        Assert.Contains("presentation_mode", result.Context);
+        Assert.Contains("create_presentation_project", result.Context);
+    }
+
+    [Fact]
+    public void IsPresentationRequest_DifferentiatesCreationIntentVsConversationalQuery()
+    {
+        // Explicit creation intents
+        Assert.True(PresentationGenerationService.IsPresentationRequest("Create a presentation about quantum computing"));
+        Assert.True(PresentationGenerationService.IsPresentationRequest("Make me a slide deck on renewable energy"));
+        Assert.True(PresentationGenerationService.IsPresentationRequest("Generate slides about distributed systems"));
+        Assert.True(PresentationGenerationService.IsPresentationRequest("@presentation Machine Learning Overview"));
+
+        // Conversational queries mentioning presentation (should NOT trigger auto-generation)
+        Assert.False(PresentationGenerationService.IsPresentationRequest("What makes a good presentation?"));
+        Assert.False(PresentationGenerationService.IsPresentationRequest("Can we talk about the presentation structure?"));
+        Assert.False(PresentationGenerationService.IsPresentationRequest("How many slides are usually in a pitch deck?"));
+        Assert.False(PresentationGenerationService.IsPresentationRequest("I gave a presentation yesterday and wanted to discuss it"));
+    }
+
     public void Dispose()
     {
         try

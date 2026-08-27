@@ -1641,6 +1641,7 @@
     {
         allMentions = new List<MentionItem>
         {
+            new("presentation", MentionKind.Presentation, "Presentation Deck", "Generate an interactive multi-slide presentation deck", "Actions", "presentation"),
             new("web-search", MentionKind.Web, "Search the web", "Force live search through the configured provider", "Actions", "web"),
             new("toolbox", MentionKind.Toolbox, "Gram Toolbox", "Enabled tools, skills, and MCP capabilities", "Actions", "toolbox")
         };
@@ -1757,6 +1758,7 @@
     {
         var path = kind switch
         {
+            MentionKind.Presentation => "<rect x='2' y='3' width='20' height='14' rx='2'/><path d='M8 21h8M12 17v4M7 8h10M7 11h6'/>",
             MentionKind.File => "<path d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/><path d='M14 2v6h6'/>",
             MentionKind.Folder => "<path d='M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/>",
             MentionKind.GitDiff => "<circle cx='6' cy='5' r='2'/><circle cx='18' cy='19' r='2'/><path d='M6 7v8a4 4 0 0 0 4 4h6M18 17V9a4 4 0 0 0-4-4H8'/>",
@@ -2769,8 +2771,10 @@
         showRunDetails = false;
         StateHasChanged();
 
-        if (PresentationGenerationService.IsPresentationRequest(promptText)
-            && !effectiveModelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase))
+        var currentUserMessage = Active.Messages.LastOrDefault(message => message.Role == "user");
+        var isPresentationMode = PresentationGenerationService.IsPresentationRequest(promptText, currentUserMessage?.Mentions);
+
+        if (isPresentationMode && !effectiveModelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase))
         {
             effectiveModelId = "gram-q-plus";
             SonnerService.Info("Presentation mode", "Presentation generation is routed through Gram Q+ for reliability.");
@@ -2784,7 +2788,6 @@
         // Assemble Context with explicit mentions, workspace attachments, and rolling memory.
         await ContextBuilder.EnsureContextSummaryAsync(Active);
         var workspacePath = Environment.CurrentDirectory;
-        var currentUserMessage = Active.Messages.LastOrDefault(message => message.Role == "user");
         var mentionResolution = await MentionResolver.ResolveAsync(
             currentUserMessage?.Mentions,
             Active,
@@ -2812,6 +2815,7 @@
                 contextResult.RepositoryMap,
                 null,
                 mentionResolution.ForcedWebSearchQuery,
+                isPresentationMode || mentionResolution.IsPresentationRequested,
                 token)))
             {
                 if (currentRun != null)

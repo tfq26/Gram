@@ -10,6 +10,7 @@ public sealed record AgentWorkflowRequest(
     string? RepositoryMap = null,
     IEnumerable<string>? AllowedToolNames = null,
     string? ForcedWebSearchQuery = null,
+    bool IsPresentationMode = false,
     CancellationToken CancellationToken = default);
 
 public interface IAgentWorkflow
@@ -68,7 +69,7 @@ public sealed class PresentationWorkflow : IAgentWorkflow
     private readonly AgentOrchestrator _orchestrator;
     public PresentationWorkflow(AgentOrchestrator orchestrator) => _orchestrator = orchestrator;
     public string Name => "presentation";
-    public bool CanHandle(AgentWorkflowRequest request) => PresentationGenerationService.IsPresentationRequest(request.UserPrompt);
+    public bool CanHandle(AgentWorkflowRequest request) => request.IsPresentationMode || PresentationGenerationService.IsPresentationRequest(request.UserPrompt);
 
     public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
     {
