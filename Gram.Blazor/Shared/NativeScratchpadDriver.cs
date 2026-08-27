@@ -59,9 +59,11 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
-        var workingDir = string.IsNullOrWhiteSpace(relativeSubDir)
-            ? session.WorktreePath
-            : Path.GetFullPath(Path.Combine(session.WorktreePath, relativeSubDir));
+        timeoutSeconds = Math.Clamp(timeoutSeconds, 1, _config.MaxProcessTimeoutSeconds);
+        if (!SandboxPathGuard.TryResolve(session.WorktreePath, relativeSubDir, out var workingDir, out var pathError))
+        {
+            return new GramBoxExecutionResult { Success = false, ExitCode = -1, ErrorMessage = pathError, Stderr = pathError ?? "Invalid sandbox path.", SandboxId = session.Id };
+        }
 
         if (!Directory.Exists(workingDir))
         {
@@ -110,9 +112,27 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
         using var process = new Process { StartInfo = psi };
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
+        var outputBytes = 0;
+        var outputLimitExceeded = false;
+        var resourceLimitExceeded = false;
+        string? resourceLimitError = null;
 
-        process.OutputDataReceived += (_, e) => { if (e.Data != null) stdout.AppendLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data != null) stderr.AppendLine(e.Data); };
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data == null) return;
+            var totalBytes = Interlocked.Add(ref outputBytes, Encoding.UTF8.GetByteCount(e.Data) + Environment.NewLine.Length);
+            if (totalBytes <= _config.MaxOutputBytes) stdout.AppendLine(e.Data);
+            else outputLimitExceeded = true;
+            if (outputLimitExceeded && process.HasExited == false) { try { process.Kill(entireProcessTree: true); } catch {} }
+        };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data == null) return;
+            var totalBytes = Interlocked.Add(ref outputBytes, Encoding.UTF8.GetByteCount(e.Data) + Environment.NewLine.Length);
+            if (totalBytes <= _config.MaxOutputBytes) stderr.AppendLine(e.Data);
+            else outputLimitExceeded = true;
+            if (outputLimitExceeded && process.HasExited == false) { try { process.Kill(entireProcessTree: true); } catch {} }
+        };
 
         try
         {
@@ -133,8 +153,16 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
 
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+            using var monitorCts = CancellationTokenSource.CreateLinkedTokenSource(linkedCts.Token);
+            var monitorTask = MonitorProcessAsync(process, session, timeoutSeconds, () =>
+            {
+                resourceLimitExceeded = true;
+                resourceLimitError = "Sandbox process exceeded its assigned resource budget.";
+            }, monitorCts.Token);
 
             await process.WaitForExitAsync(linkedCts.Token);
+            monitorCts.Cancel();
+            try { await monitorTask; } catch (OperationCanceledException) { }
             sw.Stop();
 
             session.Status = SandboxStatus.Ready;
@@ -142,10 +170,11 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
 
             return new GramBoxExecutionResult
             {
-                Success = process.ExitCode == 0,
+                Success = process.ExitCode == 0 && !outputLimitExceeded && !resourceLimitExceeded,
                 ExitCode = process.ExitCode,
                 Stdout = stdout.ToString().TrimEnd(),
                 Stderr = stderr.ToString().TrimEnd(),
+                ErrorMessage = outputLimitExceeded ? $"Process output exceeded the sandbox limit of {_config.MaxOutputBytes} bytes." : resourceLimitError,
                 ElapsedMs = sw.ElapsedMilliseconds,
                 SandboxId = session.Id
             };
@@ -188,11 +217,44 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
         }
     }
 
+    private async Task MonitorProcessAsync(Process process, GramBoxSandboxSession session, int timeoutSeconds, Action onLimit, CancellationToken cancellationToken)
+    {
+        var budget = session.ResourceBudget;
+        var memoryLimit = budget?.MemoryBytes ?? _config.MaxMemoryQuotaMb * 1024L * 1024L;
+        var cpuLimit = TimeSpan.FromSeconds(Math.Max(1, timeoutSeconds * Math.Max(1, budget?.CpuCores ?? 1)));
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(250, cancellationToken);
+            if (process.HasExited) return;
+            try
+            {
+                if (memoryLimit > 0 && process.WorkingSet64 > memoryLimit)
+                {
+                    onLimit();
+                    process.Kill(entireProcessTree: true);
+                    return;
+                }
+                if (process.TotalProcessorTime > cpuLimit)
+                {
+                    onLimit();
+                    process.Kill(entireProcessTree: true);
+                    return;
+                }
+            }
+            catch (InvalidOperationException) { return; }
+            catch (System.ComponentModel.Win32Exception) { return; }
+        }
+    }
+
     public async Task<bool> WriteFileAsync(GramBoxSandboxSession session, string relativePath, string content, CancellationToken ct = default)
     {
         try
         {
-            var fullPath = Path.GetFullPath(Path.Combine(session.WorktreePath, relativePath));
+            if (!SandboxPathGuard.TryResolve(session.WorktreePath, relativePath, out var fullPath, out var pathError))
+            {
+                _logger.LogWarning("Blocked write outside sandbox {Id}: {Path} ({Reason})", session.Id, relativePath, pathError);
+                return false;
+            }
             var dir = Path.GetDirectoryName(fullPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
@@ -211,7 +273,11 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
     {
         try
         {
-            var fullPath = Path.GetFullPath(Path.Combine(session.WorktreePath, relativePath));
+            if (!SandboxPathGuard.TryResolve(session.WorktreePath, relativePath, out var fullPath, out var pathError))
+            {
+                _logger.LogWarning("Blocked read outside sandbox {Id}: {Path} ({Reason})", session.Id, relativePath, pathError);
+                return null;
+            }
             if (!File.Exists(fullPath)) return null;
 
             session.LastActiveAt = DateTime.UtcNow;

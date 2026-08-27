@@ -11,12 +11,20 @@
     <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&family=Geist:wght@100..900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="shadcn.css" />
     <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
     <link rel="icon" type="image/svg+xml" href="icons/gram-logo.svg" />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body>
     <Routes @rendermode="InteractiveServer" />
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11.4.0/dist/mermaid.min.js"></script>
     <script src="audio.js"></script>
+    <script src="tabDrag.js"></script>
+    <script src="loginArtwork.js"></script>
+    <script src="gramVisuals.js"></script>
+    <script src="gramCharacter.js?v=20260827h"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>

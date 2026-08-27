@@ -22,6 +22,7 @@ public sealed class Conversation
     public long LastLatencyMs { get; set; }
     public double EstimatedCostUsd { get; set; }
     public int ContextSummaryMessageCount { get; set; }
+    public bool IsProject { get; set; }
 
     public Conversation() {}
 
@@ -46,6 +47,7 @@ public sealed class ConversationMeta
     public int MessageCount { get; set; }
     public int AttachmentCount { get; set; }
     public int ArtifactCount { get; set; }
+    public bool IsProject { get; set; }
 }
 
 public sealed class Message
@@ -56,6 +58,7 @@ public sealed class Message
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
     public string? Thinking { get; set; }
     public List<ToolCallInfo>? ToolCalls { get; set; }
+    public List<MentionReference> Mentions { get; set; } = [];
 
     public Message() {}
     public Message(string role, string text)
@@ -64,6 +67,28 @@ public sealed class Message
         Text = text;
         Timestamp = DateTimeOffset.UtcNow;
     }
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum MentionKind
+{
+    File,
+    Folder,
+    GitDiff,
+    GitBranch,
+    Web,
+    Toolbox,
+    Docs,
+    Artifact
+}
+
+public sealed class MentionReference
+{
+    public string Id { get; set; } = "";
+    public MentionKind Kind { get; set; }
+    public string Label { get; set; } = "";
+    public string Target { get; set; } = "";
+    public string? Query { get; set; }
 }
 
 public sealed class ToolCallInfo
@@ -104,6 +129,9 @@ public sealed class TranscriptEntry
     [JsonPropertyName("content")]
     public string? Content { get; set; }
 
+    [JsonPropertyName("mentions")]
+    public List<MentionReference>? Mentions { get; set; }
+
     [JsonPropertyName("thinking")]
     public string? Thinking { get; set; }
 
@@ -126,6 +154,16 @@ public sealed class AttachmentInfo
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string RelativePath { get; set; } = "";
     public bool IsText { get; set; }
+
+    public bool IsImage => 
+        (!string.IsNullOrWhiteSpace(ContentType) && ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(FileName) && (
+            FileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+            FileName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+            FileName.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+            FileName.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) ||
+            FileName.EndsWith(".gif", StringComparison.OrdinalIgnoreCase) ||
+            FileName.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)));
 }
 
 public enum SidecarTab

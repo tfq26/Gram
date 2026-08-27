@@ -52,6 +52,9 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
     private readonly ToolboxManagerService _toolboxService;
     private readonly GramToolKernel _toolKernel;
     private readonly IGramBoxService? _gramBoxService;
+    private readonly ISubagentEngine? _subagentEngine;
+    private readonly WebContentService _webContentService;
+    private readonly PresentationGenerationService? _presentationService;
     private readonly HttpClient _httpClient;
 
     public AgentToolRegistry(
@@ -59,14 +62,20 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         AgentSecurityService securityService,
         ToolboxManagerService toolboxService,
         GramToolKernel toolKernel,
+        WebContentService webContentService,
         IGramBoxService? gramBoxService = null,
+        ISubagentEngine? subagentEngine = null,
+        PresentationGenerationService? presentationService = null,
         HttpClient? httpClient = null)
     {
         _gitService = gitService;
         _securityService = securityService;
         _toolboxService = toolboxService;
         _toolKernel = toolKernel;
+        _webContentService = webContentService;
+        _presentationService = presentationService;
         _gramBoxService = gramBoxService;
+        _subagentEngine = subagentEngine;
         _httpClient = httpClient ?? new HttpClient();
     }
 
@@ -448,6 +457,122 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
             Parameters = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }
         });
 
+        // Subagent Engine Tools
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "create_presentation_project",
+            Description = "Create a structured presentation project using the Gram Q+ presentation pipeline. Routes independent sections to reusable capability-based content workers and returns a project ID for status, revision, and interactive HTML assembly.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["title"] = new JsonObject { ["type"] = "string", ["description"] = "Presentation title." },
+                    ["audience"] = new JsonObject { ["type"] = "string", ["description"] = "Intended audience." },
+                    ["communicationJob"] = new JsonObject { ["type"] = "string", ["description"] = "What the audience should understand, decide, or do." },
+                    ["targetSlideCount"] = new JsonObject { ["type"] = "integer", ["description"] = "Target slide count, between 4 and 12." },
+                    ["sections"] = new JsonObject { ["type"] = "array", ["description"] = "Optional section plan. Each section has title, narrativeJob, ownerCapability, and dependencies." }
+                },
+                ["required"] = new JsonArray { "title", "audience", "communicationJob" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "revise_presentation_section",
+            Description = "Revise only one owned presentation section using user feedback. Other sections and their worker tasks remain unchanged.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["projectId"] = new JsonObject { ["type"] = "string" },
+                    ["sectionId"] = new JsonObject { ["type"] = "string" },
+                    ["feedback"] = new JsonObject { ["type"] = "string" }
+                },
+                ["required"] = new JsonArray { "projectId", "sectionId", "feedback" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "get_presentation_status",
+            Description = "Get presentation project progress, section ownership, worker status, and whether the project is ready for assembly.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject { ["projectId"] = new JsonObject { ["type"] = "string" } },
+                ["required"] = new JsonArray { "projectId" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "get_presentation_logs",
+            Description = "Read the durable presentation-generation lifecycle log, including project, section, worker, validation, and assembly events.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["projectId"] = new JsonObject { ["type"] = "string", ["description"] = "Optional project ID filter." },
+                    ["maxEntries"] = new JsonObject { ["type"] = "integer", ["description"] = "Optional number of recent entries, maximum 250." }
+                }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "assemble_presentation_html",
+            Description = "Assemble a ready presentation project into an interactive HTML presentation artifact.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject { ["projectId"] = new JsonObject { ["type"] = "string" } },
+                ["required"] = new JsonArray { "projectId" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "spawn_subagent",
+            Description = "Spawn a specialized background subagent ('researcher', 'coder', 'tester', 'reviewer', or custom) to autonomously execute a specific task with optional isolated Gram Box sandbox.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["subagentType"] = new JsonObject { ["type"] = "string", ["description"] = "The type of subagent to invoke: 'researcher', 'coder', 'tester', 'reviewer', or custom name." },
+                    ["role"] = new JsonObject { ["type"] = "string", ["description"] = "A 2-5 word job title/role for the subagent (e.g. 'Stripe Webhook Specialist', 'Code Reviewer')." },
+                    ["taskPrompt"] = new JsonObject { ["type"] = "string", ["description"] = "A clear, detailed, and actionable prompt specifying what the subagent must accomplish and report." },
+                    ["useSandbox"] = new JsonObject { ["type"] = "boolean", ["description"] = "Optional. Whether to spin up a zero-RAM isolated Gram Box worktree sandbox for this subagent (defaults to true for coder/tester)." }
+                },
+                ["required"] = new JsonArray { "subagentType", "taskPrompt" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "get_subagent_status",
+            Description = "Check the live progress, execution logs, status, and generated diff of a spawned subagent task.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["taskId"] = new JsonObject { ["type"] = "string", ["description"] = "The unique taskId returned by spawn_subagent." }
+                },
+                ["required"] = new JsonArray { "taskId" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "list_subagents",
+            Description = "List all active, queued, and completed subagent tasks spawned in the current session.",
+            Parameters = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }
+        });
+
         return ToolSelectionPolicy.SelectForIntent(tools, intent);
     }
 
@@ -470,8 +595,9 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         try
         {
             var args = JsonNode.Parse(string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson);
+            var normalizedName = name.Contains(':') ? name.Split(':')[^1].Trim().ToLowerInvariant() : name.Trim().ToLowerInvariant();
 
-            switch (name.ToLowerInvariant())
+            switch (normalizedName)
             {
                 case "view_file":
                 {
@@ -551,14 +677,33 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     }
 
                     var existing = await File.ReadAllTextAsync(fullPath, cancellationToken);
-                    if (!existing.Contains(targetContent))
+                    var updated = existing;
+
+                    if (existing.Contains(targetContent))
                     {
-                        result.IsError = true;
-                        result.Output = $"Target content was not found in {filePath}. Please verify the exact lines before editing.";
-                        break;
+                        updated = existing.Replace(targetContent, replacementContent);
+                    }
+                    else
+                    {
+                        // Fallback: Normalize line endings (\r\n vs \n)
+                        var normalizedExisting = existing.Replace("\r\n", "\n");
+                        var normalizedTarget = targetContent.Replace("\r\n", "\n");
+                        var normalizedReplacement = replacementContent.Replace("\r\n", "\n");
+
+                        if (normalizedExisting.Contains(normalizedTarget))
+                        {
+                            var isCrlf = existing.Contains("\r\n");
+                            var replaced = normalizedExisting.Replace(normalizedTarget, normalizedReplacement);
+                            updated = isCrlf ? replaced.Replace("\n", "\r\n") : replaced;
+                        }
+                        else
+                        {
+                            result.IsError = true;
+                            result.Output = $"Target content was not found in {filePath}. Please verify the exact lines before editing.";
+                            break;
+                        }
                     }
 
-                    var updated = existing.Replace(targetContent, replacementContent);
                     await File.WriteAllTextAsync(fullPath, updated, cancellationToken);
                     result.Output = $"Successfully edited {filePath}.";
                     break;
@@ -853,51 +998,25 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
 
                     try
                     {
-                        var encoded = Uri.EscapeDataString(query);
-                        var searchUrl = $"https://html.duckduckgo.com/html/?q={encoded}";
-                        using var req = new HttpRequestMessage(HttpMethod.Get, searchUrl);
-                        req.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-
-                        using var res = await _httpClient.SendAsync(req, cancellationToken);
-                        if (!res.IsSuccessStatusCode)
+                        var searchResults = await _webContentService.SearchWebAsync(query, 5, cancellationToken);
+                        if (searchResults.Count == 0)
                         {
-                            result.IsError = true;
-                            result.Output = $"Search engine error {(int)res.StatusCode}: {res.ReasonPhrase}";
-                            break;
+                            result.Output = $"No live web search results found for query: \"{query}\"";
                         }
-
-                        var html = await res.Content.ReadAsStringAsync(cancellationToken);
-                        
-                        // Parse snippets from DuckDuckGo HTML results
-                        var doc = new System.Text.StringBuilder();
-                        doc.AppendLine($"# Web Search Results for: \"{query}\"\n");
-
-                        var matches = System.Text.RegularExpressions.Regex.Matches(html, @"<a class=""result__url""[^>]*href=""([^""]+)""[^>]*>.*?</a>.*?<a class=""result__snippet""[^>]*>(.*?)</a>", System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                        
-                        int count = 0;
-                        foreach (System.Text.RegularExpressions.Match m in matches)
+                        else
                         {
-                            if (count >= 6) break;
-                            var rawUrl = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value);
-                            var snippet = System.Text.RegularExpressions.Regex.Replace(System.Net.WebUtility.HtmlDecode(m.Groups[2].Value), "<.*?>", string.Empty).Trim();
-                            
-                            if (!string.IsNullOrWhiteSpace(snippet))
+                            var sb = new System.Text.StringBuilder();
+                            sb.AppendLine($"# Live Web Search Results for: \"{query}\"\n");
+                            int idx = 1;
+                            foreach (var item in searchResults)
                             {
-                                count++;
-                                doc.AppendLine($"{count}. **Link**: {rawUrl}");
-                                doc.AppendLine($"   **Snippet**: {snippet}\n");
+                                sb.AppendLine($"{idx}. **[{item.Title}]({item.Url})**");
+                                sb.AppendLine($"   {item.Snippet}");
+                                sb.AppendLine();
+                                idx++;
                             }
+                            result.Output = sb.ToString().TrimEnd();
                         }
-
-                        if (count == 0)
-                        {
-                            // Fallback to strip text summary if structured regex didn't match
-                            var cleanText = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", " ");
-                            cleanText = System.Text.RegularExpressions.Regex.Replace(cleanText, @"\s+", " ").Trim();
-                            doc.AppendLine(cleanText.Length > 2000 ? cleanText[..2000] : cleanText);
-                        }
-
-                        result.Output = doc.ToString();
                     }
                     catch (Exception ex)
                     {
@@ -978,31 +1097,16 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                 case "fetch_web_content":
                 {
                     var url = args?["url"]?.ToString() ?? "";
-                    if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                    var scrapeResult = await _webContentService.ScrapeUrlAsync(url, cancellationToken);
+                    if (!scrapeResult.IsSuccess)
                     {
                         result.IsError = true;
-                        result.Output = $"Invalid URL: {url}";
-                        break;
+                        result.Output = $"Failed to fetch web content from {url}: {scrapeResult.ErrorMessage}";
                     }
-
-                    using var req = new HttpRequestMessage(HttpMethod.Get, uri);
-                    req.Headers.UserAgent.ParseAdd("Gram-Agent/1.0");
-
-                    using var res = await _httpClient.SendAsync(req, cancellationToken);
-                    if (!res.IsSuccessStatusCode)
+                    else
                     {
-                        result.IsError = true;
-                        result.Output = $"HTTP Error {(int)res.StatusCode}: {res.ReasonPhrase}";
-                        break;
+                        result.Output = scrapeResult.ContentMarkdown;
                     }
-
-                    var body = await res.Content.ReadAsStringAsync(cancellationToken);
-                    // Squeeze output if excessive
-                    if (body.Length > 12000)
-                    {
-                        body = body[..12000] + "\n\n...[content truncated]...";
-                    }
-                    result.Output = body;
                     break;
                 }
 
@@ -1196,6 +1300,245 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     break;
                 }
 
+                case "spawn_subagent":
+                {
+                    if (_subagentEngine == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Subagent Engine service is not registered.";
+                        break;
+                    }
+
+                    var subagentType = args?["subagentType"]?.ToString() ?? "coder";
+                    var role = args?["role"]?.ToString() ?? subagentType;
+                    var prompt = args?["taskPrompt"]?.ToString() ?? "";
+                    bool? useSandbox = args?["useSandbox"]?.GetValue<bool>();
+
+                    if (string.IsNullOrWhiteSpace(prompt))
+                    {
+                        result.IsError = true;
+                        result.Output = "Error: 'taskPrompt' is required to spawn a subagent.";
+                        break;
+                    }
+
+                    var parentConversationId = "default-session";
+                    var spawned = await _subagentEngine.SpawnSubagentAsync(
+                        parentConversationId,
+                        subagentType,
+                        role,
+                        prompt,
+                        workspacePath,
+                        useSandbox,
+                        cancellationToken: cancellationToken);
+
+                    result.Output = $"[Subagent Spawned Successfully]\nTaskId: {spawned.Id}\nSubagent: {spawned.SubagentName}\nRole: {spawned.Role}\nSandbox: {(spawned.SandboxPath != null ? $"Active ({spawned.SandboxId})" : "Main Workspace")}\nStatus: {spawned.Status}\n\nThe subagent is now running autonomously in the background. Use `get_subagent_status` with taskId '{spawned.Id}' to check results.";
+                    break;
+                }
+
+                case "create_presentation_project":
+                {
+                    if (_presentationService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Presentation generation service is not registered.";
+                        break;
+                    }
+
+                    var title = args?["title"]?.ToString()?.Trim() ?? "Untitled presentation";
+                    var audience = args?["audience"]?.ToString()?.Trim() ?? "General audience";
+                    var communicationJob = args?["communicationJob"]?.ToString()?.Trim()
+                        ?? "Explain the subject clearly and help the audience understand what to do next.";
+                    var targetSlideCount = args?["targetSlideCount"]?.GetValue<int>() ?? 8;
+                    var brief = new PresentationBrief
+                    {
+                        Title = title,
+                        Audience = audience,
+                        CommunicationJob = communicationJob,
+                        TargetSlideCount = targetSlideCount
+                    };
+
+                    if (args?["sections"] is JsonArray sectionNodes)
+                    {
+                        foreach (var sectionNode in sectionNodes.OfType<JsonObject>())
+                        {
+                            var sectionBrief = new PresentationSectionBrief
+                            {
+                                Title = sectionNode["title"]?.ToString() ?? "Supporting idea",
+                                NarrativeJob = sectionNode["narrativeJob"]?.ToString() ?? "Advance the presentation narrative.",
+                                OwnerCapability = sectionNode["ownerCapability"]?.ToString() ?? "writing"
+                            };
+                            if (sectionNode["dependencies"] is JsonArray dependencies)
+                            {
+                                sectionBrief.Dependencies = dependencies.Select(item => item?.ToString() ?? "")
+                                    .Where(item => !string.IsNullOrWhiteSpace(item)).ToList();
+                            }
+                            brief.Sections.Add(sectionBrief);
+                        }
+                    }
+
+                    var project = await _presentationService.CreatePresentationAsync(
+                        brief,
+                        "default-session",
+                        workspacePath,
+                        cancellationToken);
+                    result.Output = FormatPresentationStatus(project);
+                    break;
+                }
+
+                case "revise_presentation_section":
+                {
+                    if (_presentationService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Presentation generation service is not registered.";
+                        break;
+                    }
+
+                    var projectId = args?["projectId"]?.ToString() ?? "";
+                    var sectionId = args?["sectionId"]?.ToString() ?? "";
+                    var feedback = args?["feedback"]?.ToString() ?? "";
+                    if (string.IsNullOrWhiteSpace(projectId) || string.IsNullOrWhiteSpace(sectionId) || string.IsNullOrWhiteSpace(feedback))
+                    {
+                        result.IsError = true;
+                        result.Output = "projectId, sectionId, and feedback are required.";
+                        break;
+                    }
+
+                    var revisedTask = await _presentationService.ReviseSectionAsync(
+                        projectId,
+                        sectionId,
+                        feedback,
+                        workspacePath,
+                        cancellationToken);
+                    result.Output = revisedTask == null
+                        ? $"Presentation project or section not found: {projectId}/{sectionId}"
+                        : $"Section revision queued. ProjectId: {projectId}\nSectionId: {sectionId}\nWorkerTaskId: {revisedTask.Id}\nThe other presentation sections were not regenerated.";
+                    break;
+                }
+
+                case "get_presentation_status":
+                {
+                    if (_presentationService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Presentation generation service is not registered.";
+                        break;
+                    }
+
+                    var project = _presentationService.GetProject(args?["projectId"]?.ToString() ?? "");
+                    result.Output = project == null
+                        ? "Presentation project not found."
+                        : FormatPresentationStatus(project);
+                    break;
+                }
+
+                case "get_presentation_logs":
+                {
+                    if (_presentationService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Presentation generation service is not registered.";
+                        break;
+                    }
+
+                    var projectId = args?["projectId"]?.ToString();
+                    var maxEntries = args?["maxEntries"]?.GetValue<int>() ?? 100;
+                    result.Output = FormatPresentationLogs(_presentationService.GetLogs(projectId, maxEntries));
+                    break;
+                }
+
+                case "assemble_presentation_html":
+                {
+                    if (_presentationService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Presentation generation service is not registered.";
+                        break;
+                    }
+
+                    var projectId = args?["projectId"]?.ToString() ?? "";
+                    var path = await _presentationService.AssembleHtmlAsync(projectId, cancellationToken);
+                    result.Output = path == null
+                        ? $"Presentation project '{projectId}' was not found or is not ready for assembly."
+                        : $"Interactive HTML presentation assembled: {path}";
+                    break;
+                }
+
+                case "get_subagent_status":
+                {
+                    if (_subagentEngine == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Subagent Engine service is not registered.";
+                        break;
+                    }
+
+                    var taskId = args?["taskId"]?.ToString() ?? "";
+                    var task = _subagentEngine.GetTask(taskId);
+                    if (task == null)
+                    {
+                        result.IsError = true;
+                        result.Output = $"Subagent task '{taskId}' was not found.";
+                        break;
+                    }
+
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"[Subagent Task Report: {task.Id}]");
+                    sb.AppendLine($"Subagent: {task.SubagentName} ({task.Role})");
+                    sb.AppendLine($"Status: {task.Status}");
+                    sb.AppendLine($"Duration: {task.DurationMs}ms (Iterations: {task.IterationsUsed})");
+                    if (!string.IsNullOrWhiteSpace(task.SandboxPath))
+                    {
+                        sb.AppendLine($"Sandbox Path: {task.SandboxPath}");
+                    }
+                    if (task.ModifiedFiles.Count > 0)
+                    {
+                        sb.AppendLine($"Modified Files ({task.ModifiedFiles.Count}): {string.Join(", ", task.ModifiedFiles)}");
+                    }
+                    if (!string.IsNullOrWhiteSpace(task.ResultSummary))
+                    {
+                        sb.AppendLine($"\n--- Summary Output ---\n{task.ResultSummary}");
+                    }
+                    if (!string.IsNullOrWhiteSpace(task.WorktreeDiff))
+                    {
+                        sb.AppendLine($"\n--- Worktree Sandbox Diff ---\n{task.WorktreeDiff}");
+                    }
+                    if (!string.IsNullOrWhiteSpace(task.ErrorMessage))
+                    {
+                        sb.AppendLine($"\n--- Error ---\n{task.ErrorMessage}");
+                    }
+
+                    result.Output = sb.ToString();
+                    break;
+                }
+
+                case "list_subagents":
+                {
+                    if (_subagentEngine == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Subagent Engine service is not registered.";
+                        break;
+                    }
+
+                    var parentConversationId = "default-session";
+                    var tasks = _subagentEngine.GetTasksForConversation(parentConversationId);
+                    if (tasks.Count == 0)
+                    {
+                        result.Output = "No subagent tasks have been spawned in the current session.";
+                        break;
+                    }
+
+                    var listSb = new StringBuilder();
+                    listSb.AppendLine($"[Subagents in Session ({tasks.Count})]");
+                    foreach (var t in tasks)
+                    {
+                        listSb.AppendLine($"- [{t.Status}] TaskId: {t.Id} | {t.SubagentName} ({t.Role}) | Sandbox: {(t.SandboxId != null ? t.SandboxId : "None")} | Modified: {t.ModifiedFiles.Count} files");
+                    }
+                    result.Output = listSb.ToString();
+                    break;
+                }
+
                 default:
                     result.IsError = true;
                     result.Output = $"Unknown tool: '{name}'";
@@ -1214,5 +1557,44 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         }
 
         return result;
+    }
+
+    private static string FormatPresentationStatus(ContentProject project)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"[Presentation Project: {project.Id}]");
+        builder.AppendLine($"Title: {project.Title}");
+        builder.AppendLine($"Status: {project.Status}");
+        builder.AppendLine($"Revision: {project.Revision}");
+        builder.AppendLine($"Sections: {project.Sections.Count(s => s.Status == ContentSectionStatus.Ready)}/{project.Sections.Count} ready");
+        builder.AppendLine($"HTML artifact: {project.FinalArtifactPath ?? "not assembled"}");
+        builder.AppendLine($"Licensed visual assets: {project.Assets.Count}");
+        foreach (var asset in project.Assets)
+        {
+            builder.AppendLine($"  - {asset.Label} | {asset.Path} | source: {asset.SourceId ?? "not recorded"}");
+        }
+        foreach (var section in project.Sections.OrderBy(section => section.Order))
+        {
+            builder.AppendLine($"- {section.Id} | {section.Status} | v{section.Version} | {section.Title} | worker: {section.OwnerProfileId ?? "pending"} | task: {section.OwnerTaskId ?? "pending"}");
+        }
+        builder.AppendLine("Interactive HTML assembly is available after section outputs pass validation.");
+        return builder.ToString();
+    }
+
+    private static string FormatPresentationLogs(IReadOnlyList<PresentationGenerationLogEntry> entries)
+    {
+        if (entries.Count == 0) return "No presentation-generation log entries were found.";
+        var builder = new StringBuilder($"[Presentation Generation Logs ({entries.Count})]\n");
+        foreach (var entry in entries)
+        {
+            builder.Append(entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            builder.Append(" | ").Append(entry.Stage).Append(" | ").Append(entry.Message);
+            if (!string.IsNullOrWhiteSpace(entry.ProjectId)) builder.Append(" | project=").Append(entry.ProjectId);
+            if (!string.IsNullOrWhiteSpace(entry.SectionId)) builder.Append(" | section=").Append(entry.SectionId);
+            if (!string.IsNullOrWhiteSpace(entry.TaskId)) builder.Append(" | task=").Append(entry.TaskId);
+            if (!string.IsNullOrWhiteSpace(entry.Exception)) builder.Append("\n  exception: ").Append(entry.Exception);
+            builder.AppendLine();
+        }
+        return builder.ToString();
     }
 }

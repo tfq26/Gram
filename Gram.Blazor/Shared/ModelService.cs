@@ -37,6 +37,7 @@ public sealed class ProviderConfig
     public string Name { get; set; } = "";
     public string? BaseUrl { get; set; }
     public bool IsConnected { get; set; }
+    public bool IsSystemManaged { get; set; }
     public DateTimeOffset? LastTested { get; set; }
 }
 
@@ -63,7 +64,8 @@ public sealed class ModelService
 
     public List<GramModel> Models { get; private set; } = new();
     public List<ProviderConfig> Providers { get; private set; } = new();
-    private readonly Dictionary<string, string> secureKeys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> secureKeys = new(StringComparer.OrdinalIgnoreCase); // User BYOK Keys
+    private readonly Dictionary<string, string> systemKeys = new(StringComparer.OrdinalIgnoreCase); // Internal System Keys
 
     public ModelService(StorageService? storageService = null)
     {
@@ -76,6 +78,7 @@ public sealed class ModelService
         storageService.EnsureDirectories();
         LoadProviders();
         LoadSecureKeys();
+        LoadSystemKeys();
         LoadModels();
     }
 
@@ -99,9 +102,10 @@ public sealed class ModelService
             Console.WriteLine($"[ModelService] Error loading providers: {ex.Message}");
         }
 
-        // Initialize default supported providers (Groq is internal engine only and omitted from BYOK providers)
+        // Initialize default supported providers
         Providers =
         [
+            new ProviderConfig { Id = "groq", Type = ProviderType.OpenAI, Name = "Groq", BaseUrl = "https://api.groq.com/openai/v1" },
             new ProviderConfig { Id = "google", Type = ProviderType.Google, Name = "Google Gemini", BaseUrl = "https://generativelanguage.googleapis.com/v1beta/openai" },
             new ProviderConfig { Id = "cloudflare", Type = ProviderType.CustomOpenAI, Name = "Cloudflare Workers AI", BaseUrl = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1" },
             new ProviderConfig { Id = "openai", Type = ProviderType.OpenAI, Name = "OpenAI", BaseUrl = "https://api.openai.com/v1" },
@@ -123,7 +127,26 @@ public sealed class ModelService
                 var list = JsonSerializer.Deserialize<List<GramModel>>(json);
                 if (list != null && list.Count > 0)
                 {
+                    // Ensure canonical descriptions for default engines
+                    var qModel = list.FirstOrDefault(m => m.Id.Equals("gram-q", StringComparison.OrdinalIgnoreCase));
+                    if (qModel != null)
+                    {
+                        qModel.Name = "Gram Q";
+                        qModel.Provider = "Groq";
+                        qModel.Description = "Ultra-fast daily intelligence · Powered by GPT OSS 120B on Groq LPU (131K context)";
+                        qModel.ContextLength = 131072;
+                    }
+                    var qPlusModel = list.FirstOrDefault(m => m.Id.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase));
+                    if (qPlusModel != null)
+                    {
+                        qPlusModel.Name = "Gram Q+";
+                        qPlusModel.Provider = "Google";
+                        qPlusModel.Description = "Deep-context reasoning flagship · Powered by Google Gemini 3 Flash Preview (1M context)";
+                        qPlusModel.ContextLength = 1000000;
+                    }
+
                     Models = list;
+                    SaveModels();
                     return;
                 }
             }
@@ -141,8 +164,8 @@ public sealed class ModelService
                 Id = "gram-q", 
                 Name = "Gram Q", 
                 Provider = "Groq", 
-                Description = "Ultra-fast daily model · Powered by Groq (Llama 3.3 70B)", 
-                ContextLength = 128000, 
+                Description = "Ultra-fast daily intelligence · Powered by GPT OSS 120B on Groq LPU (131K context)", 
+                ContextLength = 131072, 
                 IsFavorite = true 
             },
             new GramModel 
@@ -150,7 +173,7 @@ public sealed class ModelService
                 Id = "gram-q-plus", 
                 Name = "Gram Q+", 
                 Provider = "Google", 
-                Description = "Advanced flagship · Powered by Google Gemini 2.0 Flash (1M Context)", 
+                Description = "Deep-context reasoning flagship · Powered by Google Gemini 3 Flash Preview (1M context)", 
                 ContextLength = 1000000, 
                 IsFavorite = true 
             },
@@ -188,7 +211,10 @@ public sealed class ModelService
                 {
                     foreach (var (k, v) in dict)
                     {
-                        secureKeys[k] = v;
+                        if (!string.IsNullOrWhiteSpace(v))
+                        {
+                            secureKeys[k] = v.Trim();
+                        }
                     }
                 }
             }
@@ -197,38 +223,26 @@ public sealed class ModelService
         {
             Console.WriteLine($"[ModelService] Error loading secure keys: {ex.Message}");
         }
-
-        // User BYOK fallback: Read environment variables for BYOK providers
-        CheckAndApplyEnvironmentKey("cloudflare", "CLOUDFLARE_API_KEY", "CF_API_KEY", "CF_TOKEN");
-        CheckAndApplyEnvironmentKey("openrouter", "OPENROUTER_API_KEY", "OPENROUTER_KEY", "GRAM_API_KEY");
-        CheckAndApplyEnvironmentKey("openai", "OPENAI_API_KEY");
-        CheckAndApplyEnvironmentKey("anthropic", "ANTHROPIC_API_KEY");
-        CheckAndApplyEnvironmentKey("xai", "XAI_API_KEY", "GROK_API_KEY");
-        CheckAndApplyEnvironmentKey("deepseek", "DEEPSEEK_API_KEY");
     }
 
-    public string? GetInternalApiKey(string providerId)
+    private void LoadSystemKeys()
     {
-        return providerId.ToLowerInvariant() switch
-        {
-            "groq" => Environment.GetEnvironmentVariable("GROQ_API_KEY") ?? Environment.GetEnvironmentVariable("GRAM_GROQ_KEY") ?? GetApiKey("groq"),
-            "google" => Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? Environment.GetEnvironmentVariable("GOOGLE_API_KEY") ?? GetApiKey("google"),
-            "cloudflare" => Environment.GetEnvironmentVariable("CLOUDFLARE_API_KEY") ?? Environment.GetEnvironmentVariable("CF_API_KEY") ?? GetApiKey("cloudflare"),
-            _ => GetApiKey(providerId)
-        };
-    }
+        systemKeys.Clear();
 
-    private void CheckAndApplyEnvironmentKey(string providerId, params string[] envVarNames)
-    {
-        // First check if a valid non-empty key already exists in memory
-        if (secureKeys.TryGetValue(providerId, out var existing) && !string.IsNullOrWhiteSpace(existing))
+        // System keys are strictly reserved for Gram Q and Gram Q+
+        RegisterSystemKey("groq", "GROQ_API_KEY", "GRAM_GROQ_KEY");
+        RegisterSystemKey("google", "GEMINI_API_KEY", "GOOGLE_API_KEY");
+
+        // Refresh connected states for providers
+        foreach (var prov in Providers)
         {
-            var prov = Providers.FirstOrDefault(p => p.Id.Equals(providerId, StringComparison.OrdinalIgnoreCase));
-            if (prov != null) prov.IsConnected = true;
-            return;
+            prov.IsConnected = IsConfigured(prov.Id);
+            prov.IsSystemManaged = IsSystemManaged(prov.Id);
         }
+    }
 
-        // Check Process, User, and Machine environment scopes
+    private void RegisterSystemKey(string providerId, params string[] envVarNames)
+    {
         foreach (var envVar in envVarNames)
         {
             var key = Environment.GetEnvironmentVariable(envVar, EnvironmentVariableTarget.Process)
@@ -239,17 +253,115 @@ public sealed class ModelService
 
             if (!string.IsNullOrWhiteSpace(key))
             {
-                secureKeys[providerId] = key.Trim();
-                var prov = Providers.FirstOrDefault(p => p.Id.Equals(providerId, StringComparison.OrdinalIgnoreCase));
-                if (prov != null)
-                {
-                    prov.IsConnected = true;
-                }
-                SaveSecureKeys();
-                SaveProviders();
+                systemKeys[providerId] = key.Trim();
                 break;
             }
         }
+    }
+
+    public bool HasUserKey(string providerId)
+    {
+        return secureKeys.TryGetValue(providerId, out var key) && !string.IsNullOrWhiteSpace(key);
+    }
+
+    public bool HasSystemKey(string providerId)
+    {
+        return systemKeys.TryGetValue(providerId, out var key) && !string.IsNullOrWhiteSpace(key);
+    }
+
+    public bool IsConfigured(string providerId)
+    {
+        return HasUserKey(providerId) || HasSystemKey(providerId);
+    }
+
+    public bool IsSystemManaged(string providerId)
+    {
+        return !HasUserKey(providerId) && HasSystemKey(providerId);
+    }
+
+    /// <summary>
+    /// Returns the active API key for backend execution.
+    /// User BYOK keys are used for any provider. System keys are ONLY allowed for groq and google.
+    /// </summary>
+    public string? GetApiKey(string providerId)
+    {
+        var normId = providerId.ToLowerInvariant();
+
+        // 1. User BYOK key always takes top priority
+        if (secureKeys.TryGetValue(normId, out var userKey) && !string.IsNullOrWhiteSpace(userKey))
+        {
+            return userKey;
+        }
+
+        // 2. System keys are strictly scoped to groq and google (for Gram Q / Q+)
+        if ((normId == "groq" || normId == "google") && systemKeys.TryGetValue(normId, out var sysKey) && !string.IsNullOrWhiteSpace(sysKey))
+        {
+            return sysKey;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns ONLY the user-provided BYOK key. NEVER exposes internal system keys to the UI.
+    /// </summary>
+    public string? GetUserApiKey(string providerId)
+    {
+        return secureKeys.TryGetValue(providerId, out var key) && !string.IsNullOrWhiteSpace(key) ? key : null;
+    }
+
+    /// <summary>
+    /// Returns internal system key (strictly reserved for Gram Q and Gram Q+ backend execution).
+    /// </summary>
+    public string? GetSystemApiKey(string providerId)
+    {
+        return systemKeys.TryGetValue(providerId, out var key) && !string.IsNullOrWhiteSpace(key) ? key : null;
+    }
+
+    /// <summary>
+    /// Returns a masked representation for UI presentation.
+    /// </summary>
+    public string GetMaskedApiKey(string providerId)
+    {
+        if (secureKeys.TryGetValue(providerId, out var key) && !string.IsNullOrWhiteSpace(key))
+        {
+            if (key.Length > 8)
+            {
+                return key[..4] + "••••••••" + key[^4..];
+            }
+            return "••••••••";
+        }
+
+        if (HasSystemKey(providerId))
+        {
+            return "System Managed (Protected)";
+        }
+
+        return "";
+    }
+
+    public void SetApiKey(string providerId, string? apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            secureKeys.Remove(providerId);
+        }
+        else
+        {
+            secureKeys[providerId] = apiKey.Trim();
+        }
+
+        SaveSecureKeys();
+
+        var prov = Providers.FirstOrDefault(p => p.Id.Equals(providerId, StringComparison.OrdinalIgnoreCase));
+        if (prov != null)
+        {
+            prov.IsConnected = IsConfigured(providerId);
+            prov.IsSystemManaged = IsSystemManaged(providerId);
+            SaveProviders();
+        }
+
+        OnChange?.Invoke();
     }
 
     private void SaveSecureKeys()
@@ -305,47 +417,6 @@ public sealed class ModelService
         {
             return Encoding.UTF8.GetString(cipherBytes);
         }
-    }
-
-    public string? GetApiKey(string providerId)
-    {
-        return secureKeys.TryGetValue(providerId, out var key) && !string.IsNullOrWhiteSpace(key) ? key : null;
-    }
-
-    public string GetMaskedApiKey(string providerId)
-    {
-        if (secureKeys.TryGetValue(providerId, out var key) && !string.IsNullOrWhiteSpace(key))
-        {
-            if (key.Length > 8)
-            {
-                return key[..4] + "••••••••" + key[^4..];
-            }
-            return "••••••••";
-        }
-        return "";
-    }
-
-    public void SetApiKey(string providerId, string apiKey)
-    {
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            secureKeys.Remove(providerId);
-        }
-        else
-        {
-            secureKeys[providerId] = apiKey.Trim();
-        }
-
-        SaveSecureKeys();
-
-        var prov = Providers.FirstOrDefault(p => p.Id.Equals(providerId, StringComparison.OrdinalIgnoreCase));
-        if (prov != null)
-        {
-            prov.IsConnected = !string.IsNullOrWhiteSpace(apiKey);
-            SaveProviders();
-        }
-
-        OnChange?.Invoke();
     }
 
     public void UpdateProvider(string providerId, string? baseUrl, string? apiKey)
@@ -470,7 +541,6 @@ public sealed class ModelService
             [
                 new() { Id = "google/gemini-2.5-flash", Name = "Gemini 2.5 Flash", Provider = "Google", ContextLength = 1000000, Description = "Next-gen ultra-fast 1M context flagship" },
                 new() { Id = "google/gemini-2.5-pro", Name = "Gemini 2.5 Pro", Provider = "Google", ContextLength = 2000000, Description = "Frontier reasoning and deep analysis with 2M context" },
-                new() { Id = "google/gemini-2.0-flash", Name = "Gemini 2.0 Flash", Provider = "Google", ContextLength = 1000000, Description = "Multimodal high-speed engine by Google" },
                 new() { Id = "google/gemini-1.5-pro", Name = "Gemini 1.5 Pro", Provider = "Google", ContextLength = 2000000, Description = "Long-context reasoning flagship" },
                 new() { Id = "google/gemini-1.5-flash", Name = "Gemini 1.5 Flash", Provider = "Google", ContextLength = 1000000, Description = "Fast, efficient general purpose model" }
             ]);

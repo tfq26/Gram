@@ -54,7 +54,7 @@
         </header>
     }
     <main class="page-frame @(IsLoginPage() ? "login-frame" : "")">
-        @if (!IsLoginPage() && !AuthService.CurrentUser.IsAuthenticated)
+        @if (!IsLoginPage() && !IsDiagnosticPage() && !AuthService.CurrentUser.IsAuthenticated)
         {
             <div style="display: flex; justify-content: center; align-items: center; height: 100%; color: var(--text-muted); font-size: 14px;">
                 <span>Redirecting to sign in...</span>
@@ -105,7 +105,7 @@
 
     private void CheckAuthentication()
     {
-        if (!IsLoginPage() && !AuthService.CurrentUser.IsAuthenticated)
+        if (!IsLoginPage() && !IsDiagnosticPage() && !AuthService.CurrentUser.IsAuthenticated)
         {
             var relativePath = NavManager.ToBaseRelativePath(NavManager.Uri);
             var returnUrl = string.IsNullOrWhiteSpace(relativePath) ? "/" : "/" + relativePath;
@@ -130,6 +130,12 @@
         return uri.StartsWith("login") || uri.StartsWith("signin");
     }
 
+    private bool IsDiagnosticPage()
+    {
+        var uri = NavManager.ToBaseRelativePath(NavManager.Uri).ToLowerInvariant();
+        return uri.StartsWith("voice-test") || uri.StartsWith("search-test");
+    }
+
     public void Dispose()
     {
         ThemeService.OnChange -= OnThemeChanged;
@@ -139,5 +145,3 @@
         NavManager.LocationChanged -= OnLocationChanged;
     }
 }
-
-

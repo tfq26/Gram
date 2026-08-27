@@ -1,0 +1,409 @@
+@using Gram.Blazor.Shared
+@inject Gram.Blazor.Shared.ModelService ModelService
+@inject Gram.Blazor.Shared.AgentOrchestrator AgentOrchestrator
+@inject Gram.Blazor.Shared.ContextBuilder ContextBuilder
+@inject Gram.Blazor.Shared.ConversationService ConversationService
+@inject Gram.Blazor.Shared.WorkspaceTabService TabService
+@inject Gram.Blazor.Shared.ISonnerService SonnerService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<div class="split-pane-half secondary">
+    <!-- Secondary Split Header -->
+    <div class="split-pane-header">
+        <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+            <span class="split-badge">Split B</span>
+            
+            <!-- Secondary Model Switcher -->
+            <div class="model-dropdown-wrapper" style="position: relative;">
+                <button type="button" 
+                        class="model-dropdown-trigger @(isModelMenuOpen ? "open" : "")" 
+                        style="height: 28px; font-size: 11.5px; padding: 2px 8px;"
+                        @onclick="() => isModelMenuOpen = !isModelMenuOpen"
+                        title="Switch AI model for Split B">
+                    <ModelIcon ModelId="@activeModelId" Size="13" />
+                    <span class="model-trigger-name" style="max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@(ActiveModel?.Name ?? activeModelId)</span>
+                    <svg class="model-dropdown-chevron @(isModelMenuOpen ? "open" : "")" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+
+                @if (isModelMenuOpen)
+                {
+                    <div class="model-dropdown-backdrop" @onclick="() => isModelMenuOpen = false"></div>
+                    <div class="model-dropdown-menu" style="top: 32px; left: 0;" @onclick:stopPropagation="true">
+                        @foreach (var model in ModelService.Models.OrderByDescending(m => m.IsFavorite))
+                        {
+                            var isSelected = model.Id == activeModelId;
+                            <button type="button" 
+                                    class="model-dropdown-item @(isSelected ? "active" : "")" 
+                                    @onclick="() => SelectModel(model.Id)">
+                                <div class="model-item-info">
+                                    <ModelIcon ModelId="@model.Id" Size="13" />
+                                    <div class="model-item-text">
+                                        <span class="model-item-label" style="font-size: 12px;">@model.Name</span>
+                                        <span class="model-item-vendor" style="font-size: 10px;">@model.Provider</span>
+                                    </div>
+                                </div>
+                                @if (isSelected)
+                                {
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent);">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+
+            <!-- Tab / Chat Selector -->
+            <select class="sheet-select" style="height: 28px; font-size: 11px; padding: 2px 6px; max-width: 140px;" @onchange="OnChatSelected">
+                @foreach (var conv in AvailableConversations)
+                {
+                    <option value="@conv.Id" selected="@(conv.Id == Conversation?.Id)">@conv.Title</option>
+                }
+            </select>
+        </div>
+
+        <!-- Split Controls & Cross-Chat Actions -->
+        <div class="split-actions-group">
+            <button type="button" 
+                    class="btn-split-action" 
+                    @onclick="StartCollaborativeDialogue"
+                    disabled="@(isGenerating || isDialogueActive)"
+                    title="Start automated 3-round cross-agent dialogue">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span>@(isDialogueActive ? "Discussing..." : "Collaborate")</span>
+            </button>
+
+            <button type="button" 
+                    class="btn-pane-toggle" 
+                    style="width: 26px; height: 26px;"
+                    @onclick="SwapPanes" 
+                    title="Swap left and right split panes">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="17 1 21 5 17 9"></polyline>
+                    <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                    <polyline points="7 23 3 19 7 15"></polyline>
+                    <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                </svg>
+            </button>
+
+            <button type="button" 
+                    class="btn-pane-toggle" 
+                    style="width: 26px; height: 26px;"
+                    @onclick="CloseSplit" 
+                    title="Close split view">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Active Cross-Dialogue Banner -->
+    @if (isDialogueActive)
+    {
+        <div class="cross-chat-dialogue-banner">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="cross-chat-pulse"></span>
+                <span>Cross-Agent Dialogue Active · Round @dialogueRound / @dialogueMaxRounds</span>
+            </div>
+            <button type="button" class="btn-split-action" style="font-size: 10.5px; padding: 2px 6px;" @onclick="StopDialogue">
+                Stop
+            </button>
+        </div>
+    }
+
+    <!-- Messages View -->
+    <div class="chat-messages-container" style="flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px;">
+        @if (Conversation == null || Conversation.Messages.Count == 0)
+        {
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); font-size: 12px; gap: 8px; text-align: center; padding: 20px;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.5;">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="12" y1="3" x2="12" y2="21"></line>
+                </svg>
+                <span>Split Gram B Ready</span>
+                <span style="font-size: 11px; max-width: 240px; line-height: 1.4;">Send a message or click <strong>Collaborate</strong> to start a cross-chat multi-agent dialogue.</span>
+            </div>
+        }
+        else
+        {
+            @foreach (var msg in Conversation.Messages)
+            {
+                <div class="message-row @(msg.Role == "user" ? "user-message" : "assistant-message")">
+                    <div class="message-bubble" style="font-size: 12.5px; line-height: 1.5;">
+                        @if (msg.Role == "user")
+                        {
+                            <div style="white-space: pre-wrap;">@msg.Text</div>
+                        }
+                        else
+                        {
+                            <MarkdownView Content="@msg.Text" />
+
+                            @if (msg.ToolCalls != null && msg.ToolCalls.Count > 0)
+                            {
+                                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+                                    @foreach (var tc in msg.ToolCalls)
+                                    {
+                                        <ToolCallCard ToolCall="@tc" />
+                                    }
+                                </div>
+                            }
+
+                            @if (!string.IsNullOrWhiteSpace(msg.ErrorDetail))
+                            {
+                                <div class="message-error" style="font-size: 11.5px; margin-top: 6px; color: #ef4444;">
+                                    @msg.ErrorDetail
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <!-- Secondary Input Composer -->
+    <div class="composer-wrapper" style="padding: 10px 14px; border-top: 1px solid var(--border-color); background: var(--bg-panel);">
+        <div class="composer-box" style="display: flex; flex-direction: column; gap: 6px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 8px 10px;">
+            <textarea class="composer-textarea" 
+                      rows="2" 
+                      style="font-size: 12px; resize: none; border: none; background: transparent; color: var(--text-primary); outline: none; width: 100%;"
+                      placeholder="Message Split Gram B..."
+                      @bind="draft"
+                      @bind:event="oninput"
+                      @onkeydown="HandleKeyDown"></textarea>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <button type="button" 
+                        class="btn-split-action" 
+                        style="font-size: 11px;"
+                        @onclick="SendDraftToLeftChat"
+                        disabled="@(string.IsNullOrWhiteSpace(draft))"
+                        title="Send this text to the primary Left chat">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                    <span>Send to Left</span>
+                </button>
+
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <button type="button" 
+                            class="btn-composer-send" 
+                            style="padding: 4px 10px; font-size: 11.5px;"
+                            @onclick="Send"
+                            disabled="@(isGenerating || string.IsNullOrWhiteSpace(draft))">
+                        <span>Send</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Conversation? Conversation { get; set; }
+    [Parameter] public List<Conversation> AvailableConversations { get; set; } = [];
+    [Parameter] public EventCallback<string> OnConversationChanged { get; set; }
+    [Parameter] public EventCallback<string> OnSendToPrimaryChat { get; set; }
+
+    private string activeModelId = "gram-q";
+    private bool isModelMenuOpen = false;
+    private string draft = "";
+    private bool isGenerating = false;
+    private CancellationTokenSource? cts;
+
+    private bool isDialogueActive = false;
+    private int dialogueRound = 1;
+    private int dialogueMaxRounds = 3;
+
+    private GramModel? ActiveModel => ModelService.Models.FirstOrDefault(m => m.Id.Equals(activeModelId, StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized()
+    {
+        TabService.OnCrossChatRequested += HandleCrossChatRequested;
+    }
+
+    private void SelectModel(string modelId)
+    {
+        activeModelId = modelId;
+        isModelMenuOpen = false;
+    }
+
+    private async Task OnChatSelected(ChangeEventArgs e)
+    {
+        var chatId = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(chatId))
+        {
+            await OnConversationChanged.InvokeAsync(chatId);
+        }
+    }
+
+    private void SwapPanes()
+    {
+        TabService.SwapSplitTabs();
+    }
+
+    private void CloseSplit()
+    {
+        TabService.CloseSplitView();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await Send();
+        }
+    }
+
+    public async Task SendMessageExternalAsync(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || Conversation == null) return;
+        draft = text;
+        await Send();
+    }
+
+    private async Task SendDraftToLeftChat()
+    {
+        if (string.IsNullOrWhiteSpace(draft)) return;
+        var text = draft.Trim();
+        draft = "";
+        await OnSendToPrimaryChat.InvokeAsync(text);
+    }
+
+    private async Task Send()
+    {
+        if (isGenerating || string.IsNullOrWhiteSpace(draft) || Conversation == null) return;
+
+        var text = draft.Trim();
+        draft = "";
+
+        var userMsg = new Message("user", text);
+        Conversation.Messages.Add(userMsg);
+        StateHasChanged();
+
+        await GenerateResponseAsync(text);
+    }
+
+    private async Task GenerateResponseAsync(string userPrompt)
+    {
+        if (Conversation == null) return;
+
+        isGenerating = true;
+        cts = new CancellationTokenSource();
+
+        var assistantMsg = new Message("assistant", "");
+        assistantMsg.ToolCalls = new List<ToolCallInfo>();
+        Conversation.Messages.Add(assistantMsg);
+        StateHasChanged();
+
+        var workspacePath = Environment.CurrentDirectory;
+        var contextResult = await ContextBuilder.AssembleContextAsync(Conversation, workspacePath: workspacePath, relevanceQuery: userPrompt);
+
+        try
+        {
+            await foreach (var step in AgentOrchestrator.RunAgentLoopAsync(
+                activeModelId, 
+                contextResult.Messages, 
+                workspacePath, 
+                contextResult.SystemPrompt, 
+                maxIterations: 6, 
+                repositoryMap: contextResult.RepositoryMap, 
+                cancellationToken: cts.Token))
+            {
+                if (!string.IsNullOrWhiteSpace(step.ErrorMessage))
+                {
+                    assistantMsg.ErrorDetail = step.ErrorMessage;
+                }
+                if (!string.IsNullOrEmpty(step.ContentDelta))
+                {
+                    assistantMsg.Text += step.ContentDelta;
+                }
+                if (step.ToolCall != null)
+                {
+                    var existing = assistantMsg.ToolCalls.FirstOrDefault(t => t.Id == step.ToolCall.Id);
+                    if (existing != null)
+                    {
+                        existing.Result = step.ToolCall.Result;
+                        existing.IsError = step.ToolCall.IsError;
+                    }
+                    else
+                    {
+                        assistantMsg.ToolCalls.Add(step.ToolCall);
+                    }
+                }
+                StateHasChanged();
+            }
+
+            // If cross-agent dialogue is running, trigger next turn
+            if (isDialogueActive && !string.IsNullOrWhiteSpace(assistantMsg.Text))
+            {
+                dialogueRound++;
+                if (dialogueRound <= dialogueMaxRounds)
+                {
+                    await OnSendToPrimaryChat.InvokeAsync(assistantMsg.Text);
+                }
+                else
+                {
+                    isDialogueActive = false;
+                    SonnerService.Success("Dialogue Completed", $"Multi-agent discussion concluded after {dialogueMaxRounds} rounds.");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            assistantMsg.ErrorDetail = ex.Message;
+        }
+        finally
+        {
+            isGenerating = false;
+            cts = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartCollaborativeDialogue()
+    {
+        if (Conversation == null || isGenerating) return;
+        isDialogueActive = true;
+        dialogueRound = 1;
+
+        var initialTopic = Conversation.Messages.LastOrDefault(m => m.Role == "user")?.Text 
+            ?? "Let's review our architecture, trade-offs, and next implementation steps collaboratively.";
+
+        SonnerService.Info("Cross-Agent Dialogue", $"Starting {dialogueMaxRounds}-round dialogue between Split A and Split B.");
+        await SendMessageExternalAsync($"[Collaborative Discussion Request from Split A]: {initialTopic}");
+    }
+
+    private void StopDialogue()
+    {
+        isDialogueActive = false;
+        cts?.Cancel();
+        SonnerService.Info("Dialogue Stopped", "Cross-agent discussion paused.");
+    }
+
+    private void HandleCrossChatRequested(string fromChatId, string toChatId, string text)
+    {
+        if (Conversation != null && Conversation.Id == toChatId)
+        {
+            _ = InvokeAsync(() => SendMessageExternalAsync(text));
+        }
+    }
+
+    public void Dispose()
+    {
+        TabService.OnCrossChatRequested -= HandleCrossChatRequested;
+        cts?.Cancel();
+    }
+}

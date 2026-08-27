@@ -11,6 +11,7 @@
 @inject ISonnerService SonnerService
 @inject IAuthService AuthService
 @inject ToolboxManagerService ToolboxService
+@inject IQuotaTracker QuotaTracker
 @inject AgentSecurityService SecurityService
 @inject NavigationManager NavManager
 @inject IJSRuntime JSRuntime
@@ -67,6 +68,11 @@
                             <button class="settings-nav-subitem @(activeCategory == "Intelligence/Providers" ? "active" : "")"
                                     @onclick='() => SelectCategory("Intelligence/Providers")'>
                                 <span>Providers</span>
+                            </button>
+
+                            <button class="settings-nav-subitem @(activeCategory == "Intelligence/Quota" ? "active" : "")"
+                                    @onclick='() => SelectCategory("Intelligence/Quota")'>
+                                <span>Quota & Usage</span>
                             </button>
 
                             @if (SettingsService.IsFeatureSupported("localMcpServers"))
@@ -384,8 +390,8 @@
                     }
 
                     var pHealth = ModelService.GetHealth(provider.Id);
-                    var isKeySet = !string.IsNullOrWhiteSpace(ModelService.GetApiKey(provider.Id));
-                    var isConnected = provider.Id == "ollama" ? pHealth.IsHealthy : isKeySet;
+                    var hasUserKey = ModelService.HasUserKey(provider.Id);
+                    var isSystemManaged = ModelService.IsSystemManaged(provider.Id);
                     var isCheckingThis = checkingProviders.Contains(provider.Id);
 
                     <div class="setting-item">
@@ -393,9 +399,26 @@
                             <div style="display: flex; align-items: center; gap: 9px;">
                                 <ModelIcon Vendor="@provider.Id" Size="18" />
                                 <span class="setting-title">@provider.Name</span>
-                                <span class="provider-status @(pHealth.IsHealthy ? "connected" : (isConnected ? "connected" : "disconnected"))">
-                                    @(isCheckingThis ? "Checking health..." : (pHealth.LastChecked.HasValue ? pHealth.Message : (isConnected ? "Configured" : "Not configured")))
-                                </span>
+                                @if (isCheckingThis)
+                                {
+                                    <span class="provider-status checking">Checking health...</span>
+                                }
+                                else if (hasUserKey)
+                                {
+                                    <span class="provider-status connected" title="Using custom API key entered in settings">BYOK Active</span>
+                                }
+                                else if (isSystemManaged)
+                                {
+                                    <span class="provider-status system" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border-color: rgba(59, 130, 246, 0.3);" title="Using platform managed system key">System Included</span>
+                                }
+                                else if (provider.Id == "ollama" && pHealth.IsHealthy)
+                                {
+                                    <span class="provider-status connected">Connected</span>
+                                }
+                                else
+                                {
+                                    <span class="provider-status disconnected">Not Configured</span>
+                                }
                             </div>
                             <span class="setting-desc">@(provider.BaseUrl ?? (provider.Id == "google" ? "Google AI Studio API" : "Default API Endpoint"))</span>
                         </div>
@@ -413,6 +436,63 @@
                             </button>
                         </div>
                     </div>
+                }
+            </div>
+        }
+        else if (activeCategory == "Intelligence/Quota")
+        {
+            <div class="settings-group">
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Model quota and usage</span>
+                        <span class="setting-desc">Provider limits are exact when the provider returns rate-limit headers; otherwise Gram reports observed local usage.</span>
+                    </div>
+                </div>
+
+                @if (QuotaTracker.GetSnapshots().Count == 0)
+                {
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-desc">No model requests have been observed in this session yet.</span>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var snapshot in QuotaTracker.GetSnapshots())
+                    {
+                        <div class="setting-item quota-setting-item">
+                            <div class="setting-info">
+                                <div class="quota-setting-title">
+                                    <span class="setting-title">@snapshot.Model</span>
+                                    <span class="provider-status @(snapshot.Scope == "system" ? "system" : "connected")">@(snapshot.Scope == "system" ? "System" : "BYOK")</span>
+                                </div>
+                                <span class="setting-desc">@snapshot.Provider · @snapshot.Confidence data · @snapshot.ObservedRequests observed request(s)</span>
+                                @if (snapshot.ObservedInputTokens > 0 || snapshot.ObservedOutputTokens > 0)
+                                {
+                                    <span class="setting-desc">Observed tokens: @snapshot.ObservedInputTokens.ToString("N0") in · @snapshot.ObservedOutputTokens.ToString("N0") out</span>
+                                }
+                            </div>
+                            <div class="quota-setting-value">
+                                @if (snapshot.RemainingPercent.HasValue)
+                                {
+                                    <strong class="@(snapshot.RemainingPercent <= 10 ? "quota-critical" : snapshot.RemainingPercent <= 25 ? "quota-warning" : "")">@snapshot.RemainingPercent% remaining</strong>
+                                }
+                                else
+                                {
+                                    <strong>Remaining unavailable</strong>
+                                }
+                                @if (snapshot.CooldownUntil > DateTimeOffset.UtcNow)
+                                {
+                                    <span>Retry @snapshot.CooldownUntil.Value.ToLocalTime().ToString("h:mm:ss tt")</span>
+                                }
+                                else if (snapshot.RequestsResetAt.HasValue || snapshot.TokensResetAt.HasValue)
+                                {
+                                    <span>Resets @((snapshot.RequestsResetAt ?? snapshot.TokensResetAt)!.Value.ToLocalTime().ToString("h:mm:ss tt"))</span>
+                                }
+                            </div>
+                        </div>
+                    }
                 }
             </div>
         }
@@ -1296,7 +1376,7 @@
                 {
                     <div style="display: flex; flex-direction: column; gap: 6px;">
                         <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <label class="setting-title" style="font-size: 13px;">API Key</label>
+                            <label class="setting-title" style="font-size: 13px;">User API Key (BYOK)</label>
                             @if (!string.IsNullOrWhiteSpace(providerCopyFeedback))
                             {
                                 <span style="font-size: 11px; color: var(--success); font-weight: 500;">@providerCopyFeedback</span>
@@ -1306,7 +1386,7 @@
                             <input class="setting-input" style="flex: 1; width: 100%; font-family: var(--font-mono); font-size: 12px;"
                                    type="@(showProviderKey ? "text" : "password")"
                                    @bind="providerKeyInput"
-                                   placeholder="Paste @selectedProvider.Name API key..." />
+                                   placeholder="@(ModelService.HasSystemKey(selectedProvider.Id) ? "(System Included) Paste custom key to override..." : $"Paste {selectedProvider.Name} API key...")" />
                             <button class="btn-secondary" style="margin-top: 0;" @onclick="() => showProviderKey = !showProviderKey">
                                 @(showProviderKey ? "Hide" : "Show")
                             </button>
@@ -1314,7 +1394,14 @@
                                 Copy
                             </button>
                         </div>
-                        <span class="setting-desc">Stored encrypted in your local secure_keys.dat store.</span>
+                        @if (ModelService.IsSystemManaged(selectedProvider.Id) && string.IsNullOrWhiteSpace(providerKeyInput))
+                        {
+                            <span class="setting-desc" style="color: #60a5fa;">✨ System managed key is active. Providing your own key will override system defaults.</span>
+                        }
+                        else
+                        {
+                            <span class="setting-desc">Stored encrypted in your local secure_keys.dat store.</span>
+                        }
                     </div>
                 }
 
@@ -1669,6 +1756,7 @@
             "General" => "General",
             "Intelligence/Models" => "AI Models",
             "Intelligence/Providers" => "Providers",
+            "Intelligence/Quota" => "Quota & Usage",
             "Intelligence/MCP" => "MCP Tools",
             "Intelligence/Tools" => "Tools & Plugins",
             "Intelligence/Skills" => "Prompts & Skills",
@@ -1771,6 +1859,7 @@
             "General" => "General Settings",
             "Intelligence/Models" => "Intelligence · Models",
             "Intelligence/Providers" => "Intelligence · Providers",
+            "Intelligence/Quota" => "Intelligence · Quota & Usage",
             "Intelligence/MCP" => "Intelligence · MCP Tools",
             "Intelligence/Tools" => "Intelligence · Tools & Plugins",
             "Intelligence/Skills" => "Intelligence · Prompts & Skills",
@@ -1841,7 +1930,7 @@
     {
         selectedProvider = prov;
         providerBaseUrlInput = prov.BaseUrl ?? "";
-        providerKeyInput = ModelService.GetApiKey(prov.Id) ?? "";
+        providerKeyInput = ModelService.GetUserApiKey(prov.Id) ?? "";
         currentProviderHealth = ModelService.GetHealth(prov.Id);
         showProviderKey = false;
         providerCopyFeedback = "";

@@ -4,6 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**/bin/**;tests/**/obj/**;test_files/**;samples/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Markdig" Version="0.40.0" />
@@ -12,8 +13,10 @@
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Remove="tests/**/*.cs" />
+    <Compile Remove="tests/**/*.cs;samples/**/*.cs;test_files/**/*.cs" />
     <EmbeddedResource Remove="tests/**/*.resx" />
-    <None Remove="tests/**/*.cs" />
+    <None Remove="tests/**/*.cs;samples/**/*.cs;test_files/**/*.cs" />
+    <Content Remove="tests/**/bin/**;tests/**/obj/**" />
+    <None Remove="tests/**/bin/**;tests/**/obj/**" />
   </ItemGroup>
 </Project>

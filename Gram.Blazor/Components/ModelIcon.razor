@@ -20,11 +20,15 @@
                 key = ModelId.Trim().ToLowerInvariant();
             }
 
-            if (key == "gram-q-plus" || key.Contains("google") || key.Contains("gemini"))
+            if (key.StartsWith("gram") || key == "gram-q" || key == "gram-q-plus")
+            {
+                return "icons/gram-logo.svg";
+            }
+            if (key.Contains("google") || key.Contains("gemini"))
             {
                 return "logo/gemini.svg";
             }
-            if (key == "gram-q" || key.Contains("groq") || key.Contains("meta") || key.Contains("llama"))
+            if (key.Contains("groq") || key.Contains("meta") || key.Contains("llama"))
             {
                 return "logo/meta-12361.svg";
             }

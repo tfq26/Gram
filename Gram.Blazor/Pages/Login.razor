@@ -7,6 +7,8 @@
 @inject IAuthService AuthService
 @inject ISonnerService SonnerService
 @inject NavigationManager NavManager
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
 
 <PageTitle>Sign In · Gram</PageTitle>
 
@@ -15,11 +17,6 @@
     <div class="gram-auth-form-column">
         <div class="gram-auth-form-box">
             
-            <!-- Minimal Geometric Gram Brand Glyph -->
-            <div class="gram-auth-icon-wrap" style="padding: 4px;">
-                <img src="icons/gram-logo.svg" alt="Gram Logo" style="width: 28px; height: 28px; display: block;" />
-            </div>
-
             <!-- Header -->
             <div class="gram-auth-headings">
                 <h1 class="gram-auth-heading-title">
@@ -129,11 +126,19 @@
         </div>
     </div>
 
-    <!-- Right Column: Crisp, Sharp Geometric Architecture (No Blur) -->
+    <!-- Right Column: Interactive Gram canvas artwork -->
     <div class="gram-auth-image-column">
-        <img class="gram-auth-unsplash-img" 
-             src="https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1920&q=90" 
-             alt="Dark Geometric Architecture" />
+        <div id="gramLoginArtwork" class="gram-auth-artwork">
+            <canvas class="gram-auth-artwork-canvas"
+                    role="img"
+                    aria-label="Interactive purple Gram artwork"></canvas>
+            <div class="gram-auth-artwork-grid" aria-hidden="true"></div>
+            <div class="gram-auth-artwork-vignette" aria-hidden="true"></div>
+            <div class="gram-auth-artwork-caption">
+                <span></span>
+                <strong>Ideas become clearer<br />when you explore them.</strong>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -158,6 +163,13 @@
             var redirectTarget = !string.IsNullOrWhiteSpace(ReturnUrl) && !ReturnUrl.Contains("login", StringComparison.OrdinalIgnoreCase) && !ReturnUrl.Contains("signin", StringComparison.OrdinalIgnoreCase) ? ReturnUrl : "/";
             NavManager.NavigateTo(redirectTarget);
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        await JSRuntime.InvokeVoidAsync("gramLoginArtwork.init", "gramLoginArtwork");
     }
 
     private async Task HandleSubmit()
@@ -203,6 +215,20 @@
         {
             isLoading = false;
             StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramLoginArtwork.dispose", "gramLoginArtwork");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
         }
     }
 }

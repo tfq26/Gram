@@ -13,7 +13,7 @@ public interface IGramBoxService
     string? StatusMessage { get; }
     event Action? OnStatusChanged;
 
-    Task<GramBoxSandboxSession> CreateSandboxAsync(string baseRepoPath, string? branchName = null, string? taskName = null, CancellationToken ct = default);
+    Task<GramBoxSandboxSession> CreateSandboxAsync(string baseRepoPath, string? branchName = null, string? taskName = null, CancellationToken ct = default, string? runId = null);
     Task<GramBoxExecutionResult> ExecuteAsync(string command, string? sandboxId = null, string? relativeSubDir = null, int timeoutSeconds = 120, CancellationToken ct = default);
     Task<bool> WriteFileAsync(string relativePath, string content, string? sandboxId = null, CancellationToken ct = default);
     Task<string?> ReadFileAsync(string relativePath, string? sandboxId = null, CancellationToken ct = default);
@@ -28,6 +28,7 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
     private readonly ILogger<GramBoxService> _logger;
     private readonly GramBoxWorktreeManager _worktreeManager;
     private readonly NativeScratchpadDriver _nativeDriver;
+    private readonly ISandboxScheduler _scheduler;
     private readonly GramBoxConfig _config = new();
 
     private readonly ConcurrentDictionary<string, GramBoxSandboxSession> _sessions = new();
@@ -46,11 +47,13 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
     public GramBoxService(
         ILogger<GramBoxService> logger,
         GramBoxWorktreeManager worktreeManager,
-        NativeScratchpadDriver nativeDriver)
+        NativeScratchpadDriver nativeDriver,
+        ISandboxScheduler? scheduler = null)
     {
         _logger = logger;
         _worktreeManager = worktreeManager;
         _nativeDriver = nativeDriver;
+        _scheduler = scheduler ?? new SandboxScheduler();
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -86,12 +89,17 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
         string baseRepoPath, 
         string? branchName = null, 
         string? taskName = null, 
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? runId = null)
     {
         NotifyState("Creating isolated Git Worktree sandbox...");
+        var lease = await _scheduler.AcquireAsync(new SandboxRequest(runId), ct);
         try
         {
             var session = await _worktreeManager.CreateWorktreeSessionAsync(baseRepoPath, branchName, taskName, ct);
+            session.LeaseId = lease.Id;
+            session.RunId = runId;
+            session.ResourceBudget = lease.Budget;
             _sessions[session.Id] = session;
             _activeSessionId = session.Id;
 
@@ -100,6 +108,7 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
         }
         catch (Exception ex)
         {
+            _scheduler.Release(lease.Id);
             _logger.LogError(ex, "Failed to create worktree sandbox");
             NotifyState($"Failed to create sandbox: {ex.Message}");
             throw;
@@ -183,6 +192,7 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
         if (_sessions.TryRemove(sandboxId, out var session))
         {
             var ok = await _worktreeManager.RemoveWorktreeSessionAsync(session, force, ct);
+            if (!string.IsNullOrWhiteSpace(session.LeaseId)) _scheduler.Release(session.LeaseId);
             if (_activeSessionId == sandboxId)
             {
                 _activeSessionId = _sessions.Keys.FirstOrDefault();

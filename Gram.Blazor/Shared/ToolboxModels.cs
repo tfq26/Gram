@@ -4,7 +4,8 @@ public enum WorkspaceTabType
 {
     Chat,
     ToolboxOverview,
-    ToolConfig
+    ToolConfig,
+    Presentation
 }
 
 public sealed class WorkspaceTab
@@ -14,6 +15,8 @@ public sealed class WorkspaceTab
     public WorkspaceTabType Type { get; set; } = WorkspaceTabType.Chat;
     public string? ChatId { get; set; }
     public string? ToolId { get; set; }
+    public string? ProjectId { get; set; }
+    public string? PresentationPath { get; set; }
     public string? Icon { get; set; } = "💬";
     public bool IsPinned { get; set; }
 }

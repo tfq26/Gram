@@ -1,63 +1,364 @@
 @namespace Gram.Blazor.Components
 @using Gram.Blazor.Shared
 @using Gram.Blazor.Components.ShadCn
+@inject IJSRuntime JSRuntime
+@inject ISonnerService SonnerService
+@inject MarkdownService MarkdownService
 
-@if (IsSearchTool)
+@if (IsWebSearchTool)
 {
-    <div class="tool-call-card tool-search-card @(ToolCall.IsError ? "error" : (string.IsNullOrWhiteSpace(ToolCall.Result) ? "running" : "success"))">
-        <div class="tool-search-status">
-            <span class="tool-search-dot @(string.IsNullOrWhiteSpace(ToolCall.Result) && !ToolCall.IsError ? "active" : "")"></span>
-            <span>@SearchStatus</span>
-        </div>
-    </div>
-}
-else
-{
-    <div class="tool-call-card @(ToolCall.IsError ? "error" : (string.IsNullOrWhiteSpace(ToolCall.Result) ? "running" : "success"))">
-        <div class="tool-call-header" @onclick="ToggleExpand">
-            <div class="tool-call-meta">
-                <span class="tool-call-name">@ToolCall.ToolName</span>
-                <span class="tool-call-args-preview">@GetArgsSummary()</span>
-            </div>
+    var sources = GetSources();
+    var isRunning = string.IsNullOrWhiteSpace(ToolCall.Result) && !ToolCall.IsError;
+    var query = GetSearchQuery();
 
-            <div class="tool-call-status">
-                @if (string.IsNullOrWhiteSpace(ToolCall.Result) && !ToolCall.IsError)
+    <div class="web-search-minimal @(ToolCall.IsError ? "is-error" : (isRunning ? "is-running" : "is-complete"))">
+        <div class="web-search-inline-bar" @onclick="ToggleExpand">
+            <div class="web-search-leading">
+                <div class="web-search-icon-wrap">
+                    @if (isRunning)
+                    {
+                        <span class="tool-mini-spinner"></span>
+                    }
+                    else
+                    {
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                    }
+                </div>
+
+                @if (isRunning)
                 {
-                    <span class="tool-status-badge running">
-                        <span class="spinner-dot"></span> Running
+                    <span class="web-search-label running">
+                        Searching web@(string.IsNullOrWhiteSpace(query) ? "…" : $" for “{query}”…")
                     </span>
                 }
                 else if (ToolCall.IsError)
                 {
-                    <span class="tool-status-badge error">Failed</span>
+                    <span class="web-search-label error">Search failed</span>
                 }
                 else
                 {
-                    <span class="tool-status-badge success">Completed</span>
+                    <span class="web-search-label">
+                        Searched @(sources.Count > 0 ? $"{sources.Count} site{(sources.Count > 1 ? "s" : "")}" : "web")
+                        @if (!string.IsNullOrWhiteSpace(query))
+                        {
+                            <span class="web-search-query-quote" title="@query">for “@query”</span>
+                        }
+                    </span>
+                }
+            </div>
+
+            @if (!isRunning && sources.Count > 0)
+            {
+                <div class="web-search-source-chips" @onclick:stopPropagation="true">
+                    @foreach (var src in sources.Take(4))
+                    {
+                        <a href="@src.Url" target="_blank" rel="noopener noreferrer" class="web-source-chip" title="@src.Title">
+                            <img src="https://www.google.com/s2/favicons?domain=@src.Domain&sz=32" alt="" class="web-source-favicon" onerror="this.style.display='none'" />
+                            <span class="web-source-domain">@src.Domain</span>
+                        </a>
+                    }
+                    @if (sources.Count > 4)
+                    {
+                        <button type="button" class="web-source-chip more-btn" @onclick="ToggleExpand">
+                            +@(sources.Count - 4) more
+                        </button>
+                    }
+                </div>
+            }
+
+            @if (!isRunning && (!string.IsNullOrWhiteSpace(ToolCall.Result) || sources.Count > 0))
+            {
+                <button type="button" class="web-search-toggle-btn @(isExpanded ? "expanded" : "")" aria-label="Toggle details">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+            }
+        </div>
+
+        @if (isExpanded && sources.Count > 0)
+        {
+            <div class="web-search-expanded-drawer">
+                <div class="web-search-sources-list">
+                    @foreach (var src in sources)
+                    {
+                        <a href="@src.Url" target="_blank" rel="noopener noreferrer" class="web-source-list-item" title="@src.Url">
+                            <img src="https://www.google.com/s2/favicons?domain=@src.Domain&sz=32" alt="" class="web-source-list-favicon" onerror="this.style.display='none'" />
+                            <div class="web-source-list-meta">
+                                <span class="web-source-list-title">@(string.IsNullOrWhiteSpace(src.Title) ? src.Domain : src.Title)</span>
+                                <span class="web-source-list-url">@src.Domain</span>
+                            </div>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="web-source-list-arrow">
+                                <line x1="7" y1="17" x2="17" y2="7"></line>
+                                <polyline points="7 7 17 7 17 17"></polyline>
+                            </svg>
+                        </a>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+else if (IsSubagentTool)
+{
+    var isRunning = string.IsNullOrWhiteSpace(ToolCall.Result) && !ToolCall.IsError;
+    var (agentType, roleTitle, taskPrompt, sandboxId) = GetSubagentDetails();
+
+    <div class="tool-step-card subagent-step-card @(ToolCall.IsError ? "is-error" : (isRunning ? "is-running" : "is-success"))">
+        <div class="tool-step-header subagent-header" @onclick="ToggleExpand">
+            <div class="tool-step-meta">
+                <div class="tool-step-icon-wrap subagent">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="18" cy="5" r="3"></circle>
+                        <circle cx="6" cy="12" r="3"></circle>
+                        <circle cx="18" cy="19" r="3"></circle>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                    </svg>
+                </div>
+
+                <div class="tool-step-text">
+                    <span class="tool-step-action">Subagent Delegation</span>
+                    @if (!string.IsNullOrWhiteSpace(roleTitle))
+                    {
+                        <span class="tool-step-target-text" title="@roleTitle">@roleTitle</span>
+                    }
+                </div>
+            </div>
+
+            <div class="tool-step-controls">
+                @if (isRunning)
+                {
+                    <span class="tool-step-status-text running">Executing...</span>
+                }
+                else if (ToolCall.IsError)
+                {
+                    <span class="tool-step-status-text error">Failed</span>
+                }
+                else
+                {
+                    <span class="tool-step-status-text done">Completed</span>
                 }
 
-                <svg class="tool-chevron @(isExpanded ? "expanded" : "")" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
+                <button type="button" class="tool-step-chevron-btn @(isExpanded ? "expanded" : "")" aria-label="Toggle subagent report">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
             </div>
         </div>
 
         @if (isExpanded)
         {
-            <div class="tool-call-body">
-                @if (!string.IsNullOrWhiteSpace(ToolCall.Arguments))
+            <div class="tool-step-body subagent-expanded-body">
+                <div class="subagent-banner-card">
+                    <div class="subagent-banner-top">
+                        <div class="subagent-identity">
+                            <span class="subagent-persona-chip">@agentType</span>
+                            <span class="subagent-role-name">@roleTitle</span>
+                        </div>
+                        <div class="subagent-badges">
+                            @if (!string.IsNullOrWhiteSpace(sandboxId))
+                            {
+                                <span class="subagent-env-text sandbox">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                                        <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                                        <line x1="6" y1="18" x2="6.01" y2="6"></line>
+                                    </svg>
+                                    <span>Gram Box Sandbox</span>
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="subagent-env-text workspace">Workspace</span>
+                            }
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(taskPrompt))
+                    {
+                        <div class="subagent-mission-box">
+                            <span class="subagent-mission-label">Task Assignment</span>
+                            <p class="subagent-mission-text">@taskPrompt</p>
+                        </div>
+                    }
+                </div>
+
+                <!-- Subagent Output as Formatted Prose Text -->
+                @if (!string.IsNullOrWhiteSpace(ToolCall.Result))
                 {
-                    <div class="tool-section">
-                        <span class="tool-section-label">Parameters</span>
-                        <pre class="tool-code-block">@ToolCall.Arguments</pre>
+                    <div class="subagent-report-card">
+                        <div class="subagent-report-header">
+                            <div class="subagent-report-title-group">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                </svg>
+                                <span class="subagent-report-title">Findings & Output</span>
+                            </div>
+
+                            <button type="button" class="tool-copy-action-btn" @onclick="CopyOutput" title="Copy report text">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                                <span>Copy</span>
+                            </button>
+                        </div>
+
+                        <div class="subagent-report-prose @(ToolCall.IsError ? "is-error-report" : "")">
+                            <MarkdownView Content="@ToolCall.Result" />
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+else
+{
+    var isRunning = string.IsNullOrWhiteSpace(ToolCall.Result) && !ToolCall.IsError;
+    var (actionLabel, targetText, targetKind) = GetToolSummaryInfo();
+
+    <div class="tool-step-card @(ToolCall.IsError ? "is-error" : (isRunning ? "is-running" : "is-success"))">
+        <div class="tool-step-header" @onclick="ToggleExpand">
+            <div class="tool-step-meta">
+                <div class="tool-step-icon-wrap @targetKind">
+                    @if (targetKind == "command")
+                    {
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="4 17 10 11 4 5"></polyline>
+                            <line x1="12" y1="19" x2="20" y2="19"></line>
+                        </svg>
+                    }
+                    else if (targetKind == "file-read" || targetKind == "file-write")
+                    {
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                        </svg>
+                    }
+                    else if (targetKind == "search")
+                    {
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                    }
+                    else if (targetKind == "git")
+                    {
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="6" y1="3" x2="6" y2="15"></line>
+                            <circle cx="18" cy="6" r="3"></circle>
+                            <circle cx="6" cy="18" r="3"></circle>
+                            <path d="M18 9a9 9 0 0 1-9 9"></path>
+                        </svg>
+                    }
+                    else
+                    {
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                            <polyline points="2 17 12 22 22 17"></polyline>
+                            <polyline points="2 12 12 17 22 12"></polyline>
+                        </svg>
+                    }
+                </div>
+
+                <div class="tool-step-text">
+                    <span class="tool-step-action">@actionLabel</span>
+                    @if (!string.IsNullOrWhiteSpace(targetText))
+                    {
+                        <span class="tool-step-target-text" title="@targetText">
+                            @if (targetKind == "command")
+                            {
+                                <span class="tool-prompt-sym">❯</span>
+                            }
+                            <span>@targetText</span>
+                        </span>
+                    }
+                </div>
+            </div>
+
+            <div class="tool-step-controls">
+                @if (isRunning)
+                {
+                    <span class="tool-step-status-text running">Running...</span>
+                }
+                else if (ToolCall.IsError)
+                {
+                    <span class="tool-step-status-text error">Failed</span>
+                }
+                else
+                {
+                    <span class="tool-step-status-text done">
+                        @(GetOutputLineCount() > 0 ? $"{GetOutputLineCount()} lines" : "Done")
+                    </span>
+                }
+
+                <button type="button" class="tool-step-chevron-btn @(isExpanded ? "expanded" : "")" aria-label="Toggle details">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        @if (isExpanded)
+        {
+            <div class="tool-step-body">
+                @if (ParsedArguments.Count > 0)
+                {
+                    <div class="tool-drawer-section">
+                        <div class="tool-drawer-header">
+                            <span class="tool-drawer-label">Parameters</span>
+                            <button type="button" class="tool-copy-action-btn" @onclick="CopyArguments" title="Copy arguments">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                                <span>Copy</span>
+                            </button>
+                        </div>
+                        <div class="tool-params-table">
+                            @foreach (var kv in ParsedArguments)
+                            {
+                                <div class="tool-param-row">
+                                    <span class="tool-param-key">@kv.Key</span>
+                                    <span class="tool-param-val">@kv.Value</span>
+                                </div>
+                            }
+                        </div>
                     </div>
                 }
 
                 @if (!string.IsNullOrWhiteSpace(ToolCall.Result))
                 {
-                    <div class="tool-section">
-                        <span class="tool-section-label">Output</span>
-                        <pre class="tool-code-block @(ToolCall.IsError ? "error-output" : "")">@ToolCall.Result</pre>
+                    <div class="tool-drawer-section">
+                        <div class="tool-drawer-header">
+                            <span class="tool-drawer-label">Console Output</span>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="tool-output-meta">@(GetOutputLineCount()) lines</span>
+                                <button type="button" class="tool-copy-action-btn" @onclick="CopyOutput" title="Copy output">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                    </svg>
+                                    <span>Copy</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="tool-console-output @(ToolCall.IsError ? "has-error" : "")">
+                            <pre class="tool-console-code">@ToolCall.Result</pre>
+                        </div>
                     </div>
                 }
             </div>
@@ -69,35 +370,195 @@ else
     [Parameter] public ToolCallInfo ToolCall { get; set; } = new();
     private bool isExpanded = false;
 
-    private bool IsSearchTool => ToolCall.ToolName.Equals("search_web", StringComparison.OrdinalIgnoreCase);
+    private bool IsWebSearchTool => ToolCall.ToolName.Equals("search_web", StringComparison.OrdinalIgnoreCase);
 
-    private string SearchStatus => ToolCall.IsError
-        ? "Search failed"
-        : string.IsNullOrWhiteSpace(ToolCall.Result)
-            ? "Searching sources…"
-            : "Searched sources · information found";
+    private bool IsSubagentTool => 
+        ToolCall.ToolName.Contains("subagent", StringComparison.OrdinalIgnoreCase) ||
+        ToolCall.ToolName.Equals("invoke_subagent", StringComparison.OrdinalIgnoreCase) ||
+        ToolCall.ToolName.Equals("spawn_subagent", StringComparison.OrdinalIgnoreCase) ||
+        ToolCall.ToolName.Equals("get_subagent_status", StringComparison.OrdinalIgnoreCase) ||
+        ToolCall.ToolName.Equals("list_subagents", StringComparison.OrdinalIgnoreCase) ||
+        ToolCall.ToolName.Equals("manage_subagents", StringComparison.OrdinalIgnoreCase);
+
+    private record SearchSourceItem(string Title, string Url, string Domain);
+
+    private Dictionary<string, string> ParsedArguments
+    {
+        get
+        {
+            var dict = new Dictionary<string, string>();
+            if (string.IsNullOrWhiteSpace(ToolCall.Arguments)) return dict;
+            try
+            {
+                var node = System.Text.Json.Nodes.JsonNode.Parse(ToolCall.Arguments);
+                if (node is System.Text.Json.Nodes.JsonObject obj)
+                {
+                    foreach (var kvp in obj)
+                    {
+                        dict[kvp.Key] = kvp.Value?.ToString() ?? "";
+                    }
+                }
+            }
+            catch
+            {
+                dict["args"] = ToolCall.Arguments;
+            }
+            return dict;
+        }
+    }
+
+    private (string SubagentType, string RoleTitle, string TaskPrompt, string SandboxId) GetSubagentDetails()
+    {
+        var args = ParsedArguments;
+        var subagentType = args.GetValueOrDefault("subagentType") ?? args.GetValueOrDefault("TypeName") ?? args.GetValueOrDefault("type") ?? "Agent";
+        var role = args.GetValueOrDefault("role") ?? args.GetValueOrDefault("Role") ?? CapitalizeWords(subagentType);
+        var prompt = args.GetValueOrDefault("taskPrompt") ?? args.GetValueOrDefault("Prompt") ?? args.GetValueOrDefault("prompt") ?? "";
+        var sandbox = args.GetValueOrDefault("useSandbox") ?? args.GetValueOrDefault("Workspace") ?? "";
+
+        return (CapitalizeWords(subagentType), role, prompt, sandbox);
+    }
+
+    private (string ActionLabel, string TargetText, string TargetKind) GetToolSummaryInfo()
+    {
+        var name = ToolCall.ToolName.ToLowerInvariant();
+        var args = ParsedArguments;
+
+        if (name.Contains("run_command") || name.Contains("bash") || name.Contains("exec") || name.Contains("shell") || name.Contains("cmd"))
+        {
+            var cmd = args.GetValueOrDefault("CommandLine") ?? args.GetValueOrDefault("command") ?? args.GetValueOrDefault("cmd") ?? "";
+            return ("Run Command", cmd, "command");
+        }
+
+        if (name.Contains("read_file") || name.Contains("view_file") || name.Contains("get_file"))
+        {
+            var path = args.GetValueOrDefault("AbsolutePath") ?? args.GetValueOrDefault("TargetFile") ?? args.GetValueOrDefault("path") ?? args.GetValueOrDefault("filePath") ?? "";
+            return ("Read File", GetCleanPath(path), "file-read");
+        }
+
+        if (name.Contains("write_to_file") || name.Contains("replace_file_content") || name.Contains("edit_file") || name.Contains("write_file"))
+        {
+            var path = args.GetValueOrDefault("TargetFile") ?? args.GetValueOrDefault("AbsolutePath") ?? args.GetValueOrDefault("path") ?? args.GetValueOrDefault("filePath") ?? "";
+            return (name.Contains("replace") || name.Contains("edit") ? "Edit File" : "Create File", GetCleanPath(path), "file-write");
+        }
+
+        if (name.Contains("grep") || name.Contains("find_by_name") || name.Contains("search_files") || name.Contains("list_dir"))
+        {
+            var q = args.GetValueOrDefault("Query") ?? args.GetValueOrDefault("Pattern") ?? args.GetValueOrDefault("query") ?? args.GetValueOrDefault("pattern") ?? "";
+            return ("Search Codebase", !string.IsNullOrWhiteSpace(q) ? $"\"{q}\"" : "Files", "search");
+        }
+
+        if (name.StartsWith("git_") || name.Contains("git-gram"))
+        {
+            var act = name.Replace("git_", "").Replace("-", " ");
+            return ($"Git {Capitalize(act)}", args.GetValueOrDefault("branch") ?? args.GetValueOrDefault("commit") ?? "", "git");
+        }
+
+        // Generic tool formatting
+        var formattedName = CapitalizeWords(ToolCall.ToolName.Replace("_", " ").Replace("-", " "));
+        var firstArg = args.Values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v) && v.Length < 60) ?? "";
+        return (formattedName, firstArg, "custom");
+    }
+
+    private string GetCleanPath(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var parts = raw.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length <= 2) return raw;
+        return $"{parts[^2]}/{parts[^1]}";
+    }
+
+    private string Capitalize(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s[1..];
+
+    private string CapitalizeWords(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        return string.Join(" ", s.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(Capitalize));
+    }
+
+    private int GetOutputLineCount()
+    {
+        if (string.IsNullOrEmpty(ToolCall.Result)) return 0;
+        return ToolCall.Result.Split('\n').Length;
+    }
+
+    private string GetSearchQuery()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(ToolCall.Arguments)) return "";
+            var node = System.Text.Json.Nodes.JsonNode.Parse(ToolCall.Arguments);
+            return node?["query"]?.ToString() ?? node?["Query"]?.ToString() ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private List<SearchSourceItem> GetSources()
+    {
+        var list = new List<SearchSourceItem>();
+        if (string.IsNullOrWhiteSpace(ToolCall.Result)) return list;
+
+        var matches = System.Text.RegularExpressions.Regex.Matches(ToolCall.Result, @"\[(.*?)\]\((https?://.*?)\)");
+        foreach (System.Text.RegularExpressions.Match m in matches)
+        {
+            var title = m.Groups[1].Value.Trim();
+            var url = m.Groups[2].Value.Trim();
+            var domain = "";
+            try
+            {
+                var uri = new Uri(url);
+                domain = uri.Host.StartsWith("www.") ? uri.Host[4..] : uri.Host;
+            }
+            catch
+            {
+                domain = url;
+            }
+
+            if (!list.Any(s => s.Url == url || s.Domain == domain))
+            {
+                list.Add(new SearchSourceItem(title, url, domain));
+            }
+        }
+
+        if (list.Count == 0)
+        {
+            var urls = WebContentService.ExtractUrls(ToolCall.Result);
+            foreach (var url in urls)
+            {
+                try
+                {
+                    var uri = new Uri(url);
+                    var domain = uri.Host.StartsWith("www.") ? uri.Host[4..] : uri.Host;
+                    if (!list.Any(s => s.Domain == domain))
+                    {
+                        list.Add(new SearchSourceItem(domain, url, domain));
+                    }
+                }
+                catch {}
+            }
+        }
+
+        return list;
+    }
 
     private void ToggleExpand()
     {
         isExpanded = !isExpanded;
     }
 
-    private string GetArgsSummary()
+    private async Task CopyArguments()
     {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(ToolCall.Arguments)) return "";
-            var node = System.Text.Json.Nodes.JsonNode.Parse(ToolCall.Arguments);
-            if (node == null) return "";
+        if (string.IsNullOrEmpty(ToolCall.Arguments)) return;
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", ToolCall.Arguments);
+        SonnerService.Success("Copied", "Tool arguments copied to clipboard");
+    }
 
-            if (node["filePath"] != null) return node["filePath"]!.ToString();
-            if (node["command"] != null) return node["command"]!.ToString();
-            if (node["query"] != null) return $"\"{node["query"]}\"";
-            if (node["pattern"] != null) return node["pattern"]!.ToString();
-            if (node["repo"] != null) return node["repo"]!.ToString();
-            if (node["url"] != null) return node["url"]!.ToString();
-        }
-        catch {}
-        return "";
+    private async Task CopyOutput()
+    {
+        if (string.IsNullOrEmpty(ToolCall.Result)) return;
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", ToolCall.Result);
+        SonnerService.Success("Copied", "Output copied to clipboard");
     }
 }

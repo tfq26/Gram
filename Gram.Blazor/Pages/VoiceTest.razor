@@ -1,0 +1,262 @@
+@page "/voice-test"
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@rendermode InteractiveServer
+@using System.Text.Json.Serialization
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+<PageTitle>Voice Test · Gram</PageTitle>
+
+<div class="voice-test-page">
+    <div class="voice-test-card">
+        <div class="voice-test-header">
+            <div>
+                <span class="voice-test-eyebrow">DIAGNOSTIC TOOL</span>
+                <h1>Voice transcription test</h1>
+                <p>Speak a short phrase, then stop listening. This page streams microphone audio through Gram to AssemblyAI and does not depend on browser speech recognition.</p>
+            </div>
+            <a class="voice-test-back" href="/">Back to chat</a>
+        </div>
+
+        <div class="voice-test-controls">
+            <button type="button" class="voice-test-button @(isListening ? "active" : "")" @onclick="ToggleListening">
+                @if (isListening)
+                {
+                    <span>Stop listening</span>
+                }
+                else
+                {
+                    <span>Start listening</span>
+                }
+            </button>
+            <button type="button" class="voice-test-secondary-button" @onclick="ClearTranscript" disabled="@(string.IsNullOrWhiteSpace(transcript))">Clear</button>
+            <span class="voice-test-status @(isListening ? "listening" : "")">@status</span>
+        </div>
+
+        <div id="voiceTestVisualizer" class="voice-test-visualizer" aria-label="Microphone activity">
+            @for (var i = 0; i < 12; i++)
+            {
+                <span class="v-bar"></span>
+            }
+        </div>
+
+        <section class="voice-test-transcript-panel">
+            <div class="voice-test-section-label">Live transcript</div>
+            <div class="voice-test-transcript" aria-live="polite">
+                @(string.IsNullOrWhiteSpace(transcript) ? "Nothing transcribed yet. Say “test” or another short phrase." : transcript)
+            </div>
+        </section>
+
+        <section class="voice-test-diagnostics">
+            <div class="voice-test-section-label">Pipeline diagnostics</div>
+            <div class="voice-test-grid">
+                <div><span>Microphone API</span><strong>@YesNo(diagnostics.MediaDevicesSupported)</strong></div>
+                <div><span>AudioContext</span><strong>@YesNo(diagnostics.AudioContextSupported)</strong></div>
+                <div><span>Browser recognition</span><strong>@YesNo(diagnostics.SpeechRecognitionSupported)</strong></div>
+                <div><span>Whisper worker</span><strong>@(diagnostics.WhisperReady ? "Ready" : diagnostics.WhisperWorkerCreated ? "Loading" : "Not started")</strong></div>
+                <div><span>AssemblyAI</span><strong>@YesNo(diagnostics.AssemblyAiConnected)</strong></div>
+                <div><span>Live audio level</span><strong>@diagnostics.AudioLevel.ToString("0.00")</strong></div>
+                <div><span>Peak audio level</span><strong>@diagnostics.PeakAudioLevel.ToString("0.00")</strong></div>
+                <div><span>Audio captured</span><strong>@diagnostics.CapturedAudioSeconds.ToString("0.0")s</strong></div>
+                <div><span>Listening</span><strong>@YesNo(diagnostics.IsListening)</strong></div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(diagnostics.LastRecognitionError) || !string.IsNullOrWhiteSpace(diagnostics.LastWhisperError) || !string.IsNullOrWhiteSpace(diagnostics.AssemblyError))
+            {
+                <div class="voice-test-error">
+                    @if (!string.IsNullOrWhiteSpace(diagnostics.LastRecognitionError))
+                    {
+                        <div><strong>Browser recognition:</strong> @diagnostics.LastRecognitionError</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(diagnostics.LastWhisperError))
+                    {
+                        <div><strong>Whisper:</strong> @diagnostics.LastWhisperError</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(diagnostics.AssemblyError))
+                    {
+                        <div><strong>AssemblyAI:</strong> @diagnostics.AssemblyError</div>
+                    }
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(diagnostics.SpeechTranscript) || !string.IsNullOrWhiteSpace(diagnostics.LastWhisperTranscript) || !string.IsNullOrWhiteSpace(diagnostics.AssemblyTranscript))
+            {
+                <div class="voice-test-raw-results">
+                    @if (!string.IsNullOrWhiteSpace(diagnostics.SpeechTranscript))
+                    {
+                        <div><span>Browser result:</span> @diagnostics.SpeechTranscript</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(diagnostics.LastWhisperTranscript))
+                    {
+                        <div><span>Whisper result:</span> @diagnostics.LastWhisperTranscript</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(diagnostics.AssemblyTranscript))
+                    {
+                        <div><span>AssemblyAI result:</span> @diagnostics.AssemblyTranscript</div>
+                    }
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
+@code {
+    private DotNetObjectReference<VoiceTest>? dotNetRef;
+    private VoiceDiagnostics diagnostics = new();
+    private string transcript = "";
+    private string status = "Ready to test";
+    private bool isListening;
+    private CancellationTokenSource? diagnosticsCts;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        dotNetRef = DotNetObjectReference.Create(this);
+        await RefreshDiagnostics();
+    }
+
+    private async Task ToggleListening()
+    {
+        if (isListening)
+        {
+            status = "Finishing AssemblyAI transcription…";
+            var finalTranscript = await JSRuntime.InvokeAsync<string?>("gramAudio.stopAssemblyAiVoice", "voiceTestVisualizer");
+            if (!string.IsNullOrWhiteSpace(finalTranscript))
+            {
+                transcript = finalTranscript;
+            }
+            isListening = false;
+            status = string.IsNullOrWhiteSpace(transcript) ? "No transcript received" : "Stopped — transcript captured";
+        }
+        else
+        {
+            transcript = "";
+            status = "Connecting to AssemblyAI…";
+            try
+            {
+                isListening = await JSRuntime.InvokeAsync<bool>("gramAudio.startAssemblyAiVoice", dotNetRef, "voiceTestVisualizer", "");
+                status = isListening ? "Listening — AssemblyAI streaming active" : "AssemblyAI microphone connection failed";
+                if (isListening)
+                {
+                    diagnosticsCts?.Cancel();
+                    diagnosticsCts = new CancellationTokenSource();
+                    _ = PollDiagnosticsAsync(diagnosticsCts.Token);
+                }
+            }
+            catch (Exception ex)
+            {
+                isListening = false;
+                status = $"Start failed: {ex.Message}";
+            }
+        }
+
+        await RefreshDiagnostics();
+        StateHasChanged();
+    }
+
+    private void ClearTranscript()
+    {
+        transcript = "";
+        status = isListening ? "Listening — AssemblyAI streaming active" : "Ready to test";
+    }
+
+    private async Task PollDiagnosticsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && isListening)
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshDiagnostics();
+                    StateHasChanged();
+                });
+                await Task.Delay(250, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) {}
+        catch (ObjectDisposedException) {}
+    }
+
+    private async Task RefreshDiagnostics()
+    {
+        try
+        {
+            diagnostics = await JSRuntime.InvokeAsync<VoiceDiagnostics>("gramAudio.getDiagnostics");
+        }
+        catch (Exception ex)
+        {
+            status = $"Diagnostics unavailable: {ex.Message}";
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnTranscriptReceived(string text)
+    {
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            transcript = text.Trim();
+            status = "Transcript received";
+            await RefreshDiagnostics();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public Task OnAssemblyAiTranscriptReceived(string text, bool isFinal)
+    {
+        return OnTranscriptReceived(text);
+    }
+
+    [JSInvokable]
+    public async Task OnWhisperStatusChanged(string whisperStatus)
+    {
+        status = whisperStatus;
+        await RefreshDiagnostics();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnAssemblyAiStatusChanged(string assemblyStatus)
+    {
+        status = assemblyStatus;
+        await RefreshDiagnostics();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string YesNo(bool value) => value ? "Yes" : "No";
+
+    public async ValueTask DisposeAsync()
+    {
+        diagnosticsCts?.Cancel();
+        diagnosticsCts?.Dispose();
+        if (isListening)
+        {
+            try { await JSRuntime.InvokeAsync<string?>("gramAudio.stopAssemblyAiVoice", "voiceTestVisualizer"); }
+            catch (Exception) {}
+        }
+        dotNetRef?.Dispose();
+    }
+
+    private sealed class VoiceDiagnostics
+    {
+        [JsonPropertyName("speechRecognitionSupported")] public bool SpeechRecognitionSupported { get; set; }
+        [JsonPropertyName("mediaDevicesSupported")] public bool MediaDevicesSupported { get; set; }
+        [JsonPropertyName("audioContextSupported")] public bool AudioContextSupported { get; set; }
+        [JsonPropertyName("whisperWorkerCreated")] public bool WhisperWorkerCreated { get; set; }
+        [JsonPropertyName("whisperReady")] public bool WhisperReady { get; set; }
+        [JsonPropertyName("isListening")] public bool IsListening { get; set; }
+        [JsonPropertyName("speechTranscript")] public string SpeechTranscript { get; set; } = "";
+        [JsonPropertyName("lastWhisperTranscript")] public string LastWhisperTranscript { get; set; } = "";
+        [JsonPropertyName("lastRecognitionError")] public string LastRecognitionError { get; set; } = "";
+        [JsonPropertyName("lastWhisperError")] public string LastWhisperError { get; set; } = "";
+        [JsonPropertyName("audioLevel")] public double AudioLevel { get; set; }
+        [JsonPropertyName("peakAudioLevel")] public double PeakAudioLevel { get; set; }
+        [JsonPropertyName("capturedAudioSeconds")] public double CapturedAudioSeconds { get; set; }
+        [JsonPropertyName("assemblyAiConnected")] public bool AssemblyAiConnected { get; set; }
+        [JsonPropertyName("assemblyTranscript")] public string AssemblyTranscript { get; set; } = "";
+        [JsonPropertyName("assemblyError")] public string AssemblyError { get; set; } = "";
+    }
+}

@@ -27,6 +27,7 @@ public sealed class GramBoxConfig
     public bool EnableLowCpuPriority { get; set; } = true;
     public int MaxProcessTimeoutSeconds { get; set; } = 180;
     public int MaxMemoryQuotaMb { get; set; } = 2048;
+    public int MaxOutputBytes { get; set; } = 2 * 1024 * 1024;
     public bool StripSensitiveEnvVars { get; set; } = true;
     public bool SharedDependencyCaching { get; set; } = true;
     public bool UseCopyOnWriteCloning { get; set; } = true;
@@ -46,6 +47,9 @@ public sealed class GramBoxSandboxSession
     public GramBoxEngineType DriverType { get; set; } = GramBoxEngineType.NativeWorktree;
     public long DiskUsageBytes { get; set; }
     public string? LastError { get; set; }
+    public string? LeaseId { get; set; }
+    public string? RunId { get; set; }
+    public SandboxResourceBudget? ResourceBudget { get; set; }
 }
 
 public sealed class GramBoxExecutionResult

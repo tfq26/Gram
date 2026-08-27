@@ -88,10 +88,26 @@ public sealed class GramBoxWorktreeManager
 
         if (!Directory.Exists(session.WorktreePath)) return diffSummary;
 
+        // Stage intent-to-add so untracked new files appear in diff
+        await RunGitAsync(session.WorktreePath, "add -N .", ct);
+
         // 1. Get git diff stat
-        var (statExit, statOut, _) = await RunGitAsync(session.WorktreePath, "diff --stat HEAD~1 2>/dev/null || git diff --stat", ct);
+        var (statExit, statOut, _) = await RunGitAsync(session.WorktreePath, "diff --stat HEAD", ct);
+        if (statExit != 0 || string.IsNullOrWhiteSpace(statOut))
+        {
+            var fallback = await RunGitAsync(session.WorktreePath, "diff --stat", ct);
+            statExit = fallback.ExitCode;
+            statOut = fallback.Stdout;
+        }
+
         // 2. Get full git diff
-        var (diffExit, diffOut, _) = await RunGitAsync(session.WorktreePath, "diff HEAD~1 2>/dev/null || git diff", ct);
+        var (diffExit, diffOut, _) = await RunGitAsync(session.WorktreePath, "diff HEAD", ct);
+        if (diffExit != 0 || string.IsNullOrWhiteSpace(diffOut))
+        {
+            var fallback = await RunGitAsync(session.WorktreePath, "diff", ct);
+            diffExit = fallback.ExitCode;
+            diffOut = fallback.Stdout;
+        }
 
         diffSummary.DiffContent = diffExit == 0 ? diffOut : "";
 

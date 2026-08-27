@@ -11,32 +11,42 @@
 @inject Gram.Blazor.Shared.StorageService StorageService
 @inject Gram.Blazor.Shared.AgentSecurityService SecurityService
 @inject Gram.Blazor.Shared.AgentOrchestrator AgentOrchestrator
+@inject Gram.Blazor.Shared.IAgentWorkflowRouter AgentWorkflowRouter
 @inject Gram.Blazor.Shared.ContextBuilder ContextBuilder
+@inject Gram.Blazor.Shared.MentionResolver MentionResolver
+@inject Gram.Blazor.Shared.PresentationGenerationService PresentationGeneration
+@inject Gram.Blazor.Shared.IQuotaTracker QuotaTracker
+@inject Gram.Blazor.Shared.IAgentRunTracker AgentRunTracker
 @inject NavigationManager NavManager
 @inject Gram.Blazor.Shared.WorkspaceTabService TabService
 @inject Gram.Blazor.Shared.IAuthService AuthService
 @inject Gram.Blazor.Shared.ISonnerService SonnerService
 @inject Gram.Blazor.Shared.GitGramService GitGram
 @inject Gram.Blazor.Shared.IGramBoxService GramBox
+@inject Gram.Blazor.Shared.IStreamingTranscriberFactory StreamingTranscriberFactory
+@inject Gram.Blazor.Shared.ITextToSpeechProvider TextToSpeechProvider
 @implements IAsyncDisposable
 
 <PageTitle>Gram</PageTitle>
 
 <div class="workspace-panes @(isSidebarOpen ? "left-open" : "left-closed") @(isSettingsSheetOpen ? "right-open" : "right-closed")">
     <!-- Mobile Backdrop for slide-over drawer -->
-    <div class="mobile-sidebar-backdrop @(isSidebarOpen ? "visible" : "")" @onclick="() => isSidebarOpen = false"></div>
+    <div class="mobile-sidebar-backdrop @(isSidebarOpen ? "visible" : "")" @onclick="() => ToggleSidebar(false)"></div>
 
     <!-- Left Pane: Chats Rail -->
     <aside class="pane pane-left @(isSidebarOpen ? "open" : "closed")">
         <div class="pane-content">
             <div class="rail-header">
                 <span class="rail-title">Previous Chats</span>
-                <button class="btn-pane-toggle" @onclick="() => isSidebarOpen = false" title="Close chats">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                </button>
+                @if (isSidebarOpen)
+                {
+                    <button class="btn-pane-toggle sidebar-toggle-btn active" @onclick="() => ToggleSidebar(false)" title="Collapse sidebar" aria-label="Collapse sidebar">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="9" y1="3" x2="9" y2="21"></line>
+                        </svg>
+                    </button>
+                }
             </div>
 
             <button class="btn-new-chat" @onclick="NewConversation">
@@ -112,13 +122,15 @@
     <main class="pane pane-center">
         <header class="chat-header">
             <div class="chat-header-left" style="display: flex; align-items: center; gap: 8px;">
-                <button class="btn-pane-toggle hamburger-btn" @onclick="() => isSidebarOpen = !isSidebarOpen" title="Toggle chats">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="3" y1="12" x2="21" y2="12"></line>
-                        <line x1="3" y1="6" x2="21" y2="6"></line>
-                        <line x1="3" y1="18" x2="21" y2="18"></line>
-                    </svg>
-                </button>
+                @if (!isSidebarOpen)
+                {
+                    <button class="btn-pane-toggle sidebar-toggle-btn" @onclick="() => ToggleSidebar(true)" title="Open sidebar" aria-label="Open sidebar">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="9" y1="3" x2="9" y2="21"></line>
+                        </svg>
+                    </button>
+                }
 
                 <button class="btn-pane-toggle mobile-new-chat-btn" @onclick="NewConversation" title="New chat">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -147,6 +159,7 @@
                             @foreach (var model in ModelService.Models.OrderByDescending(m => m.IsFavorite))
                             {
                                 var isSelected = model.Id == activeModelId;
+                                var quota = GetModelQuotaDisplay(model);
                                 <button type="button" 
                                         class="model-dropdown-item @(isSelected ? "active" : "")" 
                                         @onclick="() => SelectModel(model.Id)">
@@ -154,17 +167,17 @@
                                         <ModelIcon ModelId="@model.Id" Size="14" />
                                         <div class="model-item-text">
                                             <span class="model-item-label">@model.Name</span>
-                                            <span class="model-item-vendor">@(!string.IsNullOrWhiteSpace(model.Description) ? model.Description : $"{model.Provider} · {model.Id}")</span>
+                                            <span class="model-item-quota @quota.CssClass">@quota.Text</span>
                                         </div>
                                     </div>
-                                    <div style="display: flex; align-items: center; gap: 4px;">
+                                    <div class="model-item-trailing">
                                         @if (model.IsFavorite)
                                         {
                                             <span class="model-item-favorite" title="Favorite model">★</span>
                                         }
                                         @if (isSelected)
                                         {
-                                            <svg class="model-item-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <svg class="model-item-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="20 6 9 17 4 12"></polyline>
                                             </svg>
                                         }
@@ -177,6 +190,15 @@
             </div>
 
             <div class="chat-actions">
+                <button class="btn-pane-toggle @(TabService.IsSplitView ? "active" : "")" 
+                        @onclick="ToggleSplitView" 
+                        title="@(TabService.IsSplitView ? "Close split view" : "Split tabs side-by-side")">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="12" y1="3" x2="12" y2="21"></line>
+                    </svg>
+                </button>
+
                 <button class="btn-pane-toggle @(isSettingsSheetOpen ? "active" : "")" 
                         @onclick="() => isSettingsSheetOpen = !isSettingsSheetOpen" 
                         title="Toggle sidecar panel">
@@ -195,70 +217,231 @@
             </div>
         </header>
 
-        @if (voiceState != VoiceState.Idle)
-        {
-            <div class="voice-mode" aria-live="polite">
-                <div class="voice-stage">
-                    <div class="voice-visualizer" id="visualizerBars" role="img" aria-label="Live microphone activity">
-                        <span class="visualizer-ring ring-outer"></span>
-                        <span class="visualizer-ring ring-inner"></span>
-                        <span class="visualizer-core" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="9" y="2" width="6" height="12" rx="3"></rect>
-                                <path d="M5 11a7 7 0 0 0 14 0"></path>
-                                <line x1="12" y1="18" x2="12" y2="22"></line>
-                                <line x1="8" y1="22" x2="16" y2="22"></line>
-                            </svg>
-                        </span>
-                        <span class="visualizer-bars" aria-hidden="true">
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                            <span class="v-bar"></span>
-                        </span>
-                    </div>
-                    <div class="voice-transcript" aria-live="polite">
-                        @if (string.IsNullOrWhiteSpace(draft))
+        <div class="@(TabService.IsSplitView || TabService.IsDraggingTab ? "split-workspace-container" : "chat-pane-single")" style="display: flex; flex: 1; min-height: 0; width: 100%; height: 100%; overflow: hidden;">
+                <div class="@(TabService.IsSplitView || TabService.IsDraggingTab ? "split-pane-half primary" : "")" style="position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; height: 100%; overflow: hidden; transition: flex 0.2s cubic-bezier(0.16, 1, 0.3, 1);">
+                    @if (TabService.ActiveTab?.Type == WorkspaceTabType.Presentation)
+                    {
+                        <div class="presentation-deck-workspace-view">
+                            <div class="deck-workspace-topbar">
+                                <div class="deck-workspace-title-block">
+                                    <span class="deck-workspace-icon">📽️</span>
+                                    <span class="deck-workspace-title">@(TabService.ActiveTab.Title ?? "Presentation Deck")</span>
+                                </div>
+                                <div class="deck-workspace-actions">
+                                    @if (!string.IsNullOrWhiteSpace(TabService.ActiveTab.PresentationPath))
+                                    {
+                                        <button type="button" class="btn-deck-action" @onclick="() => OpenPresentationFullscreen(TabService.ActiveTab.PresentationPath)" title="Open presentation in new window">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                                <polyline points="15 3 21 3 21 9"></polyline>
+                                                <line x1="10" y1="14" x2="21" y2="3"></line>
+                                            </svg>
+                                            <span>Open in New Window</span>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="deck-workspace-viewport">
+                                @if (!string.IsNullOrWhiteSpace(TabService.ActiveTab.PresentationPath) && File.Exists(TabService.ActiveTab.PresentationPath))
+                                {
+                                    <iframe class="deck-workspace-iframe" srcdoc="@GetPresentationHtmlContent(TabService.ActiveTab.PresentationPath)" title="Presentation Deck"></iframe>
+                                }
+                                else
+                                {
+                                    <div class="deck-workspace-empty">
+                                        <p>Presentation deck is compiling...</p>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                    <div class="primary-chat-wrapper" style="@(TabService.ActiveTab?.Type == WorkspaceTabType.Presentation ? "display: none;" : "display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; height: 100%;")">
+                        @if (voiceConversationActive || voiceState != VoiceState.Idle)
                         {
-                            <span class="voice-transcript-placeholder">Speak to Gram</span>
+                        <div class="center-voice-overlay" aria-live="polite">
+                            <div class="voice-conversation-stage">
+                                <div class="center-voice-visualizer @(voiceState == VoiceState.GramSpeaking ? "speaking" : "")" 
+                                     id="visualizerBars" 
+                                     @onclick="EndVoiceConversation" 
+                                     role="button" 
+                                     tabindex="0" 
+                                     title="Click to end voice conversation (Esc)">
+                                    <span class="v-bar"></span>
+                                    <span class="v-bar"></span>
+                                    <span class="v-bar"></span>
+                                    <span class="v-bar"></span>
+                                    <span class="v-bar"></span>
+                                    <span class="v-bar"></span>
+                                    <span class="v-bar"></span>
+                                </div>
+                                
+                                @if (!string.IsNullOrWhiteSpace(voiceLastResponse))
+                                {
+                                    <div class="voice-response-live-text">
+                                        @voiceLastResponse
+                                    </div>
+                                }
+
+                                <button type="button" class="voice-end-session-btn" @onclick="EndVoiceConversation" title="End voice conversation (Esc)">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                                        <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                                    </svg>
+                                    <span>End voice</span>
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    @if (TabService.IsSplitView)
+                    {
+                        <div class="split-pane-header">
+                            <div class="split-pane-title">
+                                <span class="split-badge">Split A</span>
+                                <span>@Active.Title</span>
+                            </div>
+                            <div class="split-actions-group">
+                                <button type="button" 
+                                        class="btn-split-action" 
+                                        @onclick="SendLastReplyToRightChat"
+                                        disabled="@(Active.Messages.Count(m => m.Role == "assistant") == 0)"
+                                        title="Send Gram A's latest response to Gram B">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="9 18 15 12 9 6"></polyline>
+                                    </svg>
+                                    <span>Send Output to B</span>
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="messages-container @(voiceConversationActive ? "voice-conversation-hidden" : "")" id="messagesContainer">
+                        @if (currentRun != null && isGenerating)
+                        {
+                            <button type="button" class="agent-run-status" @onclick="() => showRunDetails = !showRunDetails" aria-expanded="@showRunDetails">
+                                <span class="agent-run-dot"></span>
+                                <span>@currentRun.StatusText</span>
+                                @if (currentRun.ToolCalls > 0)
+                                {
+                                    <span class="agent-run-detail">@currentRun.ToolCalls tool@(currentRun.ToolCalls == 1 ? "" : "s")</span>
+                                }
+                                <span class="agent-run-chevron">@(showRunDetails ? "⌃" : "⌄")</span>
+                            </button>
+                            @if (showRunDetails && currentRun != null)
+                            {
+                                <div class="agent-run-inspector">
+                                    <div class="agent-run-inspector-head"><span>Run details</span><span class="agent-run-id">@currentRun.Id</span></div>
+                                    <div class="agent-run-metrics">
+                                        <span><b>Model</b> @currentRun.ModelId</span>
+                                        <span><b>Iteration</b> @currentRun.Iteration</span>
+                                        <span><b>Tools</b> @currentRun.ToolCalls</span>
+                                    </div>
+                                    <div class="agent-run-events">
+                                        @foreach (var runEvent in AgentRunTracker.GetEvents(currentRun.Id, 5).AsEnumerable().Reverse())
+                                        {
+                                            <div><span>@runEvent.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span> @runEvent.Message</div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        }
+                        @if (PresentationProgressVisible)
+                        {
+                            <div class="presentation-builder-card" role="status" aria-live="polite">
+                                <div class="presentation-builder-header">
+                                    <div class="builder-header-left">
+                                        <div class="builder-mascot-wrapper">
+                                            <GramCharacter Size="48" State="@PresentationMascotState" Interactive="false" AutoWaveOnLoad="false" Class="presentation-builder-mascot" />
+                                        </div>
+                                        <div class="builder-meta-block">
+                                            <div class="builder-eyebrow-row">
+                                                <span class="builder-badge">Interactive Deck Builder</span>
+                                                <span class="builder-percent-chip">@PresentationProgressPercent% Complete</span>
+                                            </div>
+                                            <h3 class="builder-deck-title">@activePresentationProject!.Title</h3>
+                                            <p class="builder-activity-desc">@GetPresentationCurrentActivityText(activePresentationProject)</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="builder-header-right">
+                                        @if (activePresentationProject.Status == ContentProjectStatus.Assembled && !string.IsNullOrWhiteSpace(activePresentationProject.FinalArtifactPath))
+                                        {
+                                            <button type="button" class="btn-builder-view-deck" @onclick="() => OpenPresentationDeckTab(activePresentationProject)">
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                                </svg>
+                                                <span>Present Deck</span>
+                                            </button>
+                                        }
+                                        <button type="button" class="btn-builder-dismiss" @onclick="() => isPresentationCardDismissed = true" title="Dismiss builder banner">
+                                            ✕
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="presentation-slide-cards-grid">
+                                    @foreach (var sec in activePresentationProject.Sections.OrderBy(s => s.Order))
+                                    {
+                                        var isReady = sec.Status == ContentSectionStatus.Ready;
+                                        var isGen = sec.Status == ContentSectionStatus.Generating;
+                                        <div class="presentation-slide-card @(isReady ? "ready" : (isGen ? "generating" : "queued"))">
+                                            <div class="slide-card-header">
+                                                <span class="slide-card-num">Slide @sec.Order.ToString("D2")</span>
+                                                <div class="slide-card-status-indicator">
+                                                    @if (isReady)
+                                                    {
+                                                        <div class="slide-status-check" title="Slide complete">
+                                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                                            </svg>
+                                                        </div>
+                                                    }
+                                                    else if (isGen)
+                                                    {
+                                                        <div class="slide-status-spinner" title="Drafting content & visuals...">
+                                                            <svg class="spinner-ring" viewBox="0 0 24 24" width="14" height="14">
+                                                                <circle class="spinner-track" cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5"></circle>
+                                                                <circle class="spinner-arc" cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></circle>
+                                                            </svg>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="slide-status-queued" title="Queued">
+                                                            <span class="queued-dot"></span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+
+                                            <div class="slide-card-body">
+                                                <span class="slide-card-title" title="@sec.Title">@sec.Title</span>
+                                                @if (!string.IsNullOrWhiteSpace(sec.NarrativeJob))
+                                                {
+                                                    <span class="slide-card-job" title="@sec.NarrativeJob">@sec.NarrativeJob</span>
+                                                }
+                                            </div>
+
+                                            <div class="slide-card-footer">
+                                                <span class="slide-card-state-label">
+                                                    @(isReady ? "Ready" : (isGen ? "Drafting..." : "Waiting"))
+                                                </span>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        @if (Active.Messages.Count == 0)
+                        {
+                            <div class="harness-empty-state @(voiceState != VoiceState.Idle ? "voice-fade-out" : "")">
+                                <GramCharacter Size="108" State="@(isGenerating ? "thinking" : "idle")" AutoWaveOnLoad="true" Class="empty-state-character" />
+                                <h2>How can I help?</h2>
+                                <p>Type a message or tap the microphone to speak.</p>
+                            </div>
                         }
                         else
                         {
-                            @draft
-                        }
-                    </div>
-                    <button class="voice-stage-stop" @onclick="StopVoice" title="Stop voice" aria-label="Stop voice">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <rect x="7" y="7" width="10" height="10" rx="1.5"></rect>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        }
-        else
-        {
-        <div class="messages-container" id="messagesContainer">
-            @if (Active.Messages.Count == 0)
-            {
-                <div class="harness-empty-state">
-                    <h2>How can I help?</h2>
-                    <p>Type a message or tap the microphone to speak.</p>
-                </div>
-            }
-            else
-            {
                 @foreach (var message in Active.Messages)
                 {
                     @if (message.Role == "user")
@@ -266,10 +449,21 @@
                         <div class="message-entry user">
                             <div class="user-message-row">
                                 <div class="message-body user-body">
-                                    @message.Text
-                                </div>
-                                <div class="user-avatar-wrap">
-                                    <Avatar Size="sm" Src="@AuthService.CurrentUser.Image" Alt="@AuthService.CurrentUser.Name" Fallback="@(AuthService.CurrentUser.Name.FirstOrDefault().ToString().ToUpperInvariant())" />
+                                    @if (message.Mentions.Count > 0)
+                                    {
+                                        <div class="message-context-list">
+                                            @foreach (var mention in message.Mentions)
+                                            {
+                                                <span class="message-context-item">@MentionIcon(mention.Kind)<span>@mention.Label</span></span>
+                                            }
+                                        </div>
+                                    }
+                                    <div class="user-message-text">@message.Text</div>
+                                    <button type="button" class="btn-msg-edit" @onclick="() => EditUserPrompt(message)" title="Edit prompt">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+                                        </svg>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -296,7 +490,14 @@
                                 {
                                     @if (message.ToolCalls == null || message.ToolCalls.Count == 0)
                                     {
-                                        <span class="typing-indicator" style="opacity: 0.6; font-style: italic;">Thinking...</span>
+                                        <div class="assistant-thinking-indicator">
+                                            <GramCharacter Size="30" State="thinking" Interactive="false" AutoWaveOnLoad="false" Class="assistant-thinking-character" />
+                                            <div class="thought-bubble" role="status" aria-label="Gram is formulating a response">
+                                                <span class="thought-bubble-dot"></span>
+                                                <span class="thought-bubble-dot"></span>
+                                                <span class="thought-bubble-dot"></span>
+                                            </div>
+                                        </div>
                                     }
                                 }
                                 else
@@ -340,6 +541,16 @@
                                     <span>@(copiedMessageId == message.Timestamp.Ticks.ToString() ? "Copied" : "Copy")</span>
                                 </button>
 
+                                <button type="button" class="btn-msg-action @(speakingMessageId == message.Timestamp.Ticks.ToString() ? "active" : "")" 
+                                        @onclick="() => ToggleReadAloud(message)" 
+                                        title="@(speakingMessageId == message.Timestamp.Ticks.ToString() ? "Stop speaking" : "Read aloud")">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                                    </svg>
+                                    <span>@(speakingMessageId == message.Timestamp.Ticks.ToString() ? "Stop" : "Read aloud")</span>
+                                </button>
+
                                 <button type="button" class="btn-msg-action" 
                                         @onclick="() => RetryResponseAsync(message)" 
                                         disabled="@isGenerating" 
@@ -357,17 +568,50 @@
             }
         }
         </div>
+        
+
+        @if (pendingMentions.Count > 0)
+        {
+            <div class="mention-context-tray" aria-label="Selected context">
+                @foreach (var mention in pendingMentions)
+                {
+                    <span class="mention-context-chip">
+                        @MentionIcon(mention.Kind)
+                        <span title="@mention.Target">@mention.Label</span>
+                        <button type="button" @onclick="() => RemoveMention(mention.Id)" title="Remove @mention.Label" aria-label="Remove @mention.Label">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+                        </button>
+                    </span>
+                }
+            </div>
         }
 
-        <div class="composer-wrapper">
+        <div class="composer-wrapper @(pendingMentions.Count > 0 ? "has-context-mentions" : "")">
             @if (attachedFiles.Count > 0)
             {
                 <div class="attachment-tray">
-                    @foreach (var file in attachedFiles)
+                    @foreach (var fileName in attachedFiles)
                     {
+                        var att = Active.Attachments.FirstOrDefault(a => a.FileName == fileName);
+                        var isImg = att?.IsImage ?? (fileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".svg", StringComparison.OrdinalIgnoreCase));
                         <div class="attachment-pill">
-                            <span class="attachment-name">@file</span>
-                            <button class="btn-remove-attachment" @onclick="() => RemoveFile(file)" title="Remove file">✕</button>
+                            @if (isImg)
+                            {
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="attachment-icon">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                    <polyline points="21 15 16 10 5 21"></polyline>
+                                </svg>
+                            }
+                            else
+                            {
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="attachment-icon">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                </svg>
+                            }
+                            <span class="attachment-name">@fileName</span>
+                            <button type="button" class="btn-remove-attachment" @onclick="() => RemoveFile(fileName)" title="Remove">✕</button>
                         </div>
                     }
                 </div>
@@ -375,38 +619,86 @@
 
             <div class="composer-box">
                 <!-- Context Mentions Popup -->
-                @if (showMentionPopup && filteredMentions.Count > 0)
+                @if (showMentionPopup)
                 {
-                    <div class="mention-popup" @onclick:stopPropagation="true">
-                        @foreach (var m in filteredMentions)
-                        {
-                            <button type="button" class="mention-item" @onclick="() => SelectMention(m)">
-                                <div class="mention-item-left">
-                                    @if (!string.IsNullOrWhiteSpace(m.Icon))
+                    <div class="mention-popup" role="listbox" aria-label="Add context" @onclick:stopPropagation="true">
+                        <div class="mention-popup-header">
+                            <span>Add context</span>
+                        </div>
+                        <div class="mention-results">
+                            @if (filteredMentions.Count == 0)
+                            {
+                                <div class="mention-empty">No matching context</div>
+                            }
+                            else
+                            {
+                                @foreach (var group in filteredMentions.GroupBy(item => item.Category))
+                                {
+                                    <div class="mention-group-label">@group.Key</div>
+                                    @foreach (var mention in group)
                                     {
-                                        <span class="mention-icon">@m.Icon</span>
+                                        var mentionIndex = filteredMentions.IndexOf(mention);
+                                        <button type="button"
+                                                id="mention-option-@mentionIndex"
+                                                role="option"
+                                                aria-selected="@(mentionIndex == selectedMentionIndex)"
+                                                class="mention-item @(mentionIndex == selectedMentionIndex ? "selected" : "")"
+                                                @onmousedown:preventDefault="true"
+                                                @onclick="() => SelectMentionAsync(mention)">
+                                            <span class="mention-icon">@MentionIcon(mention.Kind)</span>
+                                            <span class="mention-copy">
+                                                <span class="mention-title">@mention.Title</span>
+                                                <span class="mention-desc">@mention.Description</span>
+                                            </span>
+                                        </button>
                                     }
-                                    <div style="display: flex; flex-direction: column; min-width: 0;">
-                                        <span class="mention-title">@m.Title</span>
-                                        <span class="mention-desc">@m.Description</span>
-                                    </div>
-                                </div>
-                                <span class="mention-badge">@m.Category</span>
-                            </button>
-                        }
+                                }
+                            }
+                        </div>
                     </div>
                 }
 
-                <InputFile id="fileInput" OnChange="HandleFileSelected" style="display: none;" multiple />
+                <InputFile id="imageFileInput" OnChange="HandleImageSelected" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="display: none;" multiple />
+                <InputFile id="docFileInput" OnChange="HandleDocFileSelected" accept=".cs,.razor,.ts,.js,.py,.json,.md,.txt,.html,.css,.sql,.yml,.yaml,.xml,.csv,.pdf,.sh,.go,.rs,.cpp,.c,.h" style="display: none;" multiple />
 
                 <div class="composer-inner">
-                    <div class="composer-actions-left">
-                        <label for="fileInput" class="btn-composer-icon" title="Attach files">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <div class="composer-actions-left" style="position: relative;">
+                        <button type="button" 
+                                class="btn-composer-icon attach-trigger @(isAttachMenuOpen ? "open" : "")" 
+                                @onclick="ToggleAttachMenu" 
+                                title="Attach"
+                                aria-label="Attach"
+                                aria-expanded="@isAttachMenuOpen">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="plus-icon @(isAttachMenuOpen ? "rotated" : "")">
                                 <line x1="12" y1="5" x2="12" y2="19"></line>
                                 <line x1="5" y1="12" x2="19" y2="12"></line>
                             </svg>
-                        </label>
+                        </button>
+
+                        @if (isAttachMenuOpen)
+                        {
+                            <div class="attach-backdrop" @onclick="CloseAttachMenu"></div>
+                            <div class="attach-popover" @onclick:stopPropagation="true">
+                                <label for="imageFileInput" class="attach-popover-item" @onclick="CloseAttachMenu">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="attach-item-icon">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                        <polyline points="21 15 16 10 5 21"></polyline>
+                                    </svg>
+                                    <span>Upload image</span>
+                                </label>
+
+                                <label for="docFileInput" class="attach-popover-item" @onclick="CloseAttachMenu">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="attach-item-icon">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                        <polyline points="14 2 14 8 20 8"></polyline>
+                                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                                    </svg>
+                                    <span>Upload file</span>
+                                </label>
+                            </div>
+                        }
                     </div>
 
                     <textarea @ref="textareaRef"
@@ -416,20 +708,23 @@
                               @oninput="OnInputChanged"
                               @onkeydown="HandleKeyDown"
                               @onkeydown:preventDefault="preventEnter"
-                              placeholder="@(voiceState == VoiceState.UserSpeaking ? "Listening..." : "Message Gram (type @ for context mentions)...")"
+                              placeholder="@(voiceState == VoiceState.UserSpeaking ? "Listening..." : "Message Gram · type @ to add context")"
                               rows="1"></textarea>
 
                     <div class="composer-actions-right">
-                        <button class="btn-composer-icon voice-btn @(voiceState != VoiceState.Idle ? "active" : "")"
-                                @onclick="ToggleVoice"
-                                title="@(voiceState == VoiceState.Idle ? "Voice input" : "Stop voice")">
-                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                                <line x1="12" y1="19" x2="12" y2="23"></line>
-                                <line x1="8" y1="23" x2="16" y2="23"></line>
-                            </svg>
-                        </button>
+                        @if (voiceState == VoiceState.Idle)
+                        {
+                            <button class="btn-composer-icon voice-btn"
+                                    @onclick="ToggleVoice"
+                                    title="Voice input">
+                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                                </svg>
+                            </button>
+                        }
 
                         @if (voiceState != VoiceState.Idle)
                         {
@@ -542,6 +837,21 @@
                             </div>
                         }
 
+                        @if (TabService.IsSplitView && SecondaryConversation != null)
+                        {
+                            <button type="button" 
+                                    class="btn-split-action" 
+                                    style="font-size: 11px; padding: 3px 7px;"
+                                    @onclick="SendDraftToRightChat" 
+                                    disabled="@(string.IsNullOrWhiteSpace(draft))"
+                                    title="Send this draft to Split B">
+                                <span>Send to B</span>
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="9 18 15 12 9 6"></polyline>
+                                </svg>
+                            </button>
+                        }
+
                         @if (isGenerating)
                         {
                             <button class="btn-composer-send stop-btn"
@@ -556,7 +866,7 @@
                         {
                             <button class="btn-composer-send"
                                     @onclick="Send"
-                                    disabled="@(string.IsNullOrWhiteSpace(draft) && attachedFiles.Count == 0 && voiceState == VoiceState.Idle)"
+                                    disabled="@(string.IsNullOrWhiteSpace(draft) && attachedFiles.Count == 0 && pendingMentions.Count == 0 && voiceState == VoiceState.Idle)"
                                     title="Send">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                     <line x1="12" y1="19" x2="12" y2="5"></line>
@@ -568,29 +878,78 @@
                 </div>
             </div>
         </div>
+        </div>
+        </div>
+
+        @if (TabService.IsSplitView)
+        {
+            <SplitChatPane Conversation="@SecondaryConversation" 
+                           AvailableConversations="@conversations" 
+                           OnConversationChanged="OnSecondaryConversationChanged" 
+                           OnSendToPrimaryChat="HandleSendToPrimaryChat" />
+        }
+        else if (TabService.IsDraggingTab)
+        {
+            <div class="split-drag-drop-target @(isHoveringSplitTarget ? "hover-active" : "")"
+                 @ondragenter="() => isHoveringSplitTarget = true"
+                 @ondragleave="() => isHoveringSplitTarget = false"
+                 @ondragover:preventDefault="true"
+                 @ondrop="HandleDropOnSplitTarget">
+                <div class="split-drop-content">
+                    <div class="split-drop-icon-box">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="12" y1="3" x2="12" y2="21"></line>
+                        </svg>
+                    </div>
+                    <span class="split-drop-heading">Drop tab here to split side-by-side</span>
+                    <span class="split-drop-subtext">Collapse and open this chat in a dual-agent workspace</span>
+                </div>
+            </div>
+        }
+        </div>
+        
     </main>
 
     <!-- Right Pane: Reusable Multi-Purpose Sidecar -->
     <aside class="pane pane-right @(isSettingsSheetOpen ? "open" : "closed")">
         <div class="pane-content">
-            <div class="sheet-header" style="justify-content: space-between; gap: 8px;">
+            <div class="sheet-header">
                 <!-- Sidecar Header Mode Switcher -->
                 <div class="sidecar-header-tabs">
                     <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.Settings ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.Settings">
-                        Settings
+                        <span>Settings</span>
                     </button>
-                    <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.Artifact ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.Artifact">
-                        Artifacts @(Active.Artifacts.Count > 0 ? $"({Active.Artifacts.Count})" : "")
-                    </button>
-                    <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.GitDiff ? "active" : "")" @onclick="LoadGitDiff">
-                        Diff
-                    </button>
-                    <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.GitGram ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.GitGram">
-                        Git Gram
-                    </button>
-                    <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.Sandboxes ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.Sandboxes">
-                        Sandboxes @(GramBox.ActiveSessions.Count > 0 ? $"({GramBox.ActiveSessions.Count})" : "")
-                    </button>
+                    @if (Active.Artifacts.Count > 0 || activeSidecarTab == SidecarTab.Artifact)
+                    {
+                        <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.Artifact ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.Artifact">
+                            <span>Artifacts</span>
+                            @if (Active.Artifacts.Count > 0)
+                            {
+                                <span class="sidecar-tab-count">@Active.Artifacts.Count</span>
+                            }
+                        </button>
+                    }
+                    @if (IsProjectActive)
+                    {
+                        <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.GitDiff ? "active" : "")" @onclick="LoadGitDiff">
+                            <span>Diff</span>
+                            @if (activeDiffs.Count > 0)
+                            {
+                                <span class="sidecar-tab-count">@activeDiffs.Count</span>
+                            }
+                        </button>
+                        <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.GitGram ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.GitGram">
+                            <span>Git</span>
+                        </button>
+                        <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.Sandboxes ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.Sandboxes">
+                            <span>Sandboxes</span>
+                            @if (GramBox.ActiveSessions.Count > 0)
+                            {
+                                <span class="sidecar-tab-count">@GramBox.ActiveSessions.Count</span>
+                            }
+                        </button>
+                    }
                 </div>
 
                 <button class="btn-pane-toggle" @onclick="() => isSettingsSheetOpen = false" title="Close sidecar">
@@ -601,63 +960,9 @@
                 </button>
             </div>
 
-            <div class="sheet-body" style="padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; height: 100%;">
+            <div class="sheet-body" style="padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; height: 100%;">
                 @if (activeSidecarTab == SidecarTab.Settings)
                 {
-                    <!-- Context & Token Usage Telemetry Widget -->
-                    <div class="telemetry-card">
-                        <div class="telemetry-header">
-                            <span class="telemetry-title">Context & Token Telemetry</span>
-                            <Badge Variant="secondary" Style="font-size: 10px;">
-                                @(ActiveModel?.Name ?? activeModelId)
-                            </Badge>
-                        </div>
-
-                        <div class="telemetry-grid">
-                            <div class="telemetry-metric">
-                                <span class="telemetry-metric-label">Prompt Tokens</span>
-                                <span class="telemetry-metric-value">@(Active.PromptTokens > 0 ? $"{Active.PromptTokens:N0}" : "~" + EstimateTokens(Active.Messages))</span>
-                            </div>
-                            <div class="telemetry-metric">
-                                <span class="telemetry-metric-label">Cached Input</span>
-                                <span class="telemetry-metric-value">@(Active.CachedPromptTokens > 0 ? $"{Active.CachedPromptTokens:N0}" : "0")</span>
-                            </div>
-                            <div class="telemetry-metric">
-                                <span class="telemetry-metric-label">Completion</span>
-                                <span class="telemetry-metric-value">@(Active.CompletionTokens > 0 ? $"{Active.CompletionTokens:N0}" : "0")</span>
-                            </div>
-                            <div class="telemetry-metric">
-                                <span class="telemetry-metric-label">Total Session</span>
-                                <span class="telemetry-metric-value">@(Active.TotalTokens > 0 ? $"{Active.TotalTokens:N0}" : "~" + EstimateTokens(Active.Messages))</span>
-                            </div>
-                            <div class="telemetry-metric">
-                                <span class="telemetry-metric-label">Latency</span>
-                                <span class="telemetry-metric-value">@(Active.LastLatencyMs > 0 ? $"{Active.LastLatencyMs}ms" : "Instant")</span>
-                            </div>
-                        </div>
-
-                        <!-- Context Window Utilization Meter -->
-                        @{
-                            var maxCtx = ActiveModel?.ContextLength ?? 128000;
-                            var currentTokens = Active.TotalTokens > 0 ? Active.TotalTokens : EstimateTokens(Active.Messages);
-                            var pct = Math.Min(100, Math.Max(1, (int)((double)currentTokens / maxCtx * 100)));
-                        }
-                        <div class="telemetry-meter-container">
-                            <div class="telemetry-meter-legend">
-                                <span>Context Window Utilization</span>
-                                <span>@pct% (@(currentTokens > 1000 ? $"{currentTokens / 1000}k" : currentTokens) / @(maxCtx >= 1000000 ? $"{maxCtx / 1000000}M" : $"{maxCtx / 1000}k"))</span>
-                            </div>
-                            <div class="telemetry-meter-bar">
-                                <div class="telemetry-meter-fill" style="width: @(pct)%;"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="sheet-field">
-                        <label class="sheet-label">Title</label>
-                        <input type="text" class="sheet-input" @bind="Active.Title" @bind:event="oninput" @bind:after="OnTitleChanged" placeholder="Title" />
-                    </div>
-
                     <div class="sheet-field">
                         <label class="sheet-label">Model</label>
                         <select class="sheet-select" @bind="activeModelId">
@@ -669,72 +974,66 @@
                     </div>
 
                     <div class="sheet-field">
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <label class="sheet-label">Permissions</label>
-                            <Badge Variant="@(SecurityService.Settings.PermissionMode == ExecutionPermissionMode.FullAutonomous ? "default" : (SecurityService.Settings.PermissionMode == ExecutionPermissionMode.SafeAutoApprove ? "secondary" : "outline"))" Style="font-size: 10px;">
-                                @(SecurityService.Settings.PermissionMode == ExecutionPermissionMode.FullAutonomous ? "Autonomous" : (SecurityService.Settings.PermissionMode == ExecutionPermissionMode.SafeAutoApprove ? "Safe" : "Ask"))
-                            </Badge>
-                        </div>
+                        <label class="sheet-label">Permissions</label>
                         <select class="sheet-select" value="@SecurityService.Settings.PermissionMode" @onchange="OnPermissionModeChanged">
-                            <option value="@ExecutionPermissionMode.FullAutonomous">Autonomous</option>
-                            <option value="@ExecutionPermissionMode.SafeAutoApprove">Safe</option>
-                            <option value="@ExecutionPermissionMode.AskAlways">Ask</option>
+                            <option value="@ExecutionPermissionMode.FullAutonomous">Autonomous (Auto-run edits & sandbox commands)</option>
+                            <option value="@ExecutionPermissionMode.SafeAutoApprove">Safe (Auto-run safe commands, prompt on risky)</option>
+                            <option value="@ExecutionPermissionMode.AskAlways">Ask always (Prompt before running commands)</option>
                         </select>
-                        <span style="font-size: 11px; color: var(--text-muted); line-height: 1.35; margin-top: 2px;">
-                            @(SecurityService.Settings.PermissionMode == ExecutionPermissionMode.FullAutonomous 
-                                ? "Autonomous: Auto-executes commands & edits within sandbox." 
-                                : (SecurityService.Settings.PermissionMode == ExecutionPermissionMode.SafeAutoApprove
-                                    ? "Safe: Auto-runs builds/tests/reads, prompts on risky actions."
-                                    : "Ask: Prompts before running any terminal commands."))
-                        </span>
-                    </div>
-
-                    <!-- Gram Box Multi-Worktree Sandbox Status Card -->
-                    <div class="telemetry-card" style="margin-top: 8px;">
-                        <div class="telemetry-header">
-                            <span class="telemetry-title">Gram Box Sandboxes</span>
-                            <Badge Variant="@(GramBox.IsReady ? "default" : "outline")" Style="font-size: 10px;">
-                                0MB Idle RAM
-                            </Badge>
-                        </div>
-                        <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.4; margin-top: 4px;">
-                            @(GramBox.StatusMessage ?? "Multi-Worktree Parallel Engine Active.")
-                        </div>
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 11px;">
-                            <span style="color: var(--text-muted);">Active Sandboxes: <strong style="color: #22c55e;">@GramBox.ActiveSessions.Count</strong></span>
-                            <Button Variant="outline" Size="sm" OnClick="() => activeSidecarTab = SidecarTab.Sandboxes">
-                                Manage Sandboxes ↗
-                            </Button>
-                        </div>
                     </div>
 
                     <div class="sheet-field">
-                        <label class="sheet-label">System prompt</label>
+                        <label class="sheet-label">Title</label>
+                        <input type="text" class="sheet-input" @bind="Active.Title" @bind:event="oninput" @bind:after="OnTitleChanged" placeholder="Chat title" />
+                    </div>
+
+                    <!-- Project Workspace Mode Toggle -->
+                    <div class="sheet-toggle-row">
+                        <div class="sheet-toggle-text">
+                            <span class="sheet-toggle-title">Project Workspace</span>
+                            <span class="sheet-toggle-desc">Enable repository diffs, git control, and sandbox engine</span>
+                        </div>
+                        <input type="checkbox" class="sheet-checkbox" checked="@Active.IsProject" @onchange="ToggleProjectMode" />
+                    </div>
+
+                    @if (IsProjectActive)
+                    {
+                        <div class="sheet-project-active-badge">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #22c55e;">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <span>Project tools active · Diff, Git & Sandbox tabs available</span>
+                        </div>
+                    }
+
+                    <div class="sheet-field">
+                        <label class="sheet-label">System prompt override</label>
                         <textarea class="sheet-textarea" 
                                   @bind="Active.SystemPromptOverride" 
                                   @bind:event="oninput" 
-                                  rows="4" 
-                                  placeholder="Override system prompt for this chat..."></textarea>
+                                  rows="3" 
+                                  placeholder="Optional instructions for this chat..."></textarea>
                     </div>
 
-                                    <div class="sheet-field">
+                    <div class="sheet-field">
                         <label class="sheet-label">Rules</label>
                         <textarea class="sheet-textarea" 
                                   @bind="Active.Rules" 
                                   @bind:event="oninput" 
-                                  rows="3" 
-                                  placeholder="Specific rules for this chat..."></textarea>
+                                  rows="2" 
+                                  placeholder="Specific rules or constraints..."></textarea>
                     </div>
 
                     @if (Active.Attachments.Count > 0)
                     {
                         <div class="sheet-field">
-                            <label class="sheet-label">Workspace Files (@Active.Attachments.Count)</label>
-                            <div class="sheet-items-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto;">
+                            <label class="sheet-label">Attached files (@Active.Attachments.Count)</label>
+                            <div class="sheet-items-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto;">
                                 @foreach (var att in Active.Attachments)
                                 {
-                                    <div class="sheet-item-row" style="display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; padding: 4px 6px; background: var(--bg-panel-subtle); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
-                                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px;" title="@att.FileName">@att.FileName</span>
+                                    <div class="sheet-item-row" style="display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; padding: 4px 8px; background: var(--bg-hover); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px;" title="@att.FileName">@att.FileName</span>
                                         <span style="color: var(--text-muted); font-size: 10px;">@(att.SizeBytes < 1024 ? $"{att.SizeBytes}B" : $"{att.SizeBytes / 1024}KB")</span>
                                     </div>
                                 }
@@ -742,11 +1041,19 @@
                         </div>
                     }
 
+                    <!-- Sleek Session Usage Row -->
+                    <div class="sheet-usage-row">
+                        <span class="sheet-usage-label">Session Usage</span>
+                        <span class="sheet-usage-val">
+                            @(Active.PromptTokens + Active.CompletionTokens > 0 ? $"{(Active.PromptTokens + Active.CompletionTokens):N0} tokens" : $"~{EstimateTokens(Active.Messages)} tokens")
+                            @if (Active.LastLatencyMs > 0)
+                            {
+                                <span> · @(Active.LastLatencyMs)ms</span>
+                            }
+                        </span>
+                    </div>
+
                     <div class="sheet-danger-zone">
-                        <div class="sheet-danger-info">
-                            <span class="sheet-danger-title">Clear conversation</span>
-                            <span class="sheet-danger-desc">Reset messages and attachments for this session.</span>
-                        </div>
                         <Button Variant="destructive" 
                                 Size="sm" 
                                 Class="w-full" 
@@ -756,7 +1063,7 @@
                                 <polyline points="3 6 5 6 21 6"></polyline>
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                             </svg>
-                            <span>Clear chat</span>
+                            <span>Clear conversation</span>
                         </Button>
                     </div>
                 }
@@ -1009,6 +1316,12 @@
     private string draft = "";
     private readonly List<string> attachedFiles = new();
     private VoiceState voiceState = VoiceState.Idle;
+    private string whisperStatus = "Ready";
+    private bool usingAssemblyAi;
+    private bool autoSendVoice = true;
+    private bool autoSendingVoice;
+    private bool voiceConversationActive;
+    private string voiceLastResponse = "";
     private DotNetObjectReference<Home>? dotNetHelper;
     private ElementReference textareaRef;
     private CancellationTokenSource? voiceCts;
@@ -1021,6 +1334,8 @@
     private List<DiffFileItem> activeDiffs = new();
     private bool preventEnter = false;
     private bool isGenerating = false;
+    private AgentRunSnapshot? currentRun;
+    private bool showRunDetails;
     private bool isContextMenuOpen = false;
     private bool isModelMenuOpen = false;
     private bool isAudioDeviceMenuOpen = false;
@@ -1032,7 +1347,135 @@
     private double contextMenuY = 0;
     private Conversation? contextMenuTarget;
     private string? copiedMessageId;
+    private string? speakingMessageId;
     private readonly HashSet<string> expandedErrorIds = new();
+    private ContentProject? activePresentationProject;
+    private string presentationStatusLabel = "Planning the story";
+    private int presentationStatusVersion;
+    private bool isPresentationCardDismissed = false;
+    private bool IsProjectActive => Active.IsProject || Active.Attachments.Any(a => !a.IsImage) || Active.Artifacts.Count > 0 || GramBox.ActiveSessions.Count > 0 || activeDiffs.Count > 0;
+    private bool PresentationProgressVisible => activePresentationProject != null && !isPresentationCardDismissed;
+    private int PresentationReadySections => activePresentationProject?.Sections.Count(section => section.Status == ContentSectionStatus.Ready) ?? 0;
+    private int PresentationProgressPercent => activePresentationProject?.Sections.Count > 0
+        ? Math.Clamp((int)Math.Round(PresentationReadySections * 100d / activePresentationProject.Sections.Count), 0, 100)
+        : 0;
+    private string PresentationMascotState => activePresentationProject?.Status switch
+    {
+        ContentProjectStatus.Assembled => "complete",
+        ContentProjectStatus.ReadyForAssembly => "reviewing",
+        ContentProjectStatus.NeedsRevision => "reviewing",
+        ContentProjectStatus.Failed => "idle",
+        _ when PresentationReadySections > 0 => "designing",
+        _ => "researching"
+    };
+
+    private string GetPresentationCurrentActivityText(ContentProject? project)
+    {
+        if (project == null) return "Preparing presentation deck...";
+        if (project.Status == ContentProjectStatus.Assembled)
+        {
+            return $"All {project.Sections.Count} slides have been drafted, styled, and compiled into an interactive deck.";
+        }
+        if (project.Status == ContentProjectStatus.ReadyForAssembly)
+        {
+            return "Reviewing slide balance, typography, and compiling interactive HTML deck...";
+        }
+        if (project.Status == ContentProjectStatus.Failed)
+        {
+            return "Generation encountered an issue. You can retry with a revised prompt.";
+        }
+        
+        var activeGenSection = project.Sections.FirstOrDefault(s => s.Status == ContentSectionStatus.Generating);
+        if (activeGenSection != null)
+        {
+            var job = !string.IsNullOrWhiteSpace(activeGenSection.NarrativeJob) ? $" · {activeGenSection.NarrativeJob}" : "";
+            return $"Drafting Slide {activeGenSection.Order}: \"{activeGenSection.Title}\"{job}";
+        }
+
+        var readyCount = project.Sections.Count(s => s.Status == ContentSectionStatus.Ready);
+        if (readyCount > 0)
+        {
+            return $"{readyCount} of {project.Sections.Count} slides completed · Queueing next slide batch...";
+        }
+
+        return "Analyzing narrative brief, gathering background data, and planning slide structure...";
+    }
+
+    private (string Text, string CssClass, int? Percent) GetModelQuotaDisplay(GramModel model)
+    {
+        var snapshots = QuotaTracker.GetSnapshots();
+        var actualModelName = model.Id;
+        if (model.Id.StartsWith("google/", StringComparison.OrdinalIgnoreCase)) actualModelName = model.Id["google/".Length..];
+        else if (model.Id.StartsWith("anthropic/", StringComparison.OrdinalIgnoreCase)) actualModelName = model.Id["anthropic/".Length..];
+        else if (model.Id.StartsWith("openai/", StringComparison.OrdinalIgnoreCase)) actualModelName = model.Id["openai/".Length..];
+
+        var isGramQPlus = model.Id.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase);
+        var isGramQ = model.Id.Equals("gram-q", StringComparison.OrdinalIgnoreCase);
+
+        var snapshot = snapshots.FirstOrDefault(s =>
+            (isGramQPlus && (s.Scope.Equals("system", StringComparison.OrdinalIgnoreCase) || s.Model.Contains("gemini", StringComparison.OrdinalIgnoreCase) || s.Provider.Equals("google", StringComparison.OrdinalIgnoreCase)))
+            || (isGramQ && (s.Scope.Equals("system", StringComparison.OrdinalIgnoreCase) || s.Model.Contains("gpt-oss", StringComparison.OrdinalIgnoreCase) || s.Provider.Equals("groq", StringComparison.OrdinalIgnoreCase)))
+            || s.Model.Equals(model.Id, StringComparison.OrdinalIgnoreCase)
+            || s.Model.Equals(actualModelName, StringComparison.OrdinalIgnoreCase));
+
+        if (snapshot != null)
+        {
+            if (snapshot.IsExhausted || (snapshot.CooldownUntil.HasValue && snapshot.CooldownUntil > DateTimeOffset.UtcNow) || snapshot.LastStatusCode == 429)
+            {
+                if (snapshot.CooldownUntil.HasValue && snapshot.CooldownUntil > DateTimeOffset.UtcNow)
+                {
+                    var seconds = Math.Max(1, (int)Math.Ceiling((snapshot.CooldownUntil.Value - DateTimeOffset.UtcNow).TotalSeconds));
+                    return ($"Cooldown · {seconds}s", "cooldown", 0);
+                }
+                return ("Quota exhausted (429)", "low", 0);
+            }
+
+            if (snapshot.RemainingPercent.HasValue)
+            {
+                var p = snapshot.RemainingPercent.Value;
+                var css = p <= 15 ? "low" : "";
+                if (snapshot.RequestsRemaining.HasValue && snapshot.RequestsLimit.HasValue)
+                {
+                    return ($"{p}% · {snapshot.RequestsRemaining.Value:N0}/{snapshot.RequestsLimit.Value:N0} reqs", css, p);
+                }
+                return ($"{p}% remaining", css, p);
+            }
+
+            if (snapshot.ObservedRequests > 0)
+            {
+                return ($"Active · {snapshot.ObservedRequests} reqs", "", 100);
+            }
+        }
+
+        var provId = model.Provider.ToLowerInvariant();
+        var hasKey = !string.IsNullOrWhiteSpace(ModelService.GetUserApiKey(provId))
+                     || !string.IsNullOrWhiteSpace(ModelService.GetUserApiKey("openrouter"))
+                     || !string.IsNullOrWhiteSpace(ModelService.GetSystemApiKey("groq"))
+                     || !string.IsNullOrWhiteSpace(ModelService.GetSystemApiKey("google"));
+
+        if (isGramQ || isGramQPlus)
+        {
+            return ("System quota", "", 100);
+        }
+
+        if (!hasKey && !provId.Equals("ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("Key required", "missing", null);
+        }
+
+        return ("100% available", "", 100);
+    }
+
+    private void ToggleProjectMode(ChangeEventArgs e)
+    {
+        Active.IsProject = (bool)(e.Value ?? false);
+        if (!IsProjectActive && (activeSidecarTab == SidecarTab.GitDiff || activeSidecarTab == SidecarTab.GitGram || activeSidecarTab == SidecarTab.Sandboxes))
+        {
+            activeSidecarTab = SidecarTab.Settings;
+        }
+        _ = ConversationService.SaveConversationAsync(Active);
+        StateHasChanged();
+    }
 
     private void OpenSidecar(SidecarTab tab)
     {
@@ -1168,11 +1611,24 @@
         OpenSidecar(SidecarTab.GitDiff);
     }
 
-    private record MentionItem(string Id, string Title, string Description, string Icon, string Category, string Insertion);
+    private record MentionItem(string Id, MentionKind Kind, string Title, string Description, string Category, string Target);
+
+    private sealed class ComposerMentionState
+    {
+        public bool IsActive { get; set; }
+        public int Start { get; set; }
+        public int End { get; set; }
+        public string Query { get; set; } = "";
+    }
     
     private bool showMentionPopup = false;
     private List<MentionItem> allMentions = new();
     private List<MentionItem> filteredMentions = new();
+    private readonly List<MentionReference> pendingMentions = new();
+    private int selectedMentionIndex;
+    private int activeMentionStart = -1;
+    private int activeMentionEnd = -1;
+    private DateTimeOffset mentionsPopulatedAt = DateTimeOffset.MinValue;
 
     private int EstimateTokens(List<Message> msgs)
     {
@@ -1185,43 +1641,133 @@
     {
         allMentions = new List<MentionItem>
         {
-            new("git-diff", "@git:diff", "Include uncommitted git changes & status", "", "Git", "@git:diff "),
-            new("git-branch", "@git:branch", "Include current branch and commit log", "", "Git", "@git:branch "),
-            new("web-search", "@web:", "Trigger live web search query context", "", "Web", "@web:"),
-            new("toolbox", "@toolbox", "Include active Gram Toolbox engines & MCP tools", "", "Toolbox", "@toolbox "),
-            new("docs", "@docs", "Reference workspace documentation & architecture", "", "Workspace", "@docs ")
+            new("web-search", MentionKind.Web, "Search the web", "Force live search through the configured provider", "Actions", "web"),
+            new("toolbox", MentionKind.Toolbox, "Gram Toolbox", "Enabled tools, skills, and MCP capabilities", "Actions", "toolbox")
         };
 
-        // Add workspace files if available
-        try
+        foreach (var attachment in Active.Attachments.OrderByDescending(item => item.CreatedAt).Take(40))
         {
-            var files = Directory.GetFiles(Environment.CurrentDirectory, "*.*", SearchOption.TopDirectoryOnly)
-                .Where(f => !Path.GetFileName(f).StartsWith(".") && !f.Contains("bin") && !f.Contains("obj"))
-                .Take(6);
-
-            foreach (var f in files)
-            {
-                var name = Path.GetFileName(f);
-                allMentions.Add(new MentionItem("file-" + name, $"@{name}", $"Attach workspace file ({Path.GetExtension(f)})", "", "File", $"@{name} "));
-            }
+            var size = attachment.SizeBytes < 1024
+                ? $"{attachment.SizeBytes} B"
+                : $"{Math.Max(1, attachment.SizeBytes / 1024)} KB";
+            allMentions.Add(new MentionItem(
+                $"attachment:{attachment.Id}",
+                MentionKind.File,
+                attachment.FileName,
+                $"Attached to this chat · {size}",
+                "Files",
+                attachment.FileName));
         }
-        catch {}
-        filteredMentions = new List<MentionItem>(allMentions);
+
+        foreach (var artifact in Active.Artifacts.Take(20))
+        {
+            allMentions.Add(new MentionItem($"artifact:{artifact.Id}", MentionKind.Artifact, artifact.FileName, artifact.Title, "Artifacts", artifact.Id));
+        }
+
+        mentionsPopulatedAt = DateTimeOffset.UtcNow;
+        ApplyMentionFilter("");
     }
 
-    private void SelectMention(MentionItem mention)
+    private void ApplyMentionFilter(string query)
     {
-        var atIndex = draft.LastIndexOf('@');
-        if (atIndex >= 0)
+        var normalized = query.Trim().TrimStart('@');
+        filteredMentions = allMentions
+            .Select(item => (Item: item, Score: MentionScore(item, normalized)))
+            .Where(result => string.IsNullOrWhiteSpace(normalized) || result.Score > 0)
+            .OrderBy(result => MentionCategoryOrder(result.Item.Category))
+            .ThenByDescending(result => result.Score)
+            .ThenBy(result => allMentions.IndexOf(result.Item))
+            .Take(16)
+            .Select(result => result.Item)
+            .ToList();
+        selectedMentionIndex = 0;
+    }
+
+    private static int MentionScore(MentionItem item, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return 1;
+        if (item.Title.StartsWith(query, StringComparison.OrdinalIgnoreCase)) return 100;
+        if (item.Title.Contains(query, StringComparison.OrdinalIgnoreCase)) return 70;
+        if (item.Target.Contains(query, StringComparison.OrdinalIgnoreCase)) return 55;
+        if (item.Description.Contains(query, StringComparison.OrdinalIgnoreCase)) return 30;
+
+        var queryParts = query.Split(['/', '-', '_', ' '], StringSplitOptions.RemoveEmptyEntries);
+        return queryParts.All(part => $"{item.Title} {item.Target}".Contains(part, StringComparison.OrdinalIgnoreCase)) ? 20 : 0;
+    }
+
+    private static int MentionCategoryOrder(string category) => category switch
+    {
+        "Actions" => 0,
+        "Files" => 1,
+        "Artifacts" => 2,
+        _ => 4
+    };
+
+    private async Task SelectMentionAsync(MentionItem mention)
+    {
+        if (!pendingMentions.Any(item => item.Id.Equals(mention.Id, StringComparison.OrdinalIgnoreCase)))
         {
-            draft = draft[..atIndex] + mention.Insertion;
+            pendingMentions.Add(new MentionReference
+            {
+                Id = mention.Id,
+                Kind = mention.Kind,
+                Label = mention.Title,
+                Target = mention.Target
+            });
         }
-        else
+
+        try
         {
-            draft += mention.Insertion;
+            draft = await JSRuntime.InvokeAsync<string>(
+                "gramAudio.replaceMentionAtCaret",
+                "composerTextarea",
+                activeMentionStart,
+                activeMentionEnd);
         }
+        catch
+        {
+            if (activeMentionStart >= 0 && activeMentionEnd >= activeMentionStart && activeMentionEnd <= draft.Length)
+            {
+                draft = draft.Remove(activeMentionStart, activeMentionEnd - activeMentionStart);
+            }
+        }
+
         showMentionPopup = false;
+        activeMentionStart = -1;
+        activeMentionEnd = -1;
         StateHasChanged();
+        try { await JSRuntime.InvokeVoidAsync("gramAudio.focusComposer", "composerTextarea"); } catch { }
+    }
+
+    private void RemoveMention(string mentionId)
+    {
+        pendingMentions.RemoveAll(item => item.Id.Equals(mentionId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static MentionReference CloneMention(MentionReference mention) => new()
+    {
+        Id = mention.Id,
+        Kind = mention.Kind,
+        Label = mention.Label,
+        Target = mention.Target,
+        Query = mention.Query
+    };
+
+    private static MarkupString MentionIcon(MentionKind kind)
+    {
+        var path = kind switch
+        {
+            MentionKind.File => "<path d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/><path d='M14 2v6h6'/>",
+            MentionKind.Folder => "<path d='M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/>",
+            MentionKind.GitDiff => "<circle cx='6' cy='5' r='2'/><circle cx='18' cy='19' r='2'/><path d='M6 7v8a4 4 0 0 0 4 4h6M18 17V9a4 4 0 0 0-4-4H8'/>",
+            MentionKind.GitBranch => "<circle cx='6' cy='5' r='2'/><circle cx='6' cy='19' r='2'/><circle cx='18' cy='12' r='2'/><path d='M6 7v10M8 5h4a6 6 0 0 1 6 6'/>",
+            MentionKind.Web => "<circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18'/>",
+            MentionKind.Toolbox => "<path d='M4 7h16v12H4zM8 7V4h8v3M4 12h16M10 12v2h4v-2'/>",
+            MentionKind.Docs => "<path d='M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z'/><path d='M8 7h8M8 11h6'/>",
+            MentionKind.Artifact => "<path d='m12 3 8 4.5v9L12 21l-8-4.5v-9z'/><path d='m4 7.5 8 4.5 8-4.5M12 12v9'/>",
+            _ => "<circle cx='12' cy='12' r='9'/>"
+        };
+        return new MarkupString($"<svg viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'>{path}</svg>");
     }
 
     private void SelectModel(string modelId)
@@ -1239,6 +1785,68 @@
                                    ?? _fallbackConversation;
     private GramModel? ActiveModel => ModelService.Models.FirstOrDefault(m => m.Id == activeModelId);
 
+    private Conversation? SecondaryConversation
+    {
+        get
+        {
+            var secondaryChatId = TabService.SecondaryTab?.ChatId ?? TabService.SecondaryTabId;
+            if (string.IsNullOrWhiteSpace(secondaryChatId)) return null;
+
+            var existing = conversations.FirstOrDefault(c => c.Id == secondaryChatId);
+            if (existing != null) return existing;
+
+            var newConv = new Conversation(secondaryChatId, "Split chat B", DateTimeOffset.UtcNow);
+            conversations.Add(newConv);
+            return newConv;
+        }
+    }
+
+    private void ToggleSplitView()
+    {
+        TabService.ToggleSplitView();
+        StateHasChanged();
+    }
+
+    private void OnSecondaryConversationChanged(string newChatId)
+    {
+        TabService.SelectSecondaryTab(newChatId);
+        StateHasChanged();
+    }
+
+    private async Task HandleSendToPrimaryChat(string text)
+    {
+        draft = text;
+        await Send();
+    }
+
+    private void SendDraftToRightChat()
+    {
+        if (SecondaryConversation != null && !string.IsNullOrWhiteSpace(draft))
+        {
+            var t = draft.Trim();
+            draft = "";
+            TabService.RequestCrossChatMessage(Active.Id, SecondaryConversation.Id, t);
+        }
+    }
+
+    private void SendLastReplyToRightChat()
+    {
+        var lastAssistant = Active.Messages.LastOrDefault(m => m.Role == "assistant");
+        if (lastAssistant != null && !string.IsNullOrWhiteSpace(lastAssistant.Text) && SecondaryConversation != null)
+        {
+            TabService.RequestCrossChatMessage(Active.Id, SecondaryConversation.Id, $"[From Gram A]: {lastAssistant.Text}");
+        }
+    }
+
+    private bool isHoveringSplitTarget = false;
+
+    private void HandleDropOnSplitTarget()
+    {
+        isHoveringSplitTarget = false;
+        TabService.SplitWithDraggedTab();
+        StateHasChanged();
+    }
+
     protected override void OnInitialized()
     {
         dotNetHelper = DotNetObjectReference.Create(this);
@@ -1246,10 +1854,14 @@
         ChatStateService.OnTitleRenamed += OnExternalTitleRenamed;
         ChatStateService.OnNewChatRequested += HandleNewChatRequested;
         TabService.OnTabsChanged += OnTabsUpdated;
+        TabService.OnDragStateChanged += OnTabsUpdated;
         GitGram.OnStateChanged += OnGitGramStateChanged;
         GitGram.SetActiveWorkspace(Environment.CurrentDirectory);
         GramBox.OnStatusChanged += OnGramBoxStatusChanged;
-        AuthService.OnAuthStateChanged += OnAuthChanged;
+        PresentationGeneration.ProjectUpdated += OnPresentationProjectUpdated;
+        QuotaTracker.OnNotification += OnQuotaNotification;
+            AuthService.OnAuthStateChanged += OnAuthChanged;
+            autoSendVoice = SettingsService.GetSetting("autoSendVoice", "true") == "true";
 
         if (TabService.ActiveTab?.Type == WorkspaceTabType.Chat && !string.IsNullOrWhiteSpace(TabService.ActiveTab.ChatId))
         {
@@ -1282,6 +1894,83 @@
     private void OnGramBoxStatusChanged()
     {
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void OnPresentationProjectUpdated(ContentProject project)
+    {
+        _ = InvokeAsync(() =>
+        {
+            activePresentationProject = project;
+            isPresentationCardDismissed = false;
+            var nextLabel = GetPresentationStatusLabel(project);
+            if (!string.Equals(nextLabel, presentationStatusLabel, StringComparison.Ordinal))
+            {
+                presentationStatusLabel = nextLabel;
+                presentationStatusVersion++;
+            }
+            StateHasChanged();
+        });
+    }
+
+    private void OnQuotaNotification(QuotaNotification notification)
+    {
+        _ = InvokeAsync(() =>
+        {
+            if (notification.IsExhausted)
+            {
+                SonnerService.Error("Quota exhausted", notification.Message, 7000);
+            }
+            else
+            {
+                SonnerService.Warning("Quota running low", notification.Message, 6000);
+            }
+            StateHasChanged();
+        });
+    }
+
+    private static string GetPresentationStatusLabel(ContentProject project)
+    {
+        var ready = project.Sections.Count(section => section.Status == ContentSectionStatus.Ready);
+        return project.Status switch
+        {
+            ContentProjectStatus.Planning => "Planning the story",
+            ContentProjectStatus.NeedsRevision => "Refining a section",
+            ContentProjectStatus.ReadyForAssembly => "Reviewing slide balance",
+            ContentProjectStatus.Assembled => "Presentation ready",
+            _ when ready == 0 => "Gathering evidence and drafting sections",
+            _ when ready < project.Sections.Count => $"Designing the next slide · {ready} ready",
+            _ => "Reviewing slide balance"
+        };
+    }
+
+    private void OpenPresentationDeckTab(ContentProject project)
+    {
+        if (project == null) return;
+        TabService.OpenPresentationTab(project.Id, project.Title, project.FinalArtifactPath);
+    }
+
+    private string GetPresentationHtmlContent(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return "";
+        try
+        {
+            return File.ReadAllText(path);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private async Task OpenPresentationFullscreen(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+        try
+        {
+            var content = File.ReadAllText(path);
+            await JSRuntime.InvokeVoidAsync("openHtmlInNewWindow", content, "Presentation Deck");
+        }
+        catch { }
     }
 
     private void OnTabsUpdated()
@@ -1356,6 +2045,7 @@
         activeId = id;
         draft = "";
         attachedFiles.Clear();
+        pendingMentions.Clear();
         selectedArtifact = null;
         activeDiffs.Clear();
         _ = ConversationService.SaveConversationAsync(newConv);
@@ -1374,6 +2064,25 @@
         isSidebarOpen = false;
     }
 
+    private async Task ToggleSidebar(bool open)
+    {
+        isSidebarOpen = open;
+        try
+        {
+            if (open)
+            {
+                // Startled / Shaken by the sudden opening of the sidebar on the left
+                await JSRuntime.InvokeVoidAsync("gramCharacter.setState", null, "sidebar_open", 1800);
+            }
+            else
+            {
+                // Responsive tracking & farewell gesture when sidebar closes
+                await JSRuntime.InvokeVoidAsync("gramCharacter.setState", null, "sidebar_close", 1600);
+            }
+        }
+        catch { }
+    }
+
     private async Task DeleteConversation(string id)
     {
         if (conversations.Count <= 1) return;
@@ -1390,7 +2099,9 @@
                     ChatStateService.ActiveChatTitle = Active.Title;
                 }
             }
+            TabService.CloseTabsForChat(targetId);
             await ConversationService.DeleteConversationAsync(targetId);
+            StateHasChanged();
         }
     }
 
@@ -1400,6 +2111,7 @@
         Active.Title = "New chat";
         Active.Updated = DateTimeOffset.UtcNow;
         attachedFiles.Clear();
+        pendingMentions.Clear();
         ChatStateService.ActiveChatTitle = Active.Title;
         await StopVoice();
         await ConversationService.SaveConversationAsync(Active);
@@ -1465,14 +2177,28 @@
         SonnerService.Info("Chat deleted", "The conversation has been removed.");
     }
 
-    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    private bool isAttachMenuOpen = false;
+
+    private void ToggleAttachMenu()
     {
+        isAttachMenuOpen = !isAttachMenuOpen;
+    }
+
+    private void CloseAttachMenu()
+    {
+        isAttachMenuOpen = false;
+    }
+
+    private async Task HandleImageSelected(InputFileChangeEventArgs e)
+    {
+        isAttachMenuOpen = false;
         foreach (var file in e.GetMultipleFiles(10))
         {
             try
             {
-                using var stream = file.OpenReadStream(20 * 1024 * 1024);
-                var attInfo = await SessionStorage.SaveAttachmentAsync(Active.Id, file.Name, stream, file.ContentType);
+                var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "image/png" : file.ContentType;
+                using var stream = file.OpenReadStream(25 * 1024 * 1024);
+                var attInfo = await SessionStorage.SaveAttachmentAsync(Active.Id, file.Name, stream, contentType);
                 if (!Active.Attachments.Any(a => a.FileName == attInfo.FileName))
                 {
                     Active.Attachments.Add(attInfo);
@@ -1481,10 +2207,42 @@
                 {
                     attachedFiles.Add(attInfo.FileName);
                 }
+                SonnerService.Success("Image attached", $"{file.Name} ready for visual analysis");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Home] Error uploading attachment {file.Name}: {ex.Message}");
+                Console.WriteLine($"[Home] Error uploading image {file.Name}: {ex.Message}");
+                SonnerService.Error("Upload failed", ex.Message);
+            }
+        }
+        await ConversationService.SaveConversationAsync(Active);
+        StateHasChanged();
+    }
+
+    private async Task HandleDocFileSelected(InputFileChangeEventArgs e)
+    {
+        isAttachMenuOpen = false;
+        foreach (var file in e.GetMultipleFiles(10))
+        {
+            try
+            {
+                var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "text/plain" : file.ContentType;
+                using var stream = file.OpenReadStream(20 * 1024 * 1024);
+                var attInfo = await SessionStorage.SaveAttachmentAsync(Active.Id, file.Name, stream, contentType);
+                if (!Active.Attachments.Any(a => a.FileName == attInfo.FileName))
+                {
+                    Active.Attachments.Add(attInfo);
+                }
+                if (!attachedFiles.Contains(attInfo.FileName))
+                {
+                    attachedFiles.Add(attInfo.FileName);
+                }
+                SonnerService.Success("File attached", $"{file.Name} added to workspace context");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Home] Error uploading file {file.Name}: {ex.Message}");
+                SonnerService.Error("Upload failed", ex.Message);
             }
         }
         await ConversationService.SaveConversationAsync(Active);
@@ -1500,31 +2258,103 @@
     {
         if (voiceState == VoiceState.Idle)
         {
-            voiceState = VoiceState.UserSpeaking;
-            StateHasChanged();
-
-            try
-            {
-                var success = await JSRuntime.InvokeAsync<bool>("gramAudio.startVoice", dotNetHelper, "visualizerBars", selectedAudioInputDeviceId);
-                if (!success)
-                {
-                    voiceState = VoiceState.Idle;
-                    StateHasChanged();
-                }
-                else
-                {
-                    await RefreshAudioDevicesAsync();
-                }
-            }
-            catch (Exception)
-            {
-                voiceState = VoiceState.Idle;
-                StateHasChanged();
-            }
+            voiceConversationActive = true;
+            voiceLastResponse = "";
+            await StartVoiceCaptureAsync();
         }
         else
         {
-            await StopVoice();
+            await EndVoiceConversation();
+        }
+    }
+
+    private async Task StartVoiceCaptureAsync()
+    {
+        voiceState = VoiceState.UserSpeaking;
+        StateHasChanged();
+
+        try
+        {
+            usingAssemblyAi = StreamingTranscriberFactory.IsConfigured;
+            var startMethod = usingAssemblyAi ? "gramAudio.startAssemblyAiVoice" : "gramAudio.startVoice";
+            var success = await JSRuntime.InvokeAsync<bool>(startMethod, dotNetHelper, "visualizerBars", selectedAudioInputDeviceId);
+
+            if (!success && usingAssemblyAi)
+            {
+                // Keep voice input usable if the cloud provider is temporarily unavailable.
+                usingAssemblyAi = false;
+                success = await JSRuntime.InvokeAsync<bool>("gramAudio.startVoice", dotNetHelper, "visualizerBars", selectedAudioInputDeviceId);
+            }
+
+            if (!success)
+            {
+                usingAssemblyAi = false;
+                voiceConversationActive = false;
+                voiceState = VoiceState.Idle;
+                StateHasChanged();
+            }
+            else
+            {
+                await RefreshAudioDevicesAsync();
+            }
+        }
+        catch (Exception)
+        {
+            usingAssemblyAi = false;
+            voiceConversationActive = false;
+            voiceState = VoiceState.Idle;
+            StateHasChanged();
+        }
+    }
+
+    private async Task EndVoiceConversation()
+    {
+        voiceConversationActive = false;
+        await StopVoice();
+        try { await JSRuntime.InvokeVoidAsync("gramAudio.stopSpeech"); }
+        catch (Exception) {}
+        voiceLastResponse = "";
+        StateHasChanged();
+    }
+
+    private async Task SpeakVoiceResponseAsync(Message assistantMessage)
+    {
+        var responseText = assistantMessage.Text?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(responseText) || responseText == "[Generation stopped]")
+        {
+            await StartVoiceCaptureAsync();
+            return;
+        }
+
+        voiceLastResponse = responseText;
+        voiceState = VoiceState.GramSpeaking;
+        StateHasChanged();
+
+        var started = false;
+        try
+        {
+            if (TextToSpeechProvider.IsConfigured)
+            {
+                started = await JSRuntime.InvokeAsync<bool>("gramAudio.speakServerText", responseText, dotNetHelper);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Voice TTS] {ex.Message}");
+        }
+
+        if (!started)
+        {
+            try
+            {
+                started = await JSRuntime.InvokeAsync<bool>("gramAudio.speakText", responseText, dotNetHelper, 1.0, 1.0);
+            }
+            catch (Exception) {}
+        }
+
+        if (!started && voiceConversationActive)
+        {
+            await StartVoiceCaptureAsync();
         }
     }
 
@@ -1575,7 +2405,8 @@
         {
             try
             {
-                await JSRuntime.InvokeAsync<bool>("gramAudio.restartVoiceCapture", dotNetHelper, "visualizerBars", selectedAudioInputDeviceId);
+                var restartMethod = usingAssemblyAi ? "gramAudio.restartAssemblyAiVoice" : "gramAudio.restartVoiceCapture";
+                await JSRuntime.InvokeAsync<bool>(restartMethod, dotNetHelper, "visualizerBars", selectedAudioInputDeviceId);
                 await RefreshAudioDevicesAsync();
             }
             catch (Exception ex)
@@ -1631,7 +2462,7 @@
         public string Label { get; set; } = "";
     }
 
-    private async Task StopVoice()
+    private async Task<string?> StopVoice()
     {
         voiceCts?.Cancel();
         voiceCts = null;
@@ -1639,9 +2470,27 @@
 
         try
         {
-            await JSRuntime.InvokeVoidAsync("gramAudio.stopVoice", "visualizerBars");
+            var stopMethod = usingAssemblyAi ? "gramAudio.stopAssemblyAiVoice" : "gramAudio.stopVoice";
+            var finalTranscript = await JSRuntime.InvokeAsync<string?>(stopMethod, "visualizerBars");
+            usingAssemblyAi = false;
+            if (!string.IsNullOrWhiteSpace(finalTranscript))
+            {
+                draft = finalTranscript;
+                StateHasChanged();
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("gramAudio.autoResizeTextarea", textareaRef);
+                }
+                catch (Exception) {}
+            }
+            return finalTranscript;
         }
-        catch (Exception) {}
+        catch (Exception) { return null; }
+    }
+
+    private async Task SendVoiceDraft()
+    {
+        await Send();
     }
 
     [JSInvokable]
@@ -1659,13 +2508,54 @@
         }
     }
 
+    [JSInvokable]
+    public async Task OnAssemblyAiTranscriptReceived(string transcript, bool isFinal)
+    {
+        if (string.IsNullOrWhiteSpace(transcript)) return;
+
+        draft = transcript.Trim();
+        StateHasChanged();
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramAudio.autoResizeTextarea", textareaRef);
+        }
+        catch (Exception) {}
+
+        if (isFinal && autoSendVoice && voiceState == VoiceState.UserSpeaking && !autoSendingVoice && !isGenerating)
+        {
+            autoSendingVoice = true;
+            try
+            {
+                await Send();
+            }
+            finally
+            {
+                autoSendingVoice = false;
+            }
+        }
+    }
+
+    [JSInvokable]
+    public void OnWhisperStatusChanged(string status)
+    {
+        whisperStatus = status;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnAssemblyAiStatusChanged(string status)
+    {
+        whisperStatus = status;
+        StateHasChanged();
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             try
             {
-                await JSRuntime.InvokeVoidAsync("gramAudio.attachComposerHandler", textareaRef, dotNetHelper);
+                await JSRuntime.InvokeVoidAsync("gramAudio.initComposer", "composerTextarea", dotNetHelper);
                 var isDesktop = await JSRuntime.InvokeAsync<bool>("eval", "window.innerWidth >= 1024");
                 if (isDesktop && !isSidebarOpen)
                 {
@@ -1683,32 +2573,66 @@
         await Send();
     }
 
-    private void OnInputChanged(ChangeEventArgs e)
+    [JSInvokable]
+    public async Task SubmitDirectText(string text)
+    {
+        draft = text;
+        await Send();
+    }
+
+    private async Task OnInputChanged(ChangeEventArgs e)
     {
         draft = e.Value?.ToString() ?? "";
-        
-        // Context Mentions Detection
-        var atIndex = draft.LastIndexOf('@');
-        if (atIndex >= 0 && (atIndex == 0 || char.IsWhiteSpace(draft[atIndex - 1])))
+
+        ComposerMentionState? mentionState = null;
+        try
         {
-            var query = draft[(atIndex + 1)..];
-            if (!query.Contains(' '))
-            {
-                if (allMentions.Count == 0) PopulateMentions();
-                filteredMentions = string.IsNullOrWhiteSpace(query)
-                    ? new List<MentionItem>(allMentions)
-                    : allMentions.Where(m => m.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || m.Description.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
-                showMentionPopup = filteredMentions.Count > 0;
-            }
-            else
-            {
-                showMentionPopup = false;
-            }
+            mentionState = await JSRuntime.InvokeAsync<ComposerMentionState>("gramAudio.getMentionState", "composerTextarea");
         }
-        else
+        catch
+        {
+        }
+
+        if (mentionState?.IsActive == true)
+        {
+            if (allMentions.Count == 0 || DateTimeOffset.UtcNow - mentionsPopulatedAt > TimeSpan.FromSeconds(3)) PopulateMentions();
+            activeMentionStart = mentionState.Start;
+            activeMentionEnd = mentionState.End;
+            ApplyMentionFilter(mentionState.Query);
+            showMentionPopup = true;
+            StateHasChanged();
+            return;
+        }
+
+        showMentionPopup = false;
+        activeMentionStart = -1;
+        activeMentionEnd = -1;
+    }
+
+    [JSInvokable]
+    public async Task HandleMentionKey(string key)
+    {
+        if (!showMentionPopup) return;
+        if (key == "Escape")
         {
             showMentionPopup = false;
         }
+        else if (key == "ArrowDown" && filteredMentions.Count > 0)
+        {
+            selectedMentionIndex = (selectedMentionIndex + 1) % filteredMentions.Count;
+        }
+        else if (key == "ArrowUp" && filteredMentions.Count > 0)
+        {
+            selectedMentionIndex = (selectedMentionIndex - 1 + filteredMentions.Count) % filteredMentions.Count;
+        }
+        else if ((key == "Enter" || key == "Tab") && filteredMentions.Count > 0)
+        {
+            await SelectMentionAsync(filteredMentions[Math.Clamp(selectedMentionIndex, 0, filteredMentions.Count - 1)]);
+            return;
+        }
+
+        StateHasChanged();
+        try { await JSRuntime.InvokeVoidAsync("gramAudio.scrollMentionIntoView", selectedMentionIndex); } catch { }
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
@@ -1724,7 +2648,7 @@
         {
             if (showMentionPopup && filteredMentions.Count > 0)
             {
-                SelectMention(filteredMentions[0]);
+                await SelectMentionAsync(filteredMentions[Math.Clamp(selectedMentionIndex, 0, filteredMentions.Count - 1)]);
                 preventEnter = true;
                 return;
             }
@@ -1742,21 +2666,28 @@
     {
         if (isGenerating) return;
 
-        var text = draft.Trim();
         var wasVoice = voiceState == VoiceState.UserSpeaking;
+        var isVoiceTurn = voiceConversationActive && wasVoice;
 
-        if (string.IsNullOrWhiteSpace(text) && attachedFiles.Count == 0 && !wasVoice)
+        if (wasVoice)
+        {
+            var finalTranscript = await StopVoice();
+            if (!string.IsNullOrWhiteSpace(finalTranscript))
+            {
+                draft = finalTranscript;
+            }
+        }
+
+        var text = draft.Trim();
+
+        if (string.IsNullOrWhiteSpace(text) && attachedFiles.Count == 0 && pendingMentions.Count == 0 && !wasVoice)
         {
             return;
         }
 
         draft = "";
-        try { await JSRuntime.InvokeVoidAsync("gramAudio.resetTextarea", textareaRef); } catch (Exception) {}
-
-        if (wasVoice)
-        {
-            await StopVoice();
-        }
+        try { await JSRuntime.InvokeVoidAsync("gramAudio.resetTextarea", "composerTextarea"); } catch (Exception) {}
+        StateHasChanged();
 
         var userMessageText = text;
         if (wasVoice && string.IsNullOrWhiteSpace(userMessageText))
@@ -1771,7 +2702,14 @@
             attachedFiles.Clear();
         }
 
-        var userMsg = new Message("user", userMessageText);
+        if (string.IsNullOrWhiteSpace(userMessageText) && pendingMentions.Count > 0)
+        {
+            userMessageText = "Use the selected context.";
+        }
+
+        var mentionsForMessage = pendingMentions.Select(CloneMention).ToList();
+        pendingMentions.Clear();
+        var userMsg = new Message("user", userMessageText) { Mentions = mentionsForMessage };
 
         // If this conversation is not yet in the conversations list, add it now
         if (!conversations.Any(c => c.Id == Active.Id))
@@ -1788,6 +2726,7 @@
             Type = TranscriptEntryType.USER_INPUT,
             Role = "user",
             Content = userMessageText,
+            Mentions = userMsg.Mentions.Select(CloneMention).ToList(),
             Timestamp = userMsg.Timestamp
         });
 
@@ -1798,10 +2737,14 @@
             ChatStateService.ActiveChatTitle = Active.Title;
         }
 
-        await GenerateAssistantResponseAsync(userMessageText, isFirstMessage);
+        var assistantMessage = await GenerateAssistantResponseAsync(userMessageText, isFirstMessage);
+        if (isVoiceTurn && voiceConversationActive)
+        {
+            await SpeakVoiceResponseAsync(assistantMessage);
+        }
     }
 
-    private async Task GenerateAssistantResponseAsync(string promptText, bool isFirstMessage = false)
+    private async Task<Message> GenerateAssistantResponseAsync(string promptText, bool isFirstMessage = false)
     {
         var assistantMsg = new Message("assistant", "");
         Active.Messages.Add(assistantMsg);
@@ -1822,37 +2765,69 @@
                                ?? "anthropic/claude-3.7-sonnet";
         }
 
+        currentRun = AgentRunTracker.Start(Active.Id, effectiveModelId);
+        showRunDetails = false;
+        StateHasChanged();
+
+        if (PresentationGenerationService.IsPresentationRequest(promptText)
+            && !effectiveModelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase))
+        {
+            effectiveModelId = "gram-q-plus";
+            SonnerService.Info("Presentation mode", "Presentation generation is routed through Gram Q+ for reliability.");
+        }
+
         if (isFirstMessage)
         {
             _ = AutoGenerateChatTitleAsync(Active, promptText, effectiveModelId);
         }
 
-        // Assemble Context with Workspace Attachments and Rolling Memory
+        // Assemble Context with explicit mentions, workspace attachments, and rolling memory.
         await ContextBuilder.EnsureContextSummaryAsync(Active);
         var workspacePath = Environment.CurrentDirectory;
-        var contextResult = await ContextBuilder.AssembleContextAsync(Active, workspacePath: workspacePath, relevanceQuery: promptText);
+        var currentUserMessage = Active.Messages.LastOrDefault(message => message.Role == "user");
+        var mentionResolution = await MentionResolver.ResolveAsync(
+            currentUserMessage?.Mentions,
+            Active,
+            workspacePath,
+            promptText,
+            token);
+        var contextResult = await ContextBuilder.AssembleContextAsync(
+            Active,
+            workspacePath: workspacePath,
+            relevanceQuery: promptText,
+            additionalSystemPrompt: voiceConversationActive ? GramSystemPrompt.VoiceConversationPrompt : null,
+            mentionedContext: mentionResolution.Context);
 
         try
         {
             assistantMsg.ToolCalls = new List<ToolCallInfo>();
 
-            await foreach (var step in AgentOrchestrator.RunAgentLoopAsync(effectiveModelId, contextResult.Messages, workspacePath, contextResult.SystemPrompt, maxIterations: 8, repositoryMap: contextResult.RepositoryMap, cancellationToken: token))
+            await foreach (var step in AgentWorkflowRouter.RunAsync(new AgentWorkflowRequest(
+                effectiveModelId,
+                promptText,
+                contextResult.Messages,
+                workspacePath,
+                contextResult.SystemPrompt,
+                8,
+                contextResult.RepositoryMap,
+                null,
+                mentionResolution.ForcedWebSearchQuery,
+                token)))
             {
+                if (currentRun != null)
+                {
+                    var status = step.ToolCall != null ? AgentRunStatus.Executing : AgentRunStatus.Executing;
+                    AgentRunTracker.Update(currentRun.Id, status, step.ToolCall != null ? $"Using {step.ToolCall.ToolName}" : "Generating response");
+                    currentRun = AgentRunTracker.Get(currentRun.Id);
+                }
                 if (!string.IsNullOrWhiteSpace(step.ErrorMessage))
                 {
                     assistantMsg.ErrorDetail = step.ErrorMessage;
                 }
 
-                if (!string.IsNullOrWhiteSpace(step.ContentDelta))
+                if (!string.IsNullOrEmpty(step.ContentDelta))
                 {
-                    if (string.IsNullOrWhiteSpace(assistantMsg.Text))
-                    {
-                        assistantMsg.Text = step.ContentDelta;
-                    }
-                    else
-                    {
-                        assistantMsg.Text += "\n\n" + step.ContentDelta;
-                    }
+                    assistantMsg.Text += step.ContentDelta;
                 }
 
                 if (step.ToolCall != null)
@@ -1906,6 +2881,7 @@
         }
         catch (OperationCanceledException)
         {
+            if (currentRun != null) AgentRunTracker.Complete(currentRun.Id, AgentRunStatus.Cancelled, "Generation cancelled.");
             if (string.IsNullOrWhiteSpace(assistantMsg.Text) && (assistantMsg.ToolCalls == null || assistantMsg.ToolCalls.Count == 0))
             {
                 assistantMsg.Text = "[Generation stopped]";
@@ -1913,10 +2889,16 @@
         }
         catch (Exception ex)
         {
+            if (currentRun != null) AgentRunTracker.Complete(currentRun.Id, AgentRunStatus.Failed, ex.Message);
             assistantMsg.ErrorDetail = ex.Message;
         }
         finally
         {
+            if (currentRun != null && currentRun.Status is not (AgentRunStatus.Cancelled or AgentRunStatus.Failed))
+            {
+                AgentRunTracker.Complete(currentRun.Id);
+                currentRun = AgentRunTracker.Get(currentRun.Id);
+            }
             isGenerating = false;
             assistantMsg.Timestamp = DateTimeOffset.UtcNow;
 
@@ -1934,6 +2916,8 @@
             StateHasChanged();
             _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
         }
+
+        return assistantMsg;
     }
 
     private void StopGeneration()
@@ -1975,6 +2959,75 @@
         catch (Exception ex)
         {
             SonnerService.Error("Copy failed", ex.Message);
+        }
+    }
+
+    private void EditUserPrompt(Message message)
+    {
+        draft = message.Text;
+        pendingMentions.Clear();
+        pendingMentions.AddRange(message.Mentions.Select(CloneMention));
+        StateHasChanged();
+        _ = JSRuntime.InvokeVoidAsync("gramAudio.autoResizeTextarea", textareaRef);
+    }
+
+    private async Task ToggleReadAloud(Message msg)
+    {
+        var msgId = msg.Timestamp.Ticks.ToString();
+        if (speakingMessageId == msgId)
+        {
+            await JSRuntime.InvokeVoidAsync("gramAudio.stopSpeech");
+            speakingMessageId = null;
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            speakingMessageId = msgId;
+            StateHasChanged();
+            var started = false;
+            try
+            {
+                if (TextToSpeechProvider.IsConfigured)
+                {
+                    started = await JSRuntime.InvokeAsync<bool>("gramAudio.speakServerText", msg.Text, dotNetHelper);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ElevenLabs TTS] {ex.Message}");
+            }
+
+            if (!started)
+            {
+                started = await JSRuntime.InvokeAsync<bool>("gramAudio.speakText", msg.Text, dotNetHelper, 1.0, 1.0);
+            }
+            if (!started)
+            {
+                speakingMessageId = null;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            speakingMessageId = null;
+            Console.WriteLine($"[TTS Error] {ex.Message}");
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public void OnSpeechSynthesisEnded()
+    {
+        speakingMessageId = null;
+        if (voiceConversationActive && voiceState == VoiceState.GramSpeaking)
+        {
+            _ = InvokeAsync(async () => await StartVoiceCaptureAsync());
+        }
+        else
+        {
+            InvokeAsync(StateHasChanged);
         }
     }
 
@@ -2084,8 +3137,11 @@
             ChatStateService.OnTitleRenamed -= OnExternalTitleRenamed;
             ChatStateService.OnNewChatRequested -= HandleNewChatRequested;
             TabService.OnTabsChanged -= OnTabsUpdated;
+            TabService.OnDragStateChanged -= OnTabsUpdated;
             GitGram.OnStateChanged -= OnGitGramStateChanged;
             GramBox.OnStatusChanged -= OnGramBoxStatusChanged;
+            PresentationGeneration.ProjectUpdated -= OnPresentationProjectUpdated;
+            QuotaTracker.OnNotification -= OnQuotaNotification;
             AuthService.OnAuthStateChanged -= OnAuthChanged;
             await StopVoice();
             chatCts?.Cancel();

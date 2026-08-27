@@ -1,10 +1,38 @@
+# Build and Compilation Artifacts
 bin/
 obj/
+dist/
+node_modules/
 *.user
 *.suo
 .vs/
 .idea/
 .vscode/
-node_modules/
-dist/
+
+# Local Databases and Storage
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+data/
+storage/
+conversations/
+.gram/
+Gram/
+
+# Local Session & Settings (Credentials / API Keys)
+settings.json
+auth_session.json
+open_tabs.json
+launchSettings.json
+Properties/launchSettings.json
+*.local.json
+.env
+.env.*
+!.env.example
+
+# Logs and Scratch Files
 *.log
+scratch/
+test-results/

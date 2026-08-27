@@ -105,18 +105,6 @@ public sealed class SessionStorageService
             {
                 result.Add(meta);
             }
-            else
-            {
-                // Fallback for directory without meta
-                var dirInfo = new DirectoryInfo(dir);
-                result.Add(new ConversationMeta
-                {
-                    Id = id,
-                    Title = "Chat " + id,
-                    Created = dirInfo.CreationTimeUtc,
-                    Updated = dirInfo.LastWriteTimeUtc
-                });
-            }
         }
 
         return result.OrderByDescending(m => m.Updated).ToList();
@@ -205,7 +193,11 @@ public sealed class SessionStorageService
             {
                 if (entry.Type == TranscriptEntryType.USER_INPUT)
                 {
-                    conv.Messages.Add(new Message("user", entry.Content ?? "") { Timestamp = entry.Timestamp });
+                    conv.Messages.Add(new Message("user", entry.Content ?? "")
+                    {
+                        Timestamp = entry.Timestamp,
+                        Mentions = entry.Mentions ?? []
+                    });
                 }
                 else if (entry.Type == TranscriptEntryType.MODEL_RESPONSE)
                 {
