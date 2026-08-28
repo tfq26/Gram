@@ -3361,7 +3361,11 @@
         try
         {
             var user = AuthService.CurrentUser;
-            var regResult = await JSRuntime.InvokeAsync<PasskeyRegisterJsResult>("gramPasskey.register", user.Id, user.Email, user.Name);
+            var userId = !string.IsNullOrWhiteSpace(user.Id) ? user.Id : "gram_user";
+            var userEmail = !string.IsNullOrWhiteSpace(user.Email) ? user.Email : "user@gram.local";
+            var userName = !string.IsNullOrWhiteSpace(user.Name) ? user.Name : "Gram User";
+
+            var regResult = await JSRuntime.InvokeAsync<PasskeyRegisterJsResult>("gramPasskey.register", userId, userEmail, userName);
             if (!regResult.Success || string.IsNullOrWhiteSpace(regResult.CredentialId))
             {
                 if (!string.IsNullOrWhiteSpace(regResult.Error) && !regResult.Error.Contains("cancelled", StringComparison.OrdinalIgnoreCase))

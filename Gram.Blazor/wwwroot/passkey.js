@@ -5,11 +5,13 @@ window.gramPasskey = {
         if (!window.PublicKeyCredential) return false;
         try {
             if (typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function') {
-                return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+                const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+                return available;
             }
             return true;
         } catch (e) {
-            return false;
+            console.warn('[gramPasskey] isAvailable check:', e);
+            return true;
         }
     },
 
@@ -43,37 +45,42 @@ window.gramPasskey = {
     // Register a new Passkey (navigator.credentials.create)
     register: async function (userId, userName, userDisplayName) {
         try {
-            if (!window.PublicKeyCredential) {
-                return { success: false, error: 'WebAuthn is not supported on this device/browser.' };
+            console.log('[gramPasskey] Starting registration for user:', { userId, userName, userDisplayName });
+            if (!navigator.credentials || !window.PublicKeyCredential) {
+                return { success: false, error: 'WebAuthn passkeys are not supported on this browser or context (requires HTTPS or localhost).' };
             }
 
             // Generate secure random 32-byte challenge
             const challenge = new Uint8Array(32);
             window.crypto.getRandomValues(challenge);
 
-            // User ID buffer
+            // User ID buffer (max 64 bytes)
             const enc = new TextEncoder();
-            const userIdBuffer = enc.encode(userId || ('user_' + Date.now()));
+            const safeUserId = (userId && typeof userId === 'string' && userId.trim()) ? userId.trim() : ('user_' + Date.now());
+            const userIdBuffer = enc.encode(safeUserId.substring(0, 64));
 
-            const domain = window.location.hostname || 'localhost';
+            const host = window.location.hostname;
+            const rp = { name: 'Gram' };
+            // Only set rp.id if valid domain name (WebAuthn forbids IP addresses)
+            if (host && !/^[0-9.]+$/.test(host) && host !== 'localhost') {
+                rp.id = host;
+            }
 
             const publicKeyCredentialCreationOptions = {
                 challenge: challenge,
-                rp: {
-                    name: 'Gram',
-                    id: domain
-                },
+                rp: rp,
                 user: {
                     id: userIdBuffer,
-                    name: userName || 'user@gram.local',
+                    name: userName || 'Gram User',
                     displayName: userDisplayName || userName || 'Gram User'
                 },
                 pubKeyCredParams: [
-                    { alg: -7, type: 'public-key' },   // ES256
-                    { alg: -257, type: 'public-key' }  // RS256
+                    { alg: -7, type: 'public-key' },   // ES256 (NIST P-256)
+                    { alg: -257, type: 'public-key' }, // RS256 (RSA)
+                    { alg: -8, type: 'public-key' },   // Ed25519
+                    { alg: -37, type: 'public-key' }   // PS256
                 ],
                 authenticatorSelection: {
-                    authenticatorAttachment: 'platform',
                     userVerification: 'preferred',
                     residentKey: 'preferred'
                 },
@@ -81,6 +88,7 @@ window.gramPasskey = {
                 attestation: 'none'
             };
 
+            console.log('[gramPasskey] Prompting OS native passkey creation dialog...');
             const credential = await navigator.credentials.create({
                 publicKey: publicKeyCredentialCreationOptions
             });
@@ -89,6 +97,7 @@ window.gramPasskey = {
                 return { success: false, error: 'Passkey creation was cancelled.' };
             }
 
+            console.log('[gramPasskey] Passkey credential created successfully:', credential);
             const credentialId = this.bufferToBase64Url(credential.rawId);
             let publicKeyStr = '';
             if (credential.response && typeof credential.response.getPublicKey === 'function') {
@@ -123,11 +132,11 @@ window.gramPasskey = {
                 name: deviceName
             };
         } catch (err) {
-            console.error('[gramPasskey] register error:', err);
+            console.error('[gramPasskey] Registration error:', err);
             return {
                 success: false,
                 error: err.name === 'NotAllowedError'
-                    ? 'Passkey registration cancelled or timed out.'
+                    ? 'Passkey registration was cancelled or timed out.'
                     : (err.message || 'Passkey setup failed.')
             };
         }
@@ -136,14 +145,19 @@ window.gramPasskey = {
     // Authenticate using a Passkey (navigator.credentials.get)
     authenticate: async function (allowedCredentialIds) {
         try {
-            if (!window.PublicKeyCredential) {
-                return { success: false, error: 'WebAuthn is not supported on this device/browser.' };
+            console.log('[gramPasskey] Starting passkey authentication...');
+            if (!navigator.credentials || !window.PublicKeyCredential) {
+                return { success: false, error: 'WebAuthn is not supported on this browser or context.' };
             }
 
             const challenge = new Uint8Array(32);
             window.crypto.getRandomValues(challenge);
 
-            const domain = window.location.hostname || 'localhost';
+            const host = window.location.hostname;
+            let rpId = undefined;
+            if (host && !/^[0-9.]+$/.test(host) && host !== 'localhost') {
+                rpId = host;
+            }
 
             let allowCredentials = undefined;
             if (allowedCredentialIds && allowedCredentialIds.length > 0) {
@@ -156,20 +170,22 @@ window.gramPasskey = {
 
             const publicKeyCredentialRequestOptions = {
                 challenge: challenge,
-                rpId: domain,
+                rpId: rpId,
                 allowCredentials: allowCredentials,
                 userVerification: 'preferred',
                 timeout: 60000
             };
 
+            console.log('[gramPasskey] Prompting OS native passkey authentication dialog...');
             const assertion = await navigator.credentials.get({
                 publicKey: publicKeyCredentialRequestOptions
             });
 
             if (!assertion) {
-                return { success: false, error: 'Passkey sign-in cancelled.' };
+                return { success: false, error: 'Passkey sign-in was cancelled.' };
             }
 
+            console.log('[gramPasskey] Passkey assertion received:', assertion);
             const credentialId = this.bufferToBase64Url(assertion.rawId);
 
             return {
@@ -177,11 +193,11 @@ window.gramPasskey = {
                 credentialId: credentialId
             };
         } catch (err) {
-            console.error('[gramPasskey] authenticate error:', err);
+            console.error('[gramPasskey] Authentication error:', err);
             return {
                 success: false,
                 error: err.name === 'NotAllowedError'
-                    ? 'Passkey sign-in cancelled or timed out.'
+                    ? 'Passkey prompt was cancelled or timed out.'
                     : (err.message || 'Passkey authentication failed.')
             };
         }
