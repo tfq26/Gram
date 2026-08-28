@@ -121,6 +121,22 @@
                         <span>@(isSignUpMode ? "Create account" : "Log in")</span>
                     }
                 </button>
+
+                @if (!isSignUpMode && isPasskeySupported)
+                {
+                    <div class="gram-auth-divider">
+                        <span>or</span>
+                    </div>
+
+                    <button type="button" class="gram-auth-passkey-btn" @onclick="HandlePasskeySignIn" disabled="@isLoading">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 2l-2 2m-1.5 1.5L16 7l-1.5-1.5L13 7l-1.5-1.5L10 7l-2-2"></path>
+                            <circle cx="7.5" cy="15.5" r="5.5"></circle>
+                            <path d="M11.5 11.5L21 2"></path>
+                        </svg>
+                        <span>Sign in with Passkey</span>
+                    </button>
+                }
             </form>
 
         </div>
@@ -147,6 +163,7 @@
     private bool isLoading = false;
     private bool showPassword = false;
     private bool rememberMe = true;
+    private bool isPasskeySupported = false;
 
     private string nameInput = "";
     private string emailInput = "";
@@ -170,6 +187,54 @@
         if (!firstRender) return;
 
         await JSRuntime.InvokeVoidAsync("gramLoginArtwork.init", "gramLoginArtwork");
+
+        try
+        {
+            isPasskeySupported = await JSRuntime.InvokeAsync<bool>("gramPasskey.isAvailable");
+            StateHasChanged();
+        }
+        catch {}
+    }
+
+    private async Task HandlePasskeySignIn()
+    {
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var res = await JSRuntime.InvokeAsync<PasskeyAuthJsResult>("gramPasskey.authenticate", (object?)null);
+            if (!res.Success || string.IsNullOrWhiteSpace(res.CredentialId))
+            {
+                if (!string.IsNullOrWhiteSpace(res.Error) && !res.Error.Contains("cancelled", StringComparison.OrdinalIgnoreCase))
+                {
+                    errorMessage = res.Error;
+                }
+                return;
+            }
+
+            var authResult = await AuthService.SignInWithPasskeyAsync(res.CredentialId);
+            if (authResult.Success)
+            {
+                SonnerService.Success("Welcome back", $"Signed in with Passkey as {authResult.User?.Name ?? "User"}");
+                var redirectTarget = !string.IsNullOrWhiteSpace(ReturnUrl) ? ReturnUrl : "/";
+                NavManager.NavigateTo(redirectTarget);
+            }
+            else
+            {
+                errorMessage = authResult.ErrorMessage ?? "Passkey authentication failed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Passkey error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
     }
 
     private async Task HandleSubmit()

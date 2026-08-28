@@ -1081,24 +1081,52 @@
                     </div>
                 </div>
 
-                <!-- Passkey Setup (Better Auth & Local Passkey Support) -->
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <span class="setting-title">Passkey security (FIDO2 / WebAuthn)</span>
-                        <span class="setting-desc">Sign in quickly and securely using biometric authentication or security keys.</span>
-                    </div>
-                    <div class="setting-control" style="display: flex; align-items: center; gap: 8px;">
-                        @if (AuthService.CurrentUser.HasPasskey)
-                        {
-                            <span style="font-size: 11px; font-weight: 600; color: #10b981; background: rgba(16, 185, 129, 0.1); padding: 3px 8px; border-radius: var(--radius-sm);">Passkey Configured</span>
-                        }
-                        else
-                        {
+                <!-- Passkey Security (FIDO2 / WebAuthn) -->
+                <div class="setting-item" style="flex-direction: column; align-items: stretch; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+                        <div class="setting-info">
+                            <span class="setting-title">Passkey security (FIDO2 / WebAuthn)</span>
+                            <span class="setting-desc">Sign in securely using Touch ID, Face ID, Windows Hello, or hardware security keys.</span>
+                        </div>
+                        <div class="setting-control">
                             <Button Variant="outline" Size="sm" OnClick="SetupPasskey" Disabled="@isSettingUpPasskey">
-                                @(isSettingUpPasskey ? "Setting up..." : "Setup Passkey")
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+                                    <path d="M21 2l-2 2m-1.5 1.5L16 7l-1.5-1.5L13 7l-1.5-1.5L10 7l-2-2"></path>
+                                    <circle cx="7.5" cy="15.5" r="5.5"></circle>
+                                    <path d="M11.5 11.5L21 2"></path>
+                                </svg>
+                                @(isSettingUpPasskey ? "Setting up..." : (userPasskeys.Count > 0 ? "Add another passkey" : "Register passkey"))
                             </Button>
-                        }
+                        </div>
                     </div>
+
+                    @if (userPasskeys.Count > 0)
+                    {
+                        <div class="passkey-list">
+                            @foreach (var pk in userPasskeys)
+                            {
+                                <div class="passkey-item-row">
+                                    <div class="passkey-item-info">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21 2l-2 2m-1.5 1.5L16 7l-1.5-1.5L13 7l-1.5-1.5L10 7l-2-2"></path>
+                                            <circle cx="7.5" cy="15.5" r="5.5"></circle>
+                                            <path d="M11.5 11.5L21 2"></path>
+                                        </svg>
+                                        <div>
+                                            <span class="passkey-item-name">@pk.Name</span>
+                                            <span class="passkey-item-date" style="margin-left: 8px;">Added @pk.CreatedAt.ToString("MMM d, yyyy")</span>
+                                        </div>
+                                    </div>
+                                    <Button Variant="ghost" Size="sm" OnClick="() => HandleDeletePasskey(pk.Id)">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </Button>
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
 
                 <!-- Password Reset -->
@@ -2245,6 +2273,8 @@
         authFullNameInput = AuthService.CurrentUser.Name;
         authNicknameInput = AuthService.CurrentUser.Nickname ?? "";
 
+        await LoadPasskeysAsync();
+
         UpdateBreadcrumbs(activeCategory);
 
         var tasks = new List<Task>();
@@ -3313,20 +3343,43 @@
         StateHasChanged();
     }
 
+    private List<PasskeyRecord> userPasskeys = [];
+
+    private async Task LoadPasskeysAsync()
+    {
+        try
+        {
+            userPasskeys = await AuthService.GetPasskeysAsync();
+        }
+        catch {}
+    }
+
     private async Task SetupPasskey()
     {
         isSettingUpPasskey = true;
         StateHasChanged();
         try
         {
-            var result = await AuthService.RegisterPasskeyAsync();
+            var user = AuthService.CurrentUser;
+            var regResult = await JSRuntime.InvokeAsync<PasskeyRegisterJsResult>("gramPasskey.register", user.Id, user.Email, user.Name);
+            if (!regResult.Success || string.IsNullOrWhiteSpace(regResult.CredentialId))
+            {
+                if (!string.IsNullOrWhiteSpace(regResult.Error) && !regResult.Error.Contains("cancelled", StringComparison.OrdinalIgnoreCase))
+                {
+                    SonnerService.Error("Passkey error", regResult.Error);
+                }
+                return;
+            }
+
+            var result = await AuthService.RegisterPasskeyAsync(regResult.CredentialId, regResult.PublicKey ?? regResult.CredentialId, regResult.Name ?? "Passkey");
             if (result.Success)
             {
-                SonnerService.Success("Passkey configured", "WebAuthn / FIDO2 passkey enabled successfully.");
+                SonnerService.Success("Passkey registered", $"{regResult.Name ?? "Passkey"} has been linked to your account.");
+                await LoadPasskeysAsync();
             }
             else
             {
-                SonnerService.Error("Passkey error", result.ErrorMessage ?? "Could not configure passkey.");
+                SonnerService.Error("Passkey error", result.ErrorMessage ?? "Could not save passkey.");
             }
         }
         catch (Exception ex)
@@ -3337,6 +3390,23 @@
         {
             isSettingUpPasskey = false;
             StateHasChanged();
+        }
+    }
+
+    private async Task HandleDeletePasskey(string credentialId)
+    {
+        try
+        {
+            var ok = await AuthService.DeletePasskeyAsync(credentialId);
+            if (ok)
+            {
+                SonnerService.Success("Passkey removed", "The passkey was unlinked from your account.");
+                await LoadPasskeysAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            SonnerService.Error("Error removing passkey", ex.Message);
         }
     }
 

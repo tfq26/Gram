@@ -19,7 +19,11 @@ public interface IAuthService
     Task<bool> UpdateProfileAsync(string name, string nickname);
     Task<bool> UpdateAvatarAsync(string? imageBase64OrUrl);
     Task<AuthResult> ResetPasswordAsync(string currentPassword, string newPassword);
+    Task<List<PasskeyRecord>> GetPasskeysAsync();
+    Task<AuthResult> RegisterPasskeyAsync(string credentialId, string publicKey, string name);
     Task<AuthResult> RegisterPasskeyAsync();
+    Task<AuthResult> SignInWithPasskeyAsync(string credentialId);
+    Task<bool> DeletePasskeyAsync(string credentialId);
     string GetSocialLoginUrl(string provider, string callbackUrl);
     Task LogoutAsync();
     Task SetAuthProviderAsync(AuthProviderType provider, string? betterAuthUrl = null);
@@ -548,41 +552,118 @@ public sealed class GramAuthService : IAuthService
         }
     }
 
-    public async Task<AuthResult> RegisterPasskeyAsync()
+    public async Task<List<PasskeyRecord>> GetPasskeysAsync()
     {
-        // If Better Auth enabled, invoke Passkey registration endpoint
-        if (Settings.Provider == AuthProviderType.BetterAuth)
+        if (!_currentUser.IsAuthenticated || string.IsNullOrWhiteSpace(_currentUser.Id))
         {
-            try
-            {
-                var client = _httpClientFactory.CreateClient();
-                var endpoint = $"{Settings.BetterAuthUrl.TrimEnd('/')}/api/auth/passkey/generate-options";
-
-                using var req = new HttpRequestMessage(HttpMethod.Get, endpoint);
-                if (!string.IsNullOrWhiteSpace(_currentUser.SessionToken))
-                {
-                    req.Headers.Add("Authorization", $"Bearer {_currentUser.SessionToken}");
-                }
-
-                var res = await client.SendAsync(req);
-                if (res.IsSuccessStatusCode)
-                {
-                    _currentUser.HasPasskey = true;
-                    OnAuthStateChanged?.Invoke();
-                    return new AuthResult { Success = true };
-                }
-            }
-            catch (Exception ex)
-            {
-                return new AuthResult { Success = false, ErrorMessage = $"Better Auth passkey setup failed: {ex.Message}" };
-            }
+            return [];
         }
 
-        // Local SQLite Passkey mode
+        return await _db.GetPasskeysForUserAsync(_currentUser.Id);
+    }
+
+    public async Task<AuthResult> RegisterPasskeyAsync(string credentialId, string publicKey, string name)
+    {
+        if (!_currentUser.IsAuthenticated || string.IsNullOrWhiteSpace(_currentUser.Id))
+        {
+            return new AuthResult { Success = false, ErrorMessage = "You must be signed in to register a passkey." };
+        }
+
+        try
+        {
+            var saved = await _db.SavePasskeyAsync(_currentUser.Id, credentialId, publicKey, name);
+            if (saved)
+            {
+                _currentUser.HasPasskey = true;
+                OnAuthStateChanged?.Invoke();
+                return new AuthResult { Success = true, User = _currentUser };
+            }
+
+            return new AuthResult { Success = false, ErrorMessage = "Failed to save passkey in database." };
+        }
+        catch (Exception ex)
+        {
+            return new AuthResult { Success = false, ErrorMessage = $"Passkey error: {ex.Message}" };
+        }
+    }
+
+    public async Task<AuthResult> RegisterPasskeyAsync()
+    {
         _currentUser.HasPasskey = true;
         OnAuthStateChanged?.Invoke();
         await Task.CompletedTask;
-        return new AuthResult { Success = true };
+        return new AuthResult { Success = true, User = _currentUser };
+    }
+
+    public async Task<AuthResult> SignInWithPasskeyAsync(string credentialId)
+    {
+        if (string.IsNullOrWhiteSpace(credentialId))
+        {
+            return new AuthResult { Success = false, ErrorMessage = "Invalid passkey credential." };
+        }
+
+        try
+        {
+            var passkey = await _db.GetPasskeyByIdAsync(credentialId);
+            if (passkey == null)
+            {
+                return new AuthResult { Success = false, ErrorMessage = "Passkey not recognized. Please sign in with email/password to register your passkey." };
+            }
+
+            var user = await _db.GetUserByIdAsync(passkey.UserId);
+            if (user == null)
+            {
+                return new AuthResult { Success = false, ErrorMessage = "User account not found for this passkey." };
+            }
+
+            var session = await _db.CreateSessionAsync(user.Id);
+
+            _currentUser = new GramUser
+            {
+                Id = user.Id,
+                Name = user.Name,
+                Email = user.Email,
+                Image = user.Image,
+                IsAuthenticated = true,
+                HasPasskey = true,
+                Roles = [user.Role],
+                SessionToken = session.Token,
+                ExpiresAt = session.ExpiresAt
+            };
+
+            await SaveSessionTokenAsync(session.Token, _currentUser);
+            OnAuthStateChanged?.Invoke();
+            return new AuthResult { Success = true, User = _currentUser, Token = session.Token };
+        }
+        catch (Exception ex)
+        {
+            return new AuthResult { Success = false, ErrorMessage = $"Passkey sign-in failed: {ex.Message}" };
+        }
+    }
+
+    public async Task<bool> DeletePasskeyAsync(string credentialId)
+    {
+        if (!_currentUser.IsAuthenticated || string.IsNullOrWhiteSpace(_currentUser.Id))
+        {
+            return false;
+        }
+
+        try
+        {
+            var deleted = await _db.DeletePasskeyAsync(_currentUser.Id, credentialId);
+            if (deleted)
+            {
+                var remaining = await _db.HasPasskeysAsync(_currentUser.Id);
+                _currentUser.HasPasskey = remaining;
+                OnAuthStateChanged?.Invoke();
+                return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public string GetSocialLoginUrl(string provider, string callbackUrl)

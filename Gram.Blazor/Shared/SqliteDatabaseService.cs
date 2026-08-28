@@ -89,9 +89,20 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS user_passkeys (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                public_key TEXT NOT NULL,
+                counter INTEGER NOT NULL DEFAULT 0,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
             CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+            CREATE INDEX IF NOT EXISTS idx_user_passkeys_user_id ON user_passkeys(user_id);
         ";
         cmd.ExecuteNonQuery();
 
@@ -428,6 +439,124 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
         cmd.Parameters.AddWithValue("@user_id", userId);
 
         return await cmd.ExecuteNonQueryAsync(ct) > 0;
+    }
+
+    public async Task<bool> SavePasskeyAsync(string userId, string credentialId, string publicKey, string name)
+    {
+        try
+        {
+            using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO user_passkeys (id, user_id, public_key, counter, name, created_at)
+                VALUES (@id, @user_id, @public_key, 0, @name, @created_at)
+                ON CONFLICT (id) DO UPDATE SET
+                    public_key = @public_key,
+                    name = @name;
+            """;
+            cmd.Parameters.AddWithValue("@id", credentialId);
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            cmd.Parameters.AddWithValue("@public_key", publicKey);
+            cmd.Parameters.AddWithValue("@name", string.IsNullOrWhiteSpace(name) ? "Passkey" : name);
+            cmd.Parameters.AddWithValue("@created_at", DateTime.UtcNow.ToString("o"));
+            return await cmd.ExecuteNonQueryAsync() > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<List<PasskeyRecord>> GetPasskeysForUserAsync(string userId)
+    {
+        var list = new List<PasskeyRecord>();
+        try
+        {
+            using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT id, user_id, public_key, counter, name, created_at FROM user_passkeys WHERE user_id = @user_id ORDER BY created_at DESC;";
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new PasskeyRecord
+                {
+                    Id = reader.GetString(0),
+                    UserId = reader.GetString(1),
+                    PublicKey = reader.GetString(2),
+                    Counter = reader.GetInt64(3),
+                    Name = reader.GetString(4),
+                    CreatedAt = DateTime.TryParse(reader.GetString(5), out var dt) ? dt : DateTime.UtcNow
+                });
+            }
+        }
+        catch {}
+        return list;
+    }
+
+    public async Task<PasskeyRecord?> GetPasskeyByIdAsync(string credentialId)
+    {
+        try
+        {
+            using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT id, user_id, public_key, counter, name, created_at FROM user_passkeys WHERE id = @id;";
+            cmd.Parameters.AddWithValue("@id", credentialId);
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return new PasskeyRecord
+                {
+                    Id = reader.GetString(0),
+                    UserId = reader.GetString(1),
+                    PublicKey = reader.GetString(2),
+                    Counter = reader.GetInt64(3),
+                    Name = reader.GetString(4),
+                    CreatedAt = DateTime.TryParse(reader.GetString(5), out var dt) ? dt : DateTime.UtcNow
+                };
+            }
+        }
+        catch {}
+        return null;
+    }
+
+    public async Task<bool> DeletePasskeyAsync(string userId, string credentialId)
+    {
+        try
+        {
+            using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM user_passkeys WHERE id = @id AND user_id = @user_id;";
+            cmd.Parameters.AddWithValue("@id", credentialId);
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            return await cmd.ExecuteNonQueryAsync() > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> HasPasskeysAsync(string userId)
+    {
+        try
+        {
+            using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM user_passkeys WHERE user_id = @user_id;";
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            var count = Convert.ToInt64(await cmd.ExecuteScalarAsync());
+            return count > 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public static bool VerifyPassword(string enteredPassword, string storedHash, string salt)

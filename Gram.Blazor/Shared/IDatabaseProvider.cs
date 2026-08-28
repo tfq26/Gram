@@ -15,9 +15,17 @@ public interface IDatabaseProvider
     Task<bool> UpdateUserProfileAsync(string userId, string name, string? image = null);
     Task<bool> UpdatePasswordAsync(string userId, string newPassword);
 
+    // Passkey Operations
+    Task<bool> SavePasskeyAsync(string userId, string credentialId, string publicKey, string name);
+    Task<List<PasskeyRecord>> GetPasskeysForUserAsync(string userId);
+    Task<PasskeyRecord?> GetPasskeyByIdAsync(string credentialId);
+    Task<bool> DeletePasskeyAsync(string userId, string credentialId);
+    Task<bool> HasPasskeysAsync(string userId);
+
     // Conversation & Message Persistence
     Task<List<ConversationMeta>> ListConversationsAsync(string userId, CancellationToken ct = default);
     Task<Conversation?> GetConversationAsync(string conversationId, string userId, CancellationToken ct = default);
     Task<bool> SaveConversationAsync(Conversation conversation, string userId, CancellationToken ct = default);
     Task<bool> DeleteConversationAsync(string conversationId, string userId, CancellationToken ct = default);
 }
+

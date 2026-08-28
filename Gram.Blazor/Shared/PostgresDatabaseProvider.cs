@@ -92,9 +92,19 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
                     data_json JSONB NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS user_passkeys (
+                    id VARCHAR(255) PRIMARY KEY,
+                    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    public_key TEXT NOT NULL,
+                    counter BIGINT NOT NULL DEFAULT 0,
+                    name VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
                 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+                CREATE INDEX IF NOT EXISTS idx_user_passkeys_user_id ON user_passkeys(user_id);
 
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS image TEXT;
             """;
@@ -387,6 +397,126 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
         cmd.Parameters.AddWithValue("@user_id", userId);
 
         return await cmd.ExecuteNonQueryAsync(ct) > 0;
+    }
+
+    public async Task<bool> SavePasskeyAsync(string userId, string credentialId, string publicKey, string name)
+    {
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO user_passkeys (id, user_id, public_key, counter, name, created_at)
+                VALUES (@id, @user_id, @public_key, 0, @name, NOW())
+                ON CONFLICT (id) DO UPDATE SET
+                    public_key = @public_key,
+                    name = @name;
+            """;
+            cmd.Parameters.AddWithValue("@id", credentialId);
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            cmd.Parameters.AddWithValue("@public_key", publicKey);
+            cmd.Parameters.AddWithValue("@name", string.IsNullOrWhiteSpace(name) ? "Passkey" : name);
+            return await cmd.ExecuteNonQueryAsync() > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save passkey {Id} for user {UserId}", credentialId, userId);
+            return false;
+        }
+    }
+
+    public async Task<List<PasskeyRecord>> GetPasskeysForUserAsync(string userId)
+    {
+        var list = new List<PasskeyRecord>();
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT id, user_id, public_key, counter, name, created_at FROM user_passkeys WHERE user_id = @user_id ORDER BY created_at DESC;";
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new PasskeyRecord
+                {
+                    Id = reader.GetString(0),
+                    UserId = reader.GetString(1),
+                    PublicKey = reader.GetString(2),
+                    Counter = reader.GetInt64(3),
+                    Name = reader.GetString(4),
+                    CreatedAt = reader.GetDateTime(5)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list passkeys for user {UserId}", userId);
+        }
+        return list;
+    }
+
+    public async Task<PasskeyRecord?> GetPasskeyByIdAsync(string credentialId)
+    {
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT id, user_id, public_key, counter, name, created_at FROM user_passkeys WHERE id = @id;";
+            cmd.Parameters.AddWithValue("@id", credentialId);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return new PasskeyRecord
+                {
+                    Id = reader.GetString(0),
+                    UserId = reader.GetString(1),
+                    PublicKey = reader.GetString(2),
+                    Counter = reader.GetInt64(3),
+                    Name = reader.GetString(4),
+                    CreatedAt = reader.GetDateTime(5)
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get passkey {Id}", credentialId);
+        }
+        return null;
+    }
+
+    public async Task<bool> DeletePasskeyAsync(string userId, string credentialId)
+    {
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM user_passkeys WHERE id = @id AND user_id = @user_id;";
+            cmd.Parameters.AddWithValue("@id", credentialId);
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            return await cmd.ExecuteNonQueryAsync() > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete passkey {Id} for user {UserId}", credentialId, userId);
+            return false;
+        }
+    }
+
+    public async Task<bool> HasPasskeysAsync(string userId)
+    {
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM user_passkeys WHERE user_id = @user_id;";
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            var count = Convert.ToInt64(await cmd.ExecuteScalarAsync());
+            return count > 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string GenerateSalt()
