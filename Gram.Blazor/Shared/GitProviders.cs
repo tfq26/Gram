@@ -56,6 +56,50 @@ public sealed class GitHubProvider : IGitProvider
         }
     }
 
+    public async Task<GitUserProfile> GetUserProfileAsync(GitAccount account, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var apiBase = GetApiBase(account.InstanceUrl);
+            using var req = CreateRequest(HttpMethod.Get, $"{apiBase}/user", account.Token);
+            using var res = await _httpClient.SendAsync(req, cancellationToken);
+            if (!res.IsSuccessStatusCode)
+            {
+                return new GitUserProfile { Success = false, ErrorMessage = $"GitHub authentication failed (HTTP {(int)res.StatusCode})" };
+            }
+
+            var json = await res.Content.ReadAsStringAsync(cancellationToken);
+            var node = JsonNode.Parse(json);
+            if (node == null) return new GitUserProfile { Success = false, ErrorMessage = "Invalid JSON response from GitHub." };
+
+            var username = node["login"]?.ToString() ?? "";
+            var displayName = node["name"]?.ToString() ?? username;
+            var avatarUrl = node["avatar_url"]?.ToString() ?? "";
+            var pubRepos = node["public_repos"]?.GetValue<int>() ?? 0;
+            var privRepos = node["total_private_repos"]?.GetValue<int>() ?? 0;
+
+            var scopes = "";
+            if (res.Headers.TryGetValues("X-OAuth-Scopes", out var scopeVals))
+            {
+                scopes = string.Join(", ", scopeVals);
+            }
+
+            return new GitUserProfile
+            {
+                Success = true,
+                Username = username,
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName,
+                AvatarUrl = avatarUrl,
+                Scopes = scopes,
+                RepositoryCount = pubRepos + privRepos
+            };
+        }
+        catch (Exception ex)
+        {
+            return new GitUserProfile { Success = false, ErrorMessage = ex.Message };
+        }
+    }
+
     public async Task<List<GitRepository>> ListRepositoriesAsync(GitAccount account, CancellationToken cancellationToken = default)
     {
         var list = new List<GitRepository>();
@@ -322,6 +366,41 @@ public sealed class GitLabProvider : IGitProvider
         }
     }
 
+    public async Task<GitUserProfile> GetUserProfileAsync(GitAccount account, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var apiBase = GetApiBase(account.InstanceUrl);
+            using var req = CreateRequest(HttpMethod.Get, $"{apiBase}/user", account.Token);
+            using var res = await _httpClient.SendAsync(req, cancellationToken);
+            if (!res.IsSuccessStatusCode)
+            {
+                return new GitUserProfile { Success = false, ErrorMessage = $"GitLab authentication failed (HTTP {(int)res.StatusCode})" };
+            }
+
+            var json = await res.Content.ReadAsStringAsync(cancellationToken);
+            var node = JsonNode.Parse(json);
+            if (node == null) return new GitUserProfile { Success = false, ErrorMessage = "Invalid JSON response from GitLab." };
+
+            var username = node["username"]?.ToString() ?? "";
+            var displayName = node["name"]?.ToString() ?? username;
+            var avatarUrl = node["avatar_url"]?.ToString() ?? "";
+
+            return new GitUserProfile
+            {
+                Success = true,
+                Username = username,
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName,
+                AvatarUrl = avatarUrl,
+                Scopes = "api, read_repository, write_repository"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new GitUserProfile { Success = false, ErrorMessage = ex.Message };
+        }
+    }
+
     public async Task<List<GitRepository>> ListRepositoriesAsync(GitAccount account, CancellationToken cancellationToken = default)
     {
         var list = new List<GitRepository>();
@@ -578,6 +657,41 @@ public sealed class ForgejoProvider : IGitProvider
         catch
         {
             return false;
+        }
+    }
+
+    public async Task<GitUserProfile> GetUserProfileAsync(GitAccount account, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var apiBase = GetApiBase(account.InstanceUrl);
+            using var req = CreateRequest(HttpMethod.Get, $"{apiBase}/user", account.Token);
+            using var res = await _httpClient.SendAsync(req, cancellationToken);
+            if (!res.IsSuccessStatusCode)
+            {
+                return new GitUserProfile { Success = false, ErrorMessage = $"Forgejo authentication failed (HTTP {(int)res.StatusCode})" };
+            }
+
+            var json = await res.Content.ReadAsStringAsync(cancellationToken);
+            var node = JsonNode.Parse(json);
+            if (node == null) return new GitUserProfile { Success = false, ErrorMessage = "Invalid JSON response from Forgejo." };
+
+            var username = node["username"]?.ToString() ?? "";
+            var displayName = node["full_name"]?.ToString() ?? username;
+            var avatarUrl = node["avatar_url"]?.ToString() ?? "";
+
+            return new GitUserProfile
+            {
+                Success = true,
+                Username = username,
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName,
+                AvatarUrl = avatarUrl,
+                Scopes = "repo, user"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new GitUserProfile { Success = false, ErrorMessage = ex.Message };
         }
     }
 
@@ -842,6 +956,40 @@ public sealed class BitbucketProvider : IGitProvider
         catch
         {
             return false;
+        }
+    }
+
+    public async Task<GitUserProfile> GetUserProfileAsync(GitAccount account, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var req = CreateRequest(HttpMethod.Get, "https://api.bitbucket.org/2.0/user", account.Token, account.Username);
+            using var res = await _httpClient.SendAsync(req, cancellationToken);
+            if (!res.IsSuccessStatusCode)
+            {
+                return new GitUserProfile { Success = false, ErrorMessage = $"Bitbucket authentication failed (HTTP {(int)res.StatusCode})" };
+            }
+
+            var json = await res.Content.ReadAsStringAsync(cancellationToken);
+            var node = JsonNode.Parse(json);
+            if (node == null) return new GitUserProfile { Success = false, ErrorMessage = "Invalid JSON response from Bitbucket." };
+
+            var username = node["username"]?.ToString() ?? node["nickname"]?.ToString() ?? "";
+            var displayName = node["display_name"]?.ToString() ?? username;
+            var avatarUrl = node["links"]?["avatar"]?["href"]?.ToString() ?? "";
+
+            return new GitUserProfile
+            {
+                Success = true,
+                Username = username,
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName,
+                AvatarUrl = avatarUrl,
+                Scopes = "repository:write, pullrequest:write"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new GitUserProfile { Success = false, ErrorMessage = ex.Message };
         }
     }
 

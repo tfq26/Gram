@@ -124,4 +124,14 @@ public sealed class GitService
         if (provider == null) return false;
         return await provider.ValidateCredentialsAsync(account);
     }
+
+    public async Task<GitUserProfile> ValidateAndFetchProfileAsync(GitAccount account, CancellationToken cancellationToken = default)
+    {
+        var provider = GetProvider(account.ProviderType);
+        if (provider == null)
+        {
+            return new GitUserProfile { Success = false, ErrorMessage = $"Provider {account.ProviderType} is not supported." };
+        }
+        return await provider.GetUserProfileAsync(account, cancellationToken);
+    }
 }

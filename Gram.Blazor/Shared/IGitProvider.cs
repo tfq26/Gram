@@ -7,6 +7,7 @@ public interface IGitProvider
     string DefaultInstanceUrl { get; }
 
     Task<bool> ValidateCredentialsAsync(GitAccount account, CancellationToken cancellationToken = default);
+    Task<GitUserProfile> GetUserProfileAsync(GitAccount account, CancellationToken cancellationToken = default);
     Task<List<GitRepository>> ListRepositoriesAsync(GitAccount account, CancellationToken cancellationToken = default);
     Task<List<GitBranch>> ListBranchesAsync(GitAccount account, string repoFullName, CancellationToken cancellationToken = default);
     Task<string> GetFileContentAsync(GitAccount account, string repoFullName, string branch, string filePath, CancellationToken cancellationToken = default);

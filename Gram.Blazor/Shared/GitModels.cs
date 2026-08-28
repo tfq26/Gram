@@ -11,6 +11,17 @@ public enum GitProviderType
     LocalGit
 }
 
+public sealed class GitUserProfile
+{
+    public bool Success { get; set; }
+    public string Username { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string AvatarUrl { get; set; } = "";
+    public string Scopes { get; set; } = "";
+    public int RepositoryCount { get; set; }
+    public string? ErrorMessage { get; set; }
+}
+
 public sealed class GitAccount
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
@@ -18,6 +29,8 @@ public sealed class GitAccount
     public string DisplayName { get; set; } = "";
     public string InstanceUrl { get; set; } = "https://github.com";
     public string Username { get; set; } = "";
+    public string AvatarUrl { get; set; } = "";
+    public string Scopes { get; set; } = "";
     public string Token { get; set; } = "";
     public bool IsDefault { get; set; } = false;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

@@ -1196,29 +1196,36 @@
                     <div style="display: flex; flex-direction: column; gap: 10px;">
                         @foreach (var acc in GitService.Accounts)
                         {
-                            <div class="setting-item" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: var(--bg-panel-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-md);">
-                                <div style="display: flex; align-items: center; gap: 12px;">
-                                    <div style="width: 32px; height: 32px; border-radius: var(--radius-sm); background: var(--bg-hover); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--text-primary);">
-                                        @switch (acc.ProviderType)
-                                        {
-                                            case GitProviderType.GitHub:
-                                                <span>GH</span>
-                                                break;
-                                            case GitProviderType.GitLab:
-                                                <span>GL</span>
-                                                break;
-                                            case GitProviderType.Forgejo:
-                                                <span>FJ</span>
-                                                break;
-                                            case GitProviderType.Bitbucket:
-                                                <span>BB</span>
-                                                break;
-                                            default:
-                                                <span>GIT</span>
-                                                break;
-                                        }
-                                    </div>
-                                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <div class="setting-item" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--bg-panel-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-md);">
+                                <div style="display: flex; align-items: center; gap: 14px;">
+                                    @if (!string.IsNullOrWhiteSpace(acc.AvatarUrl))
+                                    {
+                                        <img src="@acc.AvatarUrl" alt="@acc.Username" style="width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border-color); object-fit: cover;" />
+                                    }
+                                    else
+                                    {
+                                        <div style="width: 34px; height: 34px; border-radius: var(--radius-sm); background: var(--bg-hover); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--text-primary); border: 1px solid var(--border-color);">
+                                            @switch (acc.ProviderType)
+                                            {
+                                                case GitProviderType.GitHub:
+                                                    <span>GH</span>
+                                                    break;
+                                                case GitProviderType.GitLab:
+                                                    <span>GL</span>
+                                                    break;
+                                                case GitProviderType.Forgejo:
+                                                    <span>FJ</span>
+                                                    break;
+                                                case GitProviderType.Bitbucket:
+                                                    <span>BB</span>
+                                                    break;
+                                                default:
+                                                    <span>GIT</span>
+                                                    break;
+                                            }
+                                        </div>
+                                    }
+                                    <div style="display: flex; flex-direction: column; gap: 3px;">
                                         <div style="display: flex; align-items: center; gap: 8px;">
                                             <span style="font-size: 13.5px; font-weight: 600; color: var(--text-primary);">@acc.DisplayName</span>
                                             <Badge Variant="secondary">@acc.ProviderType.ToString()</Badge>
@@ -1227,15 +1234,25 @@
                                                 <Badge Variant="default">Default</Badge>
                                             }
                                         </div>
-                                        <span style="font-size: 11.5px; color: var(--text-muted);">
-                                            @acc.InstanceUrl @(string.IsNullOrWhiteSpace(acc.Username) ? "" : $" · @{acc.Username}")
-                                        </span>
+                                        <div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-muted);">
+                                            <span>@acc.InstanceUrl</span>
+                                            @if (!string.IsNullOrWhiteSpace(acc.Username))
+                                            {
+                                                <span>·</span>
+                                                <span style="color: var(--text-secondary); font-weight: 500;">@@@acc.Username</span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(acc.Scopes))
+                                            {
+                                                <span>·</span>
+                                                <span style="opacity: 0.8;" title="Granted scopes: @acc.Scopes">@acc.Scopes</span>
+                                            }
+                                        </div>
                                     </div>
                                 </div>
 
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <Button Variant="outline" Size="sm" OnClick="() => TestGitConnection(acc)" Disabled="@isTestingGitConnection">
-                                        @(testingAccountId == acc.Id ? "Verifying..." : "Test Connection")
+                                        @(testingAccountId == acc.Id ? "Verifying..." : "Verify")
                                     </Button>
                                     <Button Variant="outline" Size="sm" OnClick="() => ExploreRepositories(acc)">
                                         Repositories
@@ -1386,62 +1403,160 @@
 @if (showGitModal)
 {
     <div class="modal-backdrop" @onclick="() => showGitModal = false">
-        <div class="modal-dialog" style="max-width: 480px;" @onclick:stopPropagation="true">
+        <div class="modal-dialog" style="max-width: 520px;" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <span class="modal-title">@(editingGitAccount != null && GitService.Accounts.Any(a => a.Id == editingGitAccount.Id) ? "Edit Git Account" : "Connect Git Provider")</span>
+                <div>
+                    <span class="modal-title">@(editingGitAccount != null && GitService.Accounts.Any(a => a.Id == editingGitAccount.Id) ? "Edit Git Account" : "Connect Git Account")</span>
+                    <p style="font-size: 11.5px; color: var(--text-muted); margin: 2px 0 0 0;">
+                        Authorize Gram to explore repositories, create branches, and open pull requests.
+                    </p>
+                </div>
                 <button class="btn-close-modal" @onclick="() => showGitModal = false">✕</button>
             </div>
-            <div class="modal-body" style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+            <div class="modal-body" style="padding: 18px 20px; display: flex; flex-direction: column; gap: 16px;">
+                <!-- Provider Selector Tiles -->
                 <div class="sheet-field">
-                    <label class="sheet-label">Provider Platform</label>
-                    <select class="sheet-select" value="@gitProviderTypeInput" @onchange="OnGitProviderTypeChanged">
-                        <option value="@GitProviderType.GitHub">GitHub (api.github.com / Enterprise)</option>
-                        <option value="@GitProviderType.GitLab">GitLab (gitlab.com / Self-Hosted)</option>
-                        <option value="@GitProviderType.Forgejo">Forgejo / Gitea (Codeberg / Self-Hosted)</option>
-                        <option value="@GitProviderType.Bitbucket">Bitbucket (Bitbucket Cloud / Server)</option>
-                    </select>
+                    <label class="sheet-label">Select Platform</label>
+                    <div class="git-provider-tiles">
+                        <button type="button" class="git-provider-tile @(gitProviderTypeInput == GitProviderType.GitHub ? "active" : "")" @onclick="() => SelectGitProvider(GitProviderType.GitHub)">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+                            </svg>
+                            <span>GitHub</span>
+                        </button>
+                        <button type="button" class="git-provider-tile @(gitProviderTypeInput == GitProviderType.GitLab ? "active" : "")" @onclick="() => SelectGitProvider(GitProviderType.GitLab)">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="m23.6 9.59-1.16-3.56a.94.94 0 0 0-.36-.46.96.96 0 0 0-.58-.15.98.98 0 0 0-.57.2.92.92 0 0 0-.31.47l-1.95 6H5.33l-1.95-6a.92.92 0 0 0-.31-.47.98.98 0 0 0-.57-.2.96.96 0 0 0-.58.15.94.94 0 0 0-.36.46L.4 9.59a1.53 1.53 0 0 0 .54 1.66l10.45 7.6a.98.98 0 0 0 1.22 0l10.45-7.6a1.53 1.53 0 0 0 .54-1.66Z"/>
+                            </svg>
+                            <span>GitLab</span>
+                        </button>
+                        <button type="button" class="git-provider-tile @(gitProviderTypeInput == GitProviderType.Forgejo ? "active" : "")" @onclick="() => SelectGitProvider(GitProviderType.Forgejo)">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14.93V17a1 1 0 0 1-2 0v-.07A5 5 0 0 1 7.07 13H7a1 1 0 0 1 0-2h.07A5 5 0 0 1 11 7.07V7a1 1 0 0 1 2 0v.07A5 5 0 0 1 16.93 11H17a1 1 0 0 1 0 2h-.07A5 5 0 0 1 13 16.93z"/>
+                            </svg>
+                            <span>Codeberg</span>
+                        </button>
+                        <button type="button" class="git-provider-tile @(gitProviderTypeInput == GitProviderType.Bitbucket ? "active" : "")" @onclick="() => SelectGitProvider(GitProviderType.Bitbucket)">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M2.65 3C2.3 3 2 3.3 2 3.65c0 .08.02.17.05.25l3.22 16.5c.06.31.33.54.65.54h12.16c.32 0 .59-.23.65-.54l3.22-16.5c.03-.08.05-.17.05-.25 0-.35-.3-.65-.65-.65H2.65zm9.95 12.35H8.7l-1.07-5.5h6.04l-1.07 5.5z"/>
+                            </svg>
+                            <span>Bitbucket</span>
+                        </button>
+                    </div>
                 </div>
 
+                <!-- Personal Access Token & Quick Link -->
                 <div class="sheet-field">
-                    <label class="sheet-label">Account Label</label>
-                    <input type="text" class="sheet-input" @bind="gitDisplayNameInput" placeholder="e.g. Work GitLab, Personal GitHub" />
-                </div>
-
-                <div class="sheet-field">
-                    <label class="sheet-label">Instance / Host URL</label>
-                    <input type="text" class="sheet-input" @bind="gitInstanceUrlInput" placeholder="https://github.com" />
-                    <span style="font-size: 11px; color: var(--text-muted);">
-                        For self-hosted instances, enter the full root URL (e.g. https://gitlab.myorg.com or https://codeberg.org).
-                    </span>
-                </div>
-
-                <div class="sheet-field">
-                    <label class="sheet-label">Username (Optional / Basic Auth)</label>
-                    <input type="text" class="sheet-input" @bind="gitUsernameInput" placeholder="Your username on this platform" />
-                </div>
-
-                <div class="sheet-field">
-                    <label class="sheet-label">Personal Access Token / App Password</label>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                        <label class="sheet-label" style="margin: 0;">Personal Access Token</label>
+                        <a href="@GetTokenCreationUrl(gitProviderTypeInput, gitInstanceUrlInput)" target="_blank" class="git-token-hint">
+                            <span>Create token on @gitProviderTypeInput</span>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                <polyline points="15 3 21 3 21 9"></polyline>
+                                <line x1="10" y1="14" x2="21" y2="3"></line>
+                            </svg>
+                        </a>
+                    </div>
                     <div style="display: flex; gap: 6px;">
-                        <input type="@(showGitToken ? "text" : "password")" class="sheet-input" @bind="gitTokenInput" placeholder="ghp_..., glpat-..., or app password" />
+                        <input type="@(showGitToken ? "text" : "password")" class="sheet-input" @bind="gitTokenInput" placeholder="@GetTokenPlaceholder(gitProviderTypeInput)" />
                         <Button Variant="outline" Size="sm" OnClick="() => showGitToken = !showGitToken">
                             @(showGitToken ? "Hide" : "Show")
                         </Button>
                     </div>
+                    <span style="font-size: 11.5px; color: var(--text-muted); line-height: 1.4;">
+                        @GetTokenHelpText(gitProviderTypeInput)
+                    </span>
                 </div>
 
-                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                <!-- Verified Profile Banner (if verified or test succeeded) -->
+                @if (verifiedProfile != null && verifiedProfile.Success)
+                {
+                    <div class="git-verified-card">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            @if (!string.IsNullOrWhiteSpace(verifiedProfile.AvatarUrl))
+                            {
+                                <img src="@verifiedProfile.AvatarUrl" alt="@verifiedProfile.Username" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;" />
+                            }
+                            else
+                            {
+                                <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--bg-active); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600;">
+                                    @verifiedProfile.Username[..Math.Min(2, verifiedProfile.Username.Length)].ToUpperInvariant()
+                                </div>
+                            }
+                            <div style="display: flex; flex-direction: column;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 13px; font-weight: 600; color: var(--text-primary);">@verifiedProfile.DisplayName</span>
+                                    <span style="font-size: 11.5px; color: var(--text-muted);">@@@verifiedProfile.Username</span>
+                                </div>
+                                <span style="font-size: 11px; color: #10b981; font-weight: 500;">
+                                    ✓ Authenticated · @(verifiedProfile.RepositoryCount > 0 ? $"{verifiedProfile.RepositoryCount} repositories accessible" : "Ready for code operations")
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else if (verifiedProfile != null && !verifiedProfile.Success)
+                {
+                    <div style="padding: 8px 12px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--radius-sm); font-size: 12px; color: #f87171;">
+                        @verifiedProfile.ErrorMessage
+                    </div>
+                }
+
+                <!-- Account Label & Customization -->
+                <div class="sheet-field">
+                    <label class="sheet-label">Account Label</label>
+                    <input type="text" class="sheet-input" @bind="gitDisplayNameInput" placeholder="e.g. Personal GitHub, Work GitLab" />
+                </div>
+
+                <!-- Self-Hosted / Advanced Options -->
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 12px; font-weight: 500; color: var(--text-secondary);">Advanced & Host Settings</span>
+                        <button type="button" class="btn-clean-toggle" @onclick="() => showGitAdvanced = !showGitAdvanced">
+                            @(showGitAdvanced ? "Hide" : "Configure Host URL")
+                        </button>
+                    </div>
+
+                    @if (showGitAdvanced)
+                    {
+                        <div style="display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--bg-hover); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                            <div class="sheet-field">
+                                <label class="sheet-label">Instance / Host URL</label>
+                                <input type="text" class="sheet-input" @bind="gitInstanceUrlInput" placeholder="https://github.com" />
+                                <span style="font-size: 11px; color: var(--text-muted);">
+                                    For GitHub Enterprise, self-hosted GitLab, or private Gitea/Forgejo servers.
+                                </span>
+                            </div>
+                            <div class="sheet-field">
+                                <label class="sheet-label">Username (Optional / Bitbucket)</label>
+                                <input type="text" class="sheet-input" @bind="gitUsernameInput" placeholder="Your username on this platform" />
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 8px;">
                     <input type="checkbox" id="chkGitDefault" @bind="gitIsDefaultInput" />
                     <label for="chkGitDefault" style="font-size: 12.5px; color: var(--text-primary); cursor: pointer;">Set as default Git account</label>
                 </div>
             </div>
-            <div class="modal-footer" style="display: flex; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--border-color);">
+            <div class="modal-footer" style="display: flex; justify-content: space-between; padding: 12px 18px; border-top: 1px solid var(--border-color);">
                 <Button Variant="outline" Size="sm" OnClick="() => TestDraftGitConnection()" Disabled="@isTestingGitConnection">
                     @(isTestingGitConnection ? "Verifying..." : "Test Connection")
                 </Button>
                 <div style="display: flex; gap: 8px;">
                     <Button Variant="ghost" Size="sm" OnClick="() => showGitModal = false">Cancel</Button>
-                    <Button Variant="default" Size="sm" OnClick="SaveGitAccount">Save Account</Button>
+                    <button type="button" class="btn-git-connect" @onclick="VerifyAndSaveGitAccountAsync" disabled="@isTestingGitConnection">
+                        @if (isTestingGitConnection)
+                        {
+                            <span>Verifying...</span>
+                        }
+                        else
+                        {
+                            <span>Verify & Save</span>
+                        }
+                    </button>
                 </div>
             </div>
         </div>
@@ -2439,16 +2554,20 @@
 
     // Git & Version Control Management State
     private bool showGitModal = false;
+    private bool showGitAdvanced = false;
     private GitAccount? editingGitAccount = null;
     private GitProviderType gitProviderTypeInput = GitProviderType.GitHub;
     private string gitDisplayNameInput = "";
     private string gitInstanceUrlInput = "https://github.com";
     private string gitUsernameInput = "";
     private string gitTokenInput = "";
+    private string gitAvatarUrlInput = "";
+    private string gitScopesInput = "";
     private bool gitIsDefaultInput = false;
     private bool showGitToken = false;
     private bool isTestingGitConnection = false;
     private string? testingAccountId = null;
+    private GitUserProfile? verifiedProfile = null;
 
     private GitAccount? selectedGitAccount = null;
     private List<GitRepository>? gitRepositories = null;
@@ -2461,18 +2580,22 @@
         gitInstanceUrlInput = "https://github.com";
         gitUsernameInput = "";
         gitTokenInput = "";
+        gitAvatarUrlInput = "";
+        gitScopesInput = "";
         gitIsDefaultInput = GitService.Accounts.Count == 0;
         showGitToken = false;
+        showGitAdvanced = false;
+        verifiedProfile = null;
         showGitModal = true;
     }
 
-    private void OnGitProviderTypeChanged(ChangeEventArgs e)
+    private void SelectGitProvider(GitProviderType type)
     {
-        if (Enum.TryParse<GitProviderType>(e.Value?.ToString(), out var type))
+        gitProviderTypeInput = type;
+        var provider = GitService.GetProvider(type);
+        gitInstanceUrlInput = provider?.DefaultInstanceUrl ?? "https://github.com";
+        if (string.IsNullOrWhiteSpace(gitDisplayNameInput) || gitDisplayNameInput.StartsWith("My ") || gitDisplayNameInput.EndsWith("Account"))
         {
-            gitProviderTypeInput = type;
-            var provider = GitService.GetProvider(type);
-            gitInstanceUrlInput = provider?.DefaultInstanceUrl ?? "https://github.com";
             gitDisplayNameInput = type switch
             {
                 GitProviderType.GitHub => "My GitHub",
@@ -2482,6 +2605,51 @@
                 _ => "Git Account"
             };
         }
+        verifiedProfile = null;
+        StateHasChanged();
+    }
+
+    private static string GetTokenCreationUrl(GitProviderType type, string instanceUrl)
+    {
+        var trimmed = (instanceUrl ?? "").TrimEnd('/');
+        return type switch
+        {
+            GitProviderType.GitHub => string.IsNullOrWhiteSpace(trimmed) || trimmed.Equals("https://github.com", StringComparison.OrdinalIgnoreCase)
+                ? "https://github.com/settings/tokens/new?scopes=repo,read:user,workflow&description=Gram+AI+Pair+Programmer"
+                : $"{trimmed}/settings/tokens/new?scopes=repo,read:user,workflow&description=Gram+AI+Pair+Programmer",
+            GitProviderType.GitLab => string.IsNullOrWhiteSpace(trimmed) || trimmed.Equals("https://gitlab.com", StringComparison.OrdinalIgnoreCase)
+                ? "https://gitlab.com/-/user_settings/personal_access_tokens?name=Gram+AI+Pair+Programmer&scopes=api,read_user,read_repository,write_repository"
+                : $"{trimmed}/-/user_settings/personal_access_tokens?name=Gram+AI+Pair+Programmer&scopes=api,read_user,read_repository,write_repository",
+            GitProviderType.Forgejo => string.IsNullOrWhiteSpace(trimmed) || trimmed.Equals("https://codeberg.org", StringComparison.OrdinalIgnoreCase)
+                ? "https://codeberg.org/user/settings/applications"
+                : $"{trimmed}/user/settings/applications",
+            GitProviderType.Bitbucket => "https://bitbucket.org/account/settings/app-passwords/",
+            _ => "https://github.com/settings/tokens"
+        };
+    }
+
+    private static string GetTokenPlaceholder(GitProviderType type)
+    {
+        return type switch
+        {
+            GitProviderType.GitHub => "ghp_... or github_pat_...",
+            GitProviderType.GitLab => "glpat-...",
+            GitProviderType.Forgejo => "Personal Access Token...",
+            GitProviderType.Bitbucket => "App Password with repo permissions...",
+            _ => "Token..."
+        };
+    }
+
+    private static string GetTokenHelpText(GitProviderType type)
+    {
+        return type switch
+        {
+            GitProviderType.GitHub => "Required scopes: 'repo' (read/write repository data) and 'read:user' (profile verification). Fine-grained or classic tokens are supported.",
+            GitProviderType.GitLab => "Required scopes: 'api', 'read_repository', 'write_repository', and 'read_user'.",
+            GitProviderType.Forgejo => "Required scopes: 'repo' and 'user' on your Codeberg or Gitea/Forgejo instance.",
+            GitProviderType.Bitbucket => "Create an App Password with 'Repositories: Read & Write' and 'Pull requests: Read & Write'.",
+            _ => "Personal access token with read/write repository privileges."
+        };
     }
 
     private void EditGitAccount(GitAccount account)
@@ -2492,13 +2660,24 @@
         gitInstanceUrlInput = account.InstanceUrl;
         gitUsernameInput = account.Username;
         gitTokenInput = account.Token;
+        gitAvatarUrlInput = account.AvatarUrl;
+        gitScopesInput = account.Scopes;
         gitIsDefaultInput = account.IsDefault;
         showGitToken = false;
+        var provider = GitService.GetProvider(account.ProviderType);
+        showGitAdvanced = !string.IsNullOrWhiteSpace(account.InstanceUrl) && account.InstanceUrl != provider?.DefaultInstanceUrl;
+        verifiedProfile = null;
         showGitModal = true;
     }
 
     private async Task TestDraftGitConnection()
     {
+        if (string.IsNullOrWhiteSpace(gitTokenInput))
+        {
+            SonnerService.Warning("Token required", "Please enter a personal access token to verify.");
+            return;
+        }
+
         isTestingGitConnection = true;
         StateHasChanged();
         try
@@ -2510,19 +2689,100 @@
                 Username = gitUsernameInput,
                 Token = gitTokenInput
             };
-            var success = await GitService.TestConnectionAsync(temp);
-            if (success)
+            var profile = await GitService.ValidateAndFetchProfileAsync(temp);
+            verifiedProfile = profile;
+            if (profile.Success)
             {
-                SonnerService.Success("Connection successful", $"Authenticated with {gitProviderTypeInput}");
+                if (!string.IsNullOrWhiteSpace(profile.Username) && string.IsNullOrWhiteSpace(gitUsernameInput))
+                {
+                    gitUsernameInput = profile.Username;
+                }
+                if (!string.IsNullOrWhiteSpace(profile.AvatarUrl))
+                {
+                    gitAvatarUrlInput = profile.AvatarUrl;
+                }
+                if (!string.IsNullOrWhiteSpace(profile.Scopes))
+                {
+                    gitScopesInput = profile.Scopes;
+                }
+                SonnerService.Success("Authentication successful", $"Connected as @{profile.Username}");
             }
             else
             {
-                SonnerService.Error("Connection failed", "Could not authenticate with provided token/URL");
+                SonnerService.Error("Authentication failed", profile.ErrorMessage ?? "Could not authenticate with provided token/URL");
             }
         }
         catch (Exception ex)
         {
+            verifiedProfile = new GitUserProfile { Success = false, ErrorMessage = ex.Message };
             SonnerService.Error("Verification error", ex.Message);
+        }
+        finally
+        {
+            isTestingGitConnection = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task VerifyAndSaveGitAccountAsync()
+    {
+        if (string.IsNullOrWhiteSpace(gitTokenInput))
+        {
+            SonnerService.Warning("Token required", "Please enter a personal access token.");
+            return;
+        }
+
+        isTestingGitConnection = true;
+        StateHasChanged();
+        try
+        {
+            var account = editingGitAccount ?? new GitAccount();
+            account.ProviderType = gitProviderTypeInput;
+            account.InstanceUrl = string.IsNullOrWhiteSpace(gitInstanceUrlInput) ? "https://github.com" : gitInstanceUrlInput.Trim();
+            account.Username = gitUsernameInput.Trim();
+            account.Token = gitTokenInput.Trim();
+
+            // Run verification and profile discovery
+            var profile = await GitService.ValidateAndFetchProfileAsync(account);
+            if (profile.Success)
+            {
+                if (!string.IsNullOrWhiteSpace(profile.Username))
+                {
+                    account.Username = profile.Username;
+                }
+                if (!string.IsNullOrWhiteSpace(profile.AvatarUrl))
+                {
+                    account.AvatarUrl = profile.AvatarUrl;
+                }
+                if (!string.IsNullOrWhiteSpace(profile.Scopes))
+                {
+                    account.Scopes = profile.Scopes;
+                }
+
+                if (string.IsNullOrWhiteSpace(gitDisplayNameInput) || gitDisplayNameInput.StartsWith("My ") || gitDisplayNameInput.EndsWith("Account"))
+                {
+                    account.DisplayName = $"{gitProviderTypeInput} (@{account.Username})";
+                }
+                else
+                {
+                    account.DisplayName = gitDisplayNameInput.Trim();
+                }
+
+                account.IsDefault = gitIsDefaultInput;
+                await GitService.SaveAccountAsync(account);
+                showGitModal = false;
+                SonnerService.Success("Account connected", $"Authenticated with {gitProviderTypeInput} as @{account.Username}");
+            }
+            else
+            {
+                verifiedProfile = profile;
+                SonnerService.Error("Authentication failed", profile.ErrorMessage ?? "Could not authenticate with provided token.");
+            }
+        }
+        catch (Exception ex)
+        {
+            verifiedProfile = new GitUserProfile { Success = false, ErrorMessage = ex.Message };
+            SonnerService.Error("Connection error", ex.Message);
         }
         finally
         {
@@ -2538,14 +2798,17 @@
         StateHasChanged();
         try
         {
-            var success = await GitService.TestConnectionAsync(account);
-            if (success)
+            var profile = await GitService.ValidateAndFetchProfileAsync(account);
+            if (profile.Success)
             {
-                SonnerService.Success("Connection verified", $"{account.DisplayName} is active and valid");
+                if (!string.IsNullOrWhiteSpace(profile.AvatarUrl)) account.AvatarUrl = profile.AvatarUrl;
+                if (!string.IsNullOrWhiteSpace(profile.Scopes)) account.Scopes = profile.Scopes;
+                await GitService.SaveAccountsAsync();
+                SonnerService.Success("Connection verified", $"{account.DisplayName} (@{profile.Username}) is active and valid");
             }
             else
             {
-                SonnerService.Error("Connection failed", $"Could not reach {account.InstanceUrl}");
+                SonnerService.Error("Connection failed", profile.ErrorMessage ?? $"Could not reach {account.InstanceUrl}");
             }
         }
         catch (Exception ex)
@@ -2562,22 +2825,7 @@
 
     private async Task SaveGitAccount()
     {
-        if (string.IsNullOrWhiteSpace(gitDisplayNameInput))
-        {
-            gitDisplayNameInput = $"{gitProviderTypeInput} Account";
-        }
-
-        var account = editingGitAccount ?? new GitAccount();
-        account.ProviderType = gitProviderTypeInput;
-        account.DisplayName = gitDisplayNameInput.Trim();
-        account.InstanceUrl = gitInstanceUrlInput.Trim();
-        account.Username = gitUsernameInput.Trim();
-        account.Token = gitTokenInput.Trim();
-        account.IsDefault = gitIsDefaultInput;
-
-        await GitService.SaveAccountAsync(account);
-        showGitModal = false;
-        SonnerService.Success("Account saved", $"Saved Git account: {account.DisplayName}");
+        await VerifyAndSaveGitAccountAsync();
     }
 
     private async Task DeleteGitAccount(GitAccount account)

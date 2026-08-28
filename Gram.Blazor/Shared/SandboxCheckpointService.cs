@@ -27,11 +27,12 @@ public sealed class SandboxCheckpointService : ISandboxCheckpointService
         var diff = await _worktreeManager.GetWorktreeDiffAsync(session, cancellationToken);
         var directory = _storage.GetFilePath(Path.Combine("sandbox-checkpoints", session.Id));
         Directory.CreateDirectory(directory);
+        var diffContent = diff.DiffContent ?? "";
         var diffPath = Path.Combine(directory, $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.diff");
-        await File.WriteAllTextAsync(diffPath, diff.DiffContent ?? "", cancellationToken);
+        await File.WriteAllTextAsync(diffPath, diffContent, cancellationToken);
         var snapshotDirectory = Path.Combine(directory, $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(snapshotDirectory);
-        var snapshotFiles = diff.DiffContent.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        var snapshotFiles = diffContent.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Where(line => line.StartsWith("+++ b/", StringComparison.Ordinal))
             .Select(line => line[6..].Trim())
             .Where(path => !path.Equals("/dev/null", StringComparison.OrdinalIgnoreCase))

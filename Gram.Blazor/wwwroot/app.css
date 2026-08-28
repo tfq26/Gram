@@ -5081,6 +5081,86 @@ body.tab-drag-in-progress {
   max-width: 540px;
 }
 
+/* Git Provider Selection Grid */
+.git-provider-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.git-provider-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 6px;
+  background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-sm, 6px);
+  color: var(--text-muted, #94a3b8);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  user-select: none;
+}
+
+.git-provider-tile:hover {
+  background: var(--bg-active, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary, #ffffff);
+  border-color: var(--border-focus, rgba(255, 255, 255, 0.2));
+}
+
+.git-provider-tile.active {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: var(--accent, #6366f1);
+  color: var(--text-primary, #ffffff);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--accent, #6366f1) inset;
+}
+
+.git-token-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--accent, #6366f1);
+  text-decoration: none;
+  font-weight: 500;
+  transition: opacity 0.14s ease;
+}
+
+.git-token-hint:hover {
+  opacity: 0.85;
+  text-decoration: underline;
+}
+
+.git-verified-card {
+  padding: 10px 14px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  border-radius: var(--radius-sm, 6px);
+  animation: fadeIn 0.18s ease-out;
+}
+
+.btn-clean-toggle {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--accent, #6366f1);
+  cursor: pointer;
+  font-weight: 500;
+  transition: opacity 0.14s ease;
+}
+
+.btn-clean-toggle:hover {
+  opacity: 0.85;
+  text-decoration: underline;
+}
+
 /* Subtle Confirm Modal */
 .modal-dialog-confirm {
   width: 420px;
