@@ -29,7 +29,23 @@ public sealed class SandboxCheckpointService : ISandboxCheckpointService
         Directory.CreateDirectory(directory);
         var diffPath = Path.Combine(directory, $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.diff");
         await File.WriteAllTextAsync(diffPath, diff.DiffContent ?? "", cancellationToken);
-        var checkpoint = new SandboxCheckpoint { SandboxId = session.Id, RunId = session.RunId, Reason = reason.Trim(), DiffPath = diffPath, FilesChanged = diff.FilesChanged };
+        var snapshotDirectory = Path.Combine(directory, $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(snapshotDirectory);
+        var snapshotFiles = diff.DiffContent.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.StartsWith("+++ b/", StringComparison.Ordinal))
+            .Select(line => line[6..].Trim())
+            .Where(path => !path.Equals("/dev/null", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        foreach (var relativePath in snapshotFiles)
+        {
+            if (!SandboxPathGuard.TryResolve(session.WorktreePath, relativePath, out var sourcePath, out _)) continue;
+            if (!File.Exists(sourcePath)) continue;
+            var snapshotPath = Path.Combine(snapshotDirectory, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(snapshotPath)!);
+            File.Copy(sourcePath, snapshotPath, true);
+        }
+        var checkpoint = new SandboxCheckpoint { SandboxId = session.Id, RunId = session.RunId, Reason = reason.Trim(), DiffPath = diffPath, SnapshotDirectory = snapshotDirectory, SnapshotFiles = snapshotFiles, FilesChanged = diff.FilesChanged };
         await File.WriteAllTextAsync(Path.Combine(directory, $"{checkpoint.Id}.json"), JsonSerializer.Serialize(checkpoint, new JsonSerializerOptions { WriteIndented = true }), cancellationToken);
         lock (_sync)
         {
@@ -49,8 +65,14 @@ public sealed class SandboxCheckpointService : ISandboxCheckpointService
             if (checkpoint is null) return false;
         }
         if (!await _worktreeManager.ResetWorktreeAsync(session, cancellationToken)) return false;
-        return string.IsNullOrWhiteSpace(await File.ReadAllTextAsync(checkpoint.DiffPath, cancellationToken))
-            || await _worktreeManager.ApplyPatchAsync(session, checkpoint.DiffPath, cancellationToken);
+        foreach (var relativePath in checkpoint.SnapshotFiles)
+        {
+            var snapshotPath = Path.Combine(checkpoint.SnapshotDirectory, relativePath);
+            if (!File.Exists(snapshotPath) || !SandboxPathGuard.TryResolve(session.WorktreePath, relativePath, out var targetPath, out _)) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+            File.Copy(snapshotPath, targetPath, true);
+        }
+        return true;
     }
 
     public IReadOnlyList<SandboxCheckpoint> Get(string sandboxId)

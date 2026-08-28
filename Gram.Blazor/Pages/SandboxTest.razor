@@ -3,13 +3,15 @@
 @rendermode InteractiveServer
 @using Gram.Blazor.Shared
 @inject IGramBoxService GramBox
+@inject IPlatformSandboxController PlatformSandboxController
 
 <PageTitle>Sandbox Test · Gram</PageTitle>
 
 <div class="voice-test-page search-test-page">
     <div class="voice-test-card search-test-card">
         <div class="voice-test-header"><div><span class="voice-test-eyebrow">DIAGNOSTIC TOOL</span><h1>Gram Box test</h1><p>Create a disposable native sandbox and measure a command using the same execution path as agents.</p></div><a class="voice-test-back" href="/">Back to chat</a></div>
-        <div class="search-test-input-panel">
+            <div class="search-test-input-panel">
+            <p>Resource enforcement: <strong>@PlatformSandboxController.Capabilities.EnforcementMode</strong> · @PlatformSandboxController.Capabilities.Explanation</p>
             <label class="voice-test-section-label" for="sandboxCommand">Command</label>
             <input id="sandboxCommand" class="search-test-query" @bind="command" />
             <div class="voice-test-controls"><button type="button" class="voice-test-button" @onclick="CreateAsync" disabled="@running">Create sandbox</button><button type="button" class="voice-test-secondary-button" @onclick="RunAsync" disabled="@(running || active == null)">Run command</button><button type="button" class="voice-test-secondary-button" @onclick="CloseAsync" disabled="@(running || active == null)">Close sandbox</button><span class="voice-test-status">@status</span></div>

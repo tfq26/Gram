@@ -12,13 +12,15 @@ public sealed class GramBoxWorktreeManager
 
     public string WorktreesRoot => _worktreesRoot;
 
-    public GramBoxWorktreeManager(ILogger<GramBoxWorktreeManager> logger, StorageService storageService)
+    public GramBoxWorktreeManager(ILogger<GramBoxWorktreeManager> logger, StorageService storageService, string? worktreesRoot = null)
     {
         _logger = logger;
         _storageService = storageService;
 
         var homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        _worktreesRoot = Path.Combine(homeDir, ".gram", "box", "worktrees");
+        _worktreesRoot = string.IsNullOrWhiteSpace(worktreesRoot)
+            ? Path.Combine(homeDir, ".gram", "box", "worktrees")
+            : Path.GetFullPath(worktreesRoot);
         
         try
         {
@@ -193,7 +195,8 @@ public sealed class GramBoxWorktreeManager
     {
         if (!Directory.Exists(session.WorktreePath) || !File.Exists(patchPath)) return false;
         var safePatchPath = patchPath.Replace("\"", "\\\"");
-        var (exit, _, _) = await RunGitAsync(session.WorktreePath, $"apply --whitespace=nowarn \"{safePatchPath}\"", ct);
+        var (exit, stdout, stderr) = await RunGitAsync(session.WorktreePath, $"apply --3way --whitespace=nowarn \"{safePatchPath}\"", ct);
+        if (exit != 0) _logger.LogWarning("Could not apply checkpoint patch {PatchPath} to sandbox {SandboxId}: {Stdout} {Stderr}", patchPath, session.Id, stdout, stderr);
         return exit == 0;
     }
 

@@ -19,6 +19,7 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
     private readonly ILogger<NativeScratchpadDriver> _logger;
     private readonly GramBoxConfig _config;
     private readonly string _sharedCacheRoot;
+    private readonly IPlatformSandboxController? _platformController;
 
     public GramBoxEngineType EngineType => GramBoxEngineType.NativeWorktree;
 
@@ -35,10 +36,11 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
         "AZURE_OPENAI_API_KEY"
     };
 
-    public NativeScratchpadDriver(ILogger<NativeScratchpadDriver> logger, GramBoxConfig? config = null)
+    public NativeScratchpadDriver(ILogger<NativeScratchpadDriver> logger, GramBoxConfig? config = null, IPlatformSandboxController? platformController = null)
     {
         _logger = logger;
         _config = config ?? new GramBoxConfig();
+        _platformController = platformController;
 
         var homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         _sharedCacheRoot = Path.Combine(homeDir, ".gram", "box", "cache");
@@ -159,6 +161,9 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
             session.LastActiveAt = DateTime.UtcNow;
 
             process.Start();
+            using var platformAttachment = _platformController is null || session.ResourceBudget is null
+                ? null
+                : await _platformController.AttachAsync(process, session.ResourceBudget, session.Id, ct);
 
             // Set background process priority class on Windows
             if (isWindows && _config.EnableLowCpuPriority)

@@ -103,5 +103,7 @@ public sealed class SandboxCheckpoint
     public string Reason { get; init; } = "";
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public string DiffPath { get; init; } = "";
+    public string SnapshotDirectory { get; init; } = "";
+    public List<string> SnapshotFiles { get; init; } = [];
     public int FilesChanged { get; init; }
 }
