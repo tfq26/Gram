@@ -1174,18 +1174,11 @@
 
                 @if (GitService.Accounts.Count == 0)
                 {
-                    <div class="harness-empty-state" style="padding: 40px 20px; background: var(--bg-panel-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-md); text-align: center;">
-                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted); margin-bottom: 8px;">
-                            <line x1="6" y1="3" x2="6" y2="15"></line>
-                            <circle cx="18" cy="6" r="3"></circle>
-                            <circle cx="6" cy="18" r="3"></circle>
-                            <path d="M18 9a9 9 0 0 1-9 9"></path>
-                        </svg>
-                        <h3 style="margin: 0 0 6px 0; font-size: 14px; color: var(--text-primary);">No Git Accounts Connected</h3>
-                        <p style="margin: 0 0 16px 0; font-size: 12.5px; color: var(--text-muted); max-width: 420px; margin-left: auto; margin-right: auto;">
-                            Connect a personal access token for your Git platform to allow Gram to read code, create branches, commit edits, and open pull requests.
-                        </p>
-                        <Button Variant="outline" Size="sm" OnClick="OpenAddGitAccountModal">
+                    <div style="padding: 16px 0 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px;">
+                        <span style="font-size: 13px; color: var(--text-muted); line-height: 1.5; max-width: 540px;">
+                            No Git accounts connected yet. Connect a personal access token for GitHub, GitLab, Codeberg/Forgejo, or Bitbucket to enable branching, diffs, and pull requests.
+                        </span>
+                        <Button Variant="outline" Size="sm" OnClick="OpenAddGitAccountModal" style="margin-top: 4px;">
                             Connect Git Provider
                         </Button>
                     </div>

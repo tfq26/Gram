@@ -502,7 +502,23 @@
                                 }
                                 else
                                 {
-                                    <MarkdownView Content="@message.Text" />
+                                    var stoppedInfo = ParseStoppedMessage(message.Text);
+                                    @if (!string.IsNullOrWhiteSpace(stoppedInfo.MainText))
+                                    {
+                                        <MarkdownView Content="@stoppedInfo.MainText" />
+                                    }
+                                    @if (stoppedInfo.HasStoppedNotice)
+                                    {
+                                        <div class="generation-stopped-pill">
+                                            <span class="stopped-indicator-dot"></span>
+                                            <span class="stopped-indicator-label">Generation stopped</span>
+                                            @if (!string.IsNullOrWhiteSpace(stoppedInfo.StoppedDetail))
+                                            {
+                                                <span class="stopped-indicator-sep">·</span>
+                                                <span class="stopped-indicator-detail">@stoppedInfo.StoppedDetail</span>
+                                            }
+                                        </div>
+                                    }
                                 }
 
                             @if (!string.IsNullOrEmpty(message.ErrorDetail))
@@ -1930,9 +1946,16 @@
                     catch { }
                     isGenerating = false;
                     var lastAssistant = Active.Messages.LastOrDefault(m => m.Role == "assistant");
-                    if (lastAssistant != null && string.IsNullOrWhiteSpace(lastAssistant.Text))
+                    if (lastAssistant != null)
                     {
-                        lastAssistant.Text = $"⚠️ Generation stopped: {notification.Message}";
+                        if (string.IsNullOrWhiteSpace(lastAssistant.Text))
+                        {
+                            lastAssistant.Text = $"[Generation stopped · {notification.Message}]";
+                        }
+                        else if (!lastAssistant.Text.Contains("[Generation stopped"))
+                        {
+                            lastAssistant.Text += $"\n\n[Generation stopped · {notification.Message}]";
+                        }
                     }
                 }
             }
@@ -1942,6 +1965,59 @@
             }
             StateHasChanged();
         });
+    }
+
+    private static (string MainText, bool HasStoppedNotice, string? StoppedDetail) ParseStoppedMessage(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return (string.Empty, false, null);
+        }
+
+        var trimmed = text.Trim();
+        if (trimmed.Equals("[Generation stopped]", StringComparison.OrdinalIgnoreCase))
+        {
+            return (string.Empty, true, null);
+        }
+
+        if (trimmed.StartsWith("[Generation stopped", StringComparison.OrdinalIgnoreCase) && trimmed.EndsWith("]"))
+        {
+            var inner = trimmed[1..^1];
+            var parts = inner.Split('·', StringSplitOptions.TrimEntries);
+            var detail = parts.Length > 1 ? parts[1] : null;
+            return (string.Empty, true, detail);
+        }
+
+        if (trimmed.StartsWith("⚠️ Generation stopped", StringComparison.OrdinalIgnoreCase))
+        {
+            var colonIdx = trimmed.IndexOf(':');
+            var detail = colonIdx >= 0 ? trimmed[(colonIdx + 1)..].Trim() : null;
+            return (string.Empty, true, detail);
+        }
+
+        const string bracketMarker = "\n\n[Generation stopped";
+        var idx = text.IndexOf(bracketMarker, StringComparison.OrdinalIgnoreCase);
+        if (idx >= 0)
+        {
+            var main = text[..idx].TrimEnd();
+            var suffix = text[idx..].Trim();
+            if (suffix.EndsWith("]")) suffix = suffix[1..^1];
+            var parts = suffix.Split('·', StringSplitOptions.TrimEntries);
+            var detail = parts.Length > 1 ? parts[1] : null;
+            return (main, true, detail);
+        }
+
+        const string emojiMarker = "\n\n⚠️ Generation stopped";
+        var emojiIdx = text.IndexOf(emojiMarker, StringComparison.OrdinalIgnoreCase);
+        if (emojiIdx >= 0)
+        {
+            var main = text[..emojiIdx].TrimEnd();
+            var suffix = text[(emojiIdx + emojiMarker.Length)..].Trim();
+            if (suffix.StartsWith(":")) suffix = suffix[1..].Trim();
+            return (main, true, string.IsNullOrWhiteSpace(suffix) ? null : suffix);
+        }
+
+        return (text, false, null);
     }
 
     private static string GetPresentationStatusLabel(ContentProject project)
