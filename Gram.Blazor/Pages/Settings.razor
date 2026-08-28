@@ -1140,183 +1140,177 @@
                 </div>
 
                 <!-- Device Selectors Grid -->
-                <div class="discord-audio-devices-grid">
+                <div class="audio-devices-grid">
                     <!-- Input Device (Mic) -->
-                    <div class="discord-device-card">
-                        <div class="discord-device-header">
-                            <span class="discord-device-title">INPUT DEVICE</span>
-                            <span class="discord-device-sub">Microphone</span>
+                    <div class="audio-device-panel">
+                        <div class="audio-device-header">
+                            <span class="audio-device-title">Input Device</span>
+                            <span class="setting-desc">Microphone</span>
                         </div>
-                        <select class="sheet-select" value="@selectedAudioInputDeviceId" @onchange="OnAudioInputDeviceChanged">
+                        <select class="setting-select" value="@selectedAudioInputDeviceId" @onchange="OnAudioInputDeviceChanged">
                             <option value="">Default Microphone</option>
                             @foreach (var dev in audioDevices.Where(d => d.Kind == "audioinput"))
                             {
                                 <option value="@dev.DeviceId">@dev.Label</option>
                             }
                         </select>
-                        <div class="discord-volume-slider-box">
-                            <div class="discord-volume-label-row">
-                                <span>INPUT VOLUME</span>
-                                <span class="volume-pct">@inputVolume%</span>
+                        <div class="audio-slider-row">
+                            <div class="audio-slider-label">
+                                <span>Input volume</span>
+                                <span class="audio-slider-val">@inputVolume%</span>
                             </div>
-                            <input type="range" min="0" max="100" class="discord-range-slider" value="@inputVolume" @oninput="OnInputVolumeChanged" />
+                            <input type="range" min="0" max="100" class="minimal-range-slider" value="@inputVolume" @oninput="OnInputVolumeChanged" />
                         </div>
                     </div>
 
                     <!-- Output Device (Speaker) -->
-                    <div class="discord-device-card">
-                        <div class="discord-device-header">
-                            <span class="discord-device-title">OUTPUT DEVICE</span>
-                            <span class="discord-device-sub">Speakers / Headphones</span>
+                    <div class="audio-device-panel">
+                        <div class="audio-device-header">
+                            <span class="audio-device-title">Output Device</span>
+                            <span class="setting-desc">Speakers / Headphones</span>
                         </div>
-                        <select class="sheet-select" value="@selectedAudioOutputDeviceId" @onchange="OnAudioOutputDeviceChanged">
+                        <select class="setting-select" value="@selectedAudioOutputDeviceId" @onchange="OnAudioOutputDeviceChanged">
                             <option value="">Default Speaker</option>
                             @foreach (var dev in audioDevices.Where(d => d.Kind == "audiooutput"))
                             {
                                 <option value="@dev.DeviceId">@dev.Label</option>
                             }
                         </select>
-                        <div class="discord-volume-slider-box">
-                            <div class="discord-volume-label-row">
-                                <span>OUTPUT VOLUME</span>
-                                <span class="volume-pct">@outputVolume%</span>
+                        <div class="audio-slider-row">
+                            <div class="audio-slider-label">
+                                <span>Output volume</span>
+                                <span class="audio-slider-val">@outputVolume%</span>
                             </div>
-                            <input type="range" min="0" max="100" class="discord-range-slider" value="@outputVolume" @oninput="OnOutputVolumeChanged" />
+                            <input type="range" min="0" max="100" class="minimal-range-slider" value="@outputVolume" @oninput="OnOutputVolumeChanged" />
                         </div>
                     </div>
                 </div>
 
-                <!-- Discord-Style Mic Test Card -->
-                <div class="discord-test-section">
-                    <div class="discord-test-header">
-                        <div>
-                            <span class="discord-section-heading">MIC TEST</span>
-                            <p class="discord-section-desc">
-                                Having mic issues? Swear you said something? Click below and speak into your mic to test your input level in real-time.
-                            </p>
+                <!-- Microphone Test Panel -->
+                <div class="audio-test-panel">
+                    <div class="audio-test-row">
+                        <div class="audio-test-info">
+                            <span class="audio-panel-title">Microphone test</span>
+                            <span class="setting-desc">Speak into your microphone to verify live input volume and clarity.</span>
                         </div>
-                        <button type="button" class="btn-discord-test @(isMicTesting ? "active" : "")" @onclick="ToggleMicTestAsync">
+                        <button type="button" class="btn-minimal-action @(isMicTesting ? "active" : "")" @onclick="ToggleMicTestAsync">
                             @if (isMicTesting)
                             {
-                                <span class="mic-pulse-dot"></span>
-                                <span>Stop Testing</span>
+                                <span class="recording-dot"></span>
+                                <span>Stop test</span>
                             }
                             else
                             {
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
                                     <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
                                     <line x1="12" y1="19" x2="12" y2="23"></line>
                                     <line x1="8" y1="23" x2="16" y2="23"></line>
                                 </svg>
-                                <span>Let's Check</span>
+                                <span>Test mic</span>
                             }
                         </button>
                     </div>
 
-                    <!-- Realtime Discord Volume Meter -->
-                    <div id="discordMicMeter" class="discord-mic-meter-container">
-                        <div class="discord-mic-meter-track">
+                    <!-- Minimal Precision Meter -->
+                    <div id="discordMicMeter" class="minimal-meter-wrapper">
+                        <div class="minimal-meter-track">
                             <div class="mic-meter-fill"></div>
                             @if (!autoSensitivity)
                             {
-                                <div class="mic-meter-threshold-marker" style="left: @(sensitivityThreshold)%"></div>
+                                <div class="minimal-meter-notch" style="left: @(sensitivityThreshold)%"></div>
                             }
                         </div>
-                        <div class="discord-mic-meter-footer">
-                            <span class="meter-status">@(isMicTesting ? "Listening to microphone..." : "Click \"Let's Check\" to start")</span>
+                        <div class="minimal-meter-footer">
+                            <span class="meter-status">@(isMicTesting ? "Listening..." : "Idle")</span>
                             <span class="mic-meter-value">0%</span>
                         </div>
                     </div>
 
-                    <!-- Mic Loopback option -->
-                    <div class="discord-option-row" style="margin-top: 10px;">
-                        <label class="discord-checkbox-label">
+                    <div class="minimal-checkbox-row">
+                        <label class="setting-checkbox-label">
                             <input type="checkbox" checked="@micLoopbackEnabled" @onchange="OnMicLoopbackToggled" />
                             <span>Hear your own voice (Mic Loopback)</span>
                         </label>
-                        <span class="setting-hint">Plays audio back through your output device so you can hear how you sound.</span>
                     </div>
                 </div>
 
-                <!-- Discord-Style Speaker / Sound Output Test -->
-                <div class="discord-test-section" style="margin-top: 16px;">
-                    <div class="discord-test-header">
-                        <div>
-                            <span class="discord-section-heading">SOUND OUTPUT TEST</span>
-                            <p class="discord-section-desc">
-                                Play a test chime to confirm that your selected speaker or headphones are playing audio clearly.
-                            </p>
+                <!-- Speaker Test Panel -->
+                <div class="audio-test-panel" style="margin-top: 12px;">
+                    <div class="audio-test-row">
+                        <div class="audio-test-info">
+                            <span class="audio-panel-title">Speaker test</span>
+                            <span class="setting-desc">Play a clean test tone to confirm your speakers or headphones are outputting audio.</span>
                         </div>
-                        <button type="button" class="btn-discord-speaker @(isSpeakerTesting ? "active" : "")"
+                        <button type="button" class="btn-minimal-action @(isSpeakerTesting ? "active" : "")"
                                 @onclick="TestSpeakerOutputAsync"
                                 disabled="@isSpeakerTesting">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
                                 <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
                             </svg>
-                            <span>@(isSpeakerTesting ? "Playing Chime..." : "Test Audio Output")</span>
+                            <span>@(isSpeakerTesting ? "Playing..." : "Test speaker")</span>
                         </button>
                     </div>
                 </div>
 
-                <!-- Input Mode & Sensitivity -->
-                <div class="discord-test-section" style="margin-top: 16px;">
-                    <span class="discord-section-heading">INPUT SENSITIVITY</span>
-                    <p class="discord-section-desc">
-                        Control how easily Gram detects your voice when speaking.
-                    </p>
+                <!-- Input Sensitivity Section -->
+                <div class="audio-test-panel" style="margin-top: 12px;">
+                    <div class="audio-test-info">
+                        <span class="audio-panel-title">Input sensitivity</span>
+                        <span class="setting-desc">Adjust how sensitively Gram detects voice activity.</span>
+                    </div>
 
-                    <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
-                        <div class="discord-option-row">
-                            <label class="discord-checkbox-label">
+                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 8px;">
+                        <div class="minimal-checkbox-row">
+                            <label class="setting-checkbox-label">
                                 <input type="checkbox" checked="@autoSensitivity" @onchange="OnAutoSensitivityToggled" />
                                 <span>Automatically determine input sensitivity</span>
                             </label>
-                            <span class="setting-hint">Gram continuously adapts to ambient room noise.</span>
                         </div>
 
                         @if (!autoSensitivity)
                         {
-                            <div class="discord-sensitivity-slider-box">
-                                <div class="discord-volume-label-row">
-                                    <span>MANUAL SENSITIVITY THRESHOLD</span>
-                                    <span class="volume-pct">-@(100 - sensitivityThreshold) dB (@sensitivityThreshold%)</span>
+                            <div class="audio-slider-row" style="margin-top: 4px;">
+                                <div class="audio-slider-label">
+                                    <span>Sensitivity threshold</span>
+                                    <span class="audio-slider-val">@(sensitivityThreshold)%</span>
                                 </div>
-                                <input type="range" min="5" max="90" class="discord-range-slider sensitivity" value="@sensitivityThreshold" @oninput="OnSensitivityThresholdChanged" />
-                                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                                    <span>-100 dB (Sensitive)</span>
-                                    <span>0 dB (High Noise)</span>
+                                <input type="range" min="5" max="90" class="minimal-range-slider" value="@sensitivityThreshold" @oninput="OnSensitivityThresholdChanged" />
+                                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                                    <span>High sensitivity</span>
+                                    <span>Low sensitivity</span>
                                 </div>
                             </div>
                         }
                     </div>
                 </div>
 
-                <!-- Advanced Voice Processing -->
-                <div class="discord-test-section" style="margin-top: 16px;">
-                    <span class="discord-section-heading">VOICE PROCESSING</span>
-                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 12px;">
-                        <div class="discord-option-row">
-                            <label class="discord-checkbox-label">
+                <!-- Voice Processing Section -->
+                <div class="audio-test-panel" style="margin-top: 12px;">
+                    <div class="audio-test-info">
+                        <span class="audio-panel-title">Voice processing</span>
+                        <span class="setting-desc">Audio enhancements applied to your microphone stream.</span>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                        <div class="minimal-checkbox-row">
+                            <label class="setting-checkbox-label">
                                 <input type="checkbox" checked="@echoCancellation" @onchange='e => OnVoiceProcessingChanged("echoCancellation", (bool)(e.Value ?? true))' />
                                 <span>Echo Cancellation</span>
                             </label>
-                            <span class="setting-hint">Prevents your speakers from feeding back into your microphone.</span>
                         </div>
-                        <div class="discord-option-row">
-                            <label class="discord-checkbox-label">
+                        <div class="minimal-checkbox-row">
+                            <label class="setting-checkbox-label">
                                 <input type="checkbox" checked="@noiseSuppression" @onchange='e => OnVoiceProcessingChanged("noiseSuppression", (bool)(e.Value ?? true))' />
                                 <span>Noise Suppression</span>
                             </label>
-                            <span class="setting-hint">Filters background noise such as computer fans or typing.</span>
                         </div>
-                        <div class="discord-option-row">
-                            <label class="discord-checkbox-label">
+                        <div class="minimal-checkbox-row">
+                            <label class="setting-checkbox-label">
                                 <input type="checkbox" checked="@autoGainControl" @onchange='e => OnVoiceProcessingChanged("autoGainControl", (bool)(e.Value ?? true))' />
                                 <span>Automatic Gain Control</span>
                             </label>
-                            <span class="setting-hint">Automatically balances soft and loud speech levels.</span>
                         </div>
                     </div>
                 </div>
