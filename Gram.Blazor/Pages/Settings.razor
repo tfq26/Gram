@@ -1130,23 +1130,15 @@
         }
         else if (activeCategory == "Audio" || activeCategory == "Account/Audio")
         {
-            <!-- Discord-Style Voice & Audio Settings -->
+            <!-- Clean List-Style Voice & Audio Settings -->
             <div class="settings-group">
-                <div style="margin-bottom: 20px;">
-                    <h2 style="font-size: 15px; font-weight: 600; margin: 0 0 4px 0; color: var(--text-primary);">Voice & Audio Settings</h2>
-                    <p style="font-size: 12.5px; color: var(--text-muted); margin: 0;">
-                        Configure your sound input and output devices, test your microphone and speakers, and adjust voice sensitivity.
-                    </p>
-                </div>
-
-                <!-- Device Selectors Grid -->
-                <div class="audio-devices-grid">
-                    <!-- Input Device (Mic) -->
-                    <div class="audio-device-panel">
-                        <div class="audio-device-header">
-                            <span class="audio-device-title">Input Device</span>
-                            <span class="setting-desc">Microphone</span>
-                        </div>
+                <!-- Microphone Input Device -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Microphone</span>
+                        <span class="setting-desc">Primary sound input device.</span>
+                    </div>
+                    <div class="setting-control" style="min-width: 220px;">
                         <select class="setting-select" value="@selectedAudioInputDeviceId" @onchange="OnAudioInputDeviceChanged">
                             <option value="">Default Microphone</option>
                             @foreach (var dev in audioDevices.Where(d => d.Kind == "audioinput"))
@@ -1154,45 +1146,36 @@
                                 <option value="@dev.DeviceId">@dev.Label</option>
                             }
                         </select>
-                        <div class="audio-slider-row">
-                            <div class="audio-slider-label">
-                                <span>Input volume</span>
-                                <span class="audio-slider-val">@inputVolume%</span>
-                            </div>
-                            <input type="range" min="0" max="100" class="minimal-range-slider" value="@inputVolume" @oninput="OnInputVolumeChanged" />
-                        </div>
-                    </div>
-
-                    <!-- Output Device (Speaker) -->
-                    <div class="audio-device-panel">
-                        <div class="audio-device-header">
-                            <span class="audio-device-title">Output Device</span>
-                            <span class="setting-desc">Speakers / Headphones</span>
-                        </div>
-                        <select class="setting-select" value="@selectedAudioOutputDeviceId" @onchange="OnAudioOutputDeviceChanged">
-                            <option value="">Default Speaker</option>
-                            @foreach (var dev in audioDevices.Where(d => d.Kind == "audiooutput"))
-                            {
-                                <option value="@dev.DeviceId">@dev.Label</option>
-                            }
-                        </select>
-                        <div class="audio-slider-row">
-                            <div class="audio-slider-label">
-                                <span>Output volume</span>
-                                <span class="audio-slider-val">@outputVolume%</span>
-                            </div>
-                            <input type="range" min="0" max="100" class="minimal-range-slider" value="@outputVolume" @oninput="OnOutputVolumeChanged" />
-                        </div>
                     </div>
                 </div>
 
-                <!-- Microphone Test Panel -->
-                <div class="audio-test-panel">
-                    <div class="audio-test-row">
-                        <div class="audio-test-info">
-                            <span class="audio-panel-title">Microphone test</span>
-                            <span class="setting-desc">Speak into your microphone to verify live input volume and clarity.</span>
+                <!-- Input Volume -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Input volume</span>
+                        <span class="setting-desc">Microphone capture gain level (@inputVolume%).</span>
+                    </div>
+                    <div class="setting-control" style="min-width: 180px;">
+                        <input type="range" min="0" max="100" class="minimal-range-slider" value="@inputVolume" @oninput="OnInputVolumeChanged" />
+                    </div>
+                </div>
+
+                <!-- Test Microphone -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Test microphone</span>
+                        <span class="setting-desc">Live audio capture meter.</span>
+                        <div id="discordMicMeter" class="minimal-meter-wrapper" style="margin-top: 6px; max-width: 240px;">
+                            <div class="minimal-meter-track">
+                                <div class="mic-meter-fill"></div>
+                                @if (!autoSensitivity)
+                                {
+                                    <div class="minimal-meter-notch" style="left: @(sensitivityThreshold)%"></div>
+                                }
+                            </div>
                         </div>
+                    </div>
+                    <div class="setting-control">
                         <button type="button" class="btn-minimal-action @(isMicTesting ? "active" : "")" @onclick="ToggleMicTestAsync">
                             @if (isMicTesting)
                             {
@@ -1211,37 +1194,57 @@
                             }
                         </button>
                     </div>
+                </div>
 
-                    <!-- Minimal Precision Meter -->
-                    <div id="discordMicMeter" class="minimal-meter-wrapper">
-                        <div class="minimal-meter-track">
-                            <div class="mic-meter-fill"></div>
-                            @if (!autoSensitivity)
-                            {
-                                <div class="minimal-meter-notch" style="left: @(sensitivityThreshold)%"></div>
-                            }
-                        </div>
-                        <div class="minimal-meter-footer">
-                            <span class="meter-status">@(isMicTesting ? "Listening..." : "Idle")</span>
-                            <span class="mic-meter-value">0%</span>
-                        </div>
+                <!-- Mic Loopback -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Microphone loopback</span>
+                        <span class="setting-desc">Monitor your own voice live through output speakers.</span>
                     </div>
-
-                    <div class="minimal-checkbox-row">
-                        <label class="setting-checkbox-label">
-                            <input type="checkbox" checked="@micLoopbackEnabled" @onchange="OnMicLoopbackToggled" />
-                            <span>Hear your own voice (Mic Loopback)</span>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" class="setting-checkbox" checked="@micLoopbackEnabled" @onchange="OnMicLoopbackToggled" />
+                            <span class="setting-desc">@(micLoopbackEnabled ? "Active" : "Off")</span>
                         </label>
                     </div>
                 </div>
 
-                <!-- Speaker Test Panel -->
-                <div class="audio-test-panel" style="margin-top: 12px;">
-                    <div class="audio-test-row">
-                        <div class="audio-test-info">
-                            <span class="audio-panel-title">Speaker test</span>
-                            <span class="setting-desc">Play a clean test tone to confirm your speakers or headphones are outputting audio.</span>
-                        </div>
+                <!-- Speaker Output Device -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Speaker & output</span>
+                        <span class="setting-desc">Audio output destination.</span>
+                    </div>
+                    <div class="setting-control" style="min-width: 220px;">
+                        <select class="setting-select" value="@selectedAudioOutputDeviceId" @onchange="OnAudioOutputDeviceChanged">
+                            <option value="">Default Speaker</option>
+                            @foreach (var dev in audioDevices.Where(d => d.Kind == "audiooutput"))
+                            {
+                                <option value="@dev.DeviceId">@dev.Label</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Output Volume -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Output volume</span>
+                        <span class="setting-desc">Playback loudness level (@outputVolume%).</span>
+                    </div>
+                    <div class="setting-control" style="min-width: 180px;">
+                        <input type="range" min="0" max="100" class="minimal-range-slider" value="@outputVolume" @oninput="OnOutputVolumeChanged" />
+                    </div>
+                </div>
+
+                <!-- Test Speaker Output -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Test speaker output</span>
+                        <span class="setting-desc">Play a harmonic test chime through output device.</span>
+                    </div>
+                    <div class="setting-control">
                         <button type="button" class="btn-minimal-action @(isSpeakerTesting ? "active" : "")"
                                 @onclick="TestSpeakerOutputAsync"
                                 disabled="@isSpeakerTesting">
@@ -1254,64 +1257,73 @@
                     </div>
                 </div>
 
-                <!-- Input Sensitivity Section -->
-                <div class="audio-test-panel" style="margin-top: 12px;">
-                    <div class="audio-test-info">
-                        <span class="audio-panel-title">Input sensitivity</span>
-                        <span class="setting-desc">Adjust how sensitively Gram detects voice activity.</span>
+                <!-- Automatic Input Sensitivity -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Automatic input sensitivity</span>
+                        <span class="setting-desc">Continuously adapt microphone sensitivity to room noise.</span>
                     </div>
-
-                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 8px;">
-                        <div class="minimal-checkbox-row">
-                            <label class="setting-checkbox-label">
-                                <input type="checkbox" checked="@autoSensitivity" @onchange="OnAutoSensitivityToggled" />
-                                <span>Automatically determine input sensitivity</span>
-                            </label>
-                        </div>
-
-                        @if (!autoSensitivity)
-                        {
-                            <div class="audio-slider-row" style="margin-top: 4px;">
-                                <div class="audio-slider-label">
-                                    <span>Sensitivity threshold</span>
-                                    <span class="audio-slider-val">@(sensitivityThreshold)%</span>
-                                </div>
-                                <input type="range" min="5" max="90" class="minimal-range-slider" value="@sensitivityThreshold" @oninput="OnSensitivityThresholdChanged" />
-                                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 2px;">
-                                    <span>High sensitivity</span>
-                                    <span>Low sensitivity</span>
-                                </div>
-                            </div>
-                        }
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" class="setting-checkbox" checked="@autoSensitivity" @onchange="OnAutoSensitivityToggled" />
+                            <span class="setting-desc">@(autoSensitivity ? "Auto" : "Manual")</span>
+                        </label>
                     </div>
                 </div>
 
-                <!-- Voice Processing Section -->
-                <div class="audio-test-panel" style="margin-top: 12px;">
-                    <div class="audio-test-info">
-                        <span class="audio-panel-title">Voice processing</span>
-                        <span class="setting-desc">Audio enhancements applied to your microphone stream.</span>
+                <!-- Manual Sensitivity Threshold (when manual) -->
+                @if (!autoSensitivity)
+                {
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-title">Sensitivity threshold</span>
+                            <span class="setting-desc">Cutoff gate for ambient background noise (@(sensitivityThreshold)%).</span>
+                        </div>
+                        <div class="setting-control" style="min-width: 180px;">
+                            <input type="range" min="5" max="90" class="minimal-range-slider" value="@sensitivityThreshold" @oninput="OnSensitivityThresholdChanged" />
+                        </div>
                     </div>
+                }
 
-                    <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-                        <div class="minimal-checkbox-row">
-                            <label class="setting-checkbox-label">
-                                <input type="checkbox" checked="@echoCancellation" @onchange='e => OnVoiceProcessingChanged("echoCancellation", (bool)(e.Value ?? true))' />
-                                <span>Echo Cancellation</span>
-                            </label>
-                        </div>
-                        <div class="minimal-checkbox-row">
-                            <label class="setting-checkbox-label">
-                                <input type="checkbox" checked="@noiseSuppression" @onchange='e => OnVoiceProcessingChanged("noiseSuppression", (bool)(e.Value ?? true))' />
-                                <span>Noise Suppression</span>
-                            </label>
-                        </div>
-                        <div class="minimal-checkbox-row">
-                            <label class="setting-checkbox-label">
-                                <input type="checkbox" checked="@autoGainControl" @onchange='e => OnVoiceProcessingChanged("autoGainControl", (bool)(e.Value ?? true))' />
-                                <span>Automatic Gain Control</span>
-                            </label>
-                        </div>
+                <!-- Echo Cancellation -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Echo cancellation</span>
+                        <span class="setting-desc">Filter feedback from speakers back into your microphone.</span>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" class="setting-checkbox" checked="@echoCancellation" @onchange='e => OnVoiceProcessingChanged("echoCancellation", (bool)(e.Value ?? true))' />
+                            <span class="setting-desc">@(echoCancellation ? "Active" : "Disabled")</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Noise Suppression -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Noise suppression</span>
+                        <span class="setting-desc">Remove background room noise, typing, and fans.</span>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" class="setting-checkbox" checked="@noiseSuppression" @onchange='e => OnVoiceProcessingChanged("noiseSuppression", (bool)(e.Value ?? true))' />
+                            <span class="setting-desc">@(noiseSuppression ? "Active" : "Disabled")</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Automatic Gain Control -->
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <span class="setting-title">Automatic gain control</span>
+                        <span class="setting-desc">Normalize speech capture between soft and loud volumes.</span>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" class="setting-checkbox" checked="@autoGainControl" @onchange='e => OnVoiceProcessingChanged("autoGainControl", (bool)(e.Value ?? true))' />
+                            <span class="setting-desc">@(autoGainControl ? "Active" : "Disabled")</span>
+                        </label>
                     </div>
                 </div>
             </div>
