@@ -8917,6 +8917,20 @@ button:active:not(:disabled),
   cursor: not-allowed;
 }
 
+.gram-auth-passkey-icon {
+  color: #c084fc;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.gram-auth-passkey-btn:hover:not(:disabled) .gram-auth-passkey-icon {
+  color: #e9d5ff;
+  transform: scale(1.08);
+}
+
+.theme-passkey-icon {
+  color: var(--primary, var(--accent, #9333ea));
+}
+
 .passkey-list {
   display: flex;
   flex-direction: column;
