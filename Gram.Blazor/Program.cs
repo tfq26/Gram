@@ -81,6 +81,7 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.NativeScratchpadDriver>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.GramBoxService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IGramBoxService>(sp => sp.GetRequiredService<Gram.Blazor.Shared.GramBoxService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Gram.Blazor.Shared.GramBoxService>());
+builder.Services.AddHostedService<Gram.Blazor.Shared.SandboxCleanupService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.ISubagentEngine, Gram.Blazor.Shared.SubagentEngineService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IQuotaTracker, Gram.Blazor.Shared.QuotaTracker>();
 builder.Services.AddScoped<Gram.Blazor.Shared.PresentationGenerationService>();

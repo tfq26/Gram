@@ -90,7 +90,7 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
         var args = isWindows ? $"/c {effectiveCommand}" : $"-c \"{effectiveCommand.Replace("\"", "\\\"")}\"";
 
         // Prepend nice +10 on macOS/Linux for low CPU priority
-        if (!isWindows && _config.EnableLowCpuPriority)
+        if (!isWindows && _config.EnableLowCpuPriority && !_config.EnableUnixResourceLimits)
         {
             args = $"-c \"nice -n 10 {effectiveCommand.Replace("\"", "\\\"")}\"";
         }
@@ -133,6 +133,7 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
         var outputLimitExceeded = false;
         var resourceLimitExceeded = false;
         string? resourceLimitError = null;
+        long peakWorkingSetBytes = 0;
 
         process.OutputDataReceived += (_, e) =>
         {
@@ -140,7 +141,7 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
             var totalBytes = Interlocked.Add(ref outputBytes, Encoding.UTF8.GetByteCount(e.Data) + Environment.NewLine.Length);
             if (totalBytes <= _config.MaxOutputBytes) stdout.AppendLine(e.Data);
             else outputLimitExceeded = true;
-            if (outputLimitExceeded && process.HasExited == false) { try { process.Kill(entireProcessTree: true); } catch {} }
+            if (outputLimitExceeded) { try { process.Kill(entireProcessTree: true); } catch {} }
         };
         process.ErrorDataReceived += (_, e) =>
         {
@@ -148,7 +149,7 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
             var totalBytes = Interlocked.Add(ref outputBytes, Encoding.UTF8.GetByteCount(e.Data) + Environment.NewLine.Length);
             if (totalBytes <= _config.MaxOutputBytes) stderr.AppendLine(e.Data);
             else outputLimitExceeded = true;
-            if (outputLimitExceeded && process.HasExited == false) { try { process.Kill(entireProcessTree: true); } catch {} }
+            if (outputLimitExceeded) { try { process.Kill(entireProcessTree: true); } catch {} }
         };
 
         try
@@ -171,7 +172,10 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
             using var monitorCts = CancellationTokenSource.CreateLinkedTokenSource(linkedCts.Token);
-            var monitorTask = MonitorProcessAsync(process, session, timeoutSeconds, () =>
+            var monitorTask = MonitorProcessAsync(process, session, timeoutSeconds, workingSet =>
+            {
+                InterlockedMax(ref peakWorkingSetBytes, workingSet);
+            }, () =>
             {
                 resourceLimitExceeded = true;
                 resourceLimitError = "Sandbox process exceeded its assigned resource budget.";
@@ -185,6 +189,13 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
             session.Status = SandboxStatus.Ready;
             session.CurrentCommand = null;
 
+            long cpuTimeMs = 0;
+            try
+            {
+                cpuTimeMs = (long)process.TotalProcessorTime.TotalMilliseconds;
+            }
+            catch { }
+
             return new GramBoxExecutionResult
             {
                 Success = process.ExitCode == 0 && !outputLimitExceeded && !resourceLimitExceeded,
@@ -193,6 +204,9 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
                 Stderr = stderr.ToString().TrimEnd(),
                 ErrorMessage = outputLimitExceeded ? $"Process output exceeded the sandbox limit of {_config.MaxOutputBytes} bytes." : resourceLimitError,
                 ElapsedMs = sw.ElapsedMilliseconds,
+                PeakWorkingSetBytes = peakWorkingSetBytes,
+                CpuTimeMs = cpuTimeMs,
+                OutputBytes = outputBytes,
                 SandboxId = session.Id
             };
         }
@@ -234,7 +248,7 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
         }
     }
 
-    private async Task MonitorProcessAsync(Process process, GramBoxSandboxSession session, int timeoutSeconds, Action onLimit, CancellationToken cancellationToken)
+    private async Task MonitorProcessAsync(Process process, GramBoxSandboxSession session, int timeoutSeconds, Action<long> onSample, Action onLimit, CancellationToken cancellationToken)
     {
         var budget = session.ResourceBudget;
         var memoryLimit = budget?.MemoryBytes ?? _config.MaxMemoryQuotaMb * 1024L * 1024L;
@@ -245,6 +259,7 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
             if (process.HasExited) return;
             try
             {
+                onSample(process.WorkingSet64);
                 if (memoryLimit > 0 && process.WorkingSet64 > memoryLimit)
                 {
                     onLimit();
@@ -261,6 +276,26 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
             catch (InvalidOperationException) { return; }
             catch (System.ComponentModel.Win32Exception) { return; }
         }
+    }
+
+    private static void InterlockedMax(ref long location, long value)
+    {
+        long current;
+        do
+        {
+            current = Interlocked.Read(ref location);
+            if (value <= current) return;
+        } while (Interlocked.CompareExchange(ref location, value, current) != current);
+    }
+
+    private static int TryGetExitCode(Process process)
+    {
+        try { return process.ExitCode; } catch { return -1; }
+    }
+
+    private static long TryGetCpuTimeMs(Process process)
+    {
+        try { return (long)process.TotalProcessorTime.TotalMilliseconds; } catch { return 0; }
     }
 
     public async Task<bool> WriteFileAsync(GramBoxSandboxSession session, string relativePath, string content, CancellationToken ct = default)

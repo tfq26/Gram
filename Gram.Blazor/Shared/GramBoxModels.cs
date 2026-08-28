@@ -69,6 +69,9 @@ public sealed class GramBoxExecutionResult
     public long ElapsedMs { get; set; }
     public string? ErrorMessage { get; set; }
     public string? SandboxId { get; set; }
+    public long PeakWorkingSetBytes { get; set; }
+    public long CpuTimeMs { get; set; }
+    public int OutputBytes { get; set; }
 }
 
 public sealed class SandboxDiffSummary
