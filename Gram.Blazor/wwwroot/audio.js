@@ -967,5 +967,259 @@ window.gramAudio = {
                 gramAudio.applyDiagramTransform(vp, scale, x, y);
             }
         }, { passive: false });
+    },
+
+    // Audio Devices Enumeration & Output Selection
+    getAudioDevices: async function () {
+        try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                return [];
+            }
+            let devices = await navigator.mediaDevices.enumerateDevices();
+            const hasLabels = devices.some(d => (d.kind === 'audioinput' || d.kind === 'audiooutput') && d.label);
+            if (!hasLabels && navigator.mediaDevices.getUserMedia) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    stream.getTracks().forEach(t => t.stop());
+                    devices = await navigator.mediaDevices.enumerateDevices();
+                } catch (e) {}
+            }
+            return devices
+                .filter(d => d.kind === 'audioinput' || d.kind === 'audiooutput')
+                .map(d => ({
+                    kind: d.kind,
+                    deviceId: d.deviceId,
+                    label: d.label || (d.kind === 'audioinput' ? 'Default Microphone' : 'Default Speaker')
+                }));
+        } catch (e) {
+            console.warn('[gramAudio] getAudioDevices error:', e);
+            return [];
+        }
+    },
+
+    setOutputDevice: function (deviceId) {
+        this.outputDeviceId = deviceId || '';
+    },
+
+    // Discord-like Realtime Microphone Test with Visual Meter & Optional Loopback
+    micTestContext: null,
+    micTestStream: null,
+    micTestSource: null,
+    micTestAnalyser: null,
+    micTestGain: null,
+    micTestAnimId: null,
+    isTestingMic: false,
+    micTestLoopback: false,
+
+    startMicTest: async function (meterElementId, inputDeviceId, enableLoopback, sensitivityThreshold) {
+        this.stopMicTest(meterElementId);
+        this.isTestingMic = true;
+        this.micTestLoopback = !!enableLoopback;
+
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            this.micTestContext = new AudioCtx();
+            if (this.micTestContext.state === 'suspended') {
+                await this.micTestContext.resume();
+            }
+
+            const constraints = {
+                audio: inputDeviceId ? { deviceId: { exact: inputDeviceId } } : true,
+                video: false
+            };
+
+            this.micTestStream = await navigator.mediaDevices.getUserMedia(constraints);
+            this.micTestSource = this.micTestContext.createMediaStreamSource(this.micTestStream);
+            this.micTestAnalyser = this.micTestContext.createAnalyser();
+            this.micTestAnalyser.fftSize = 256;
+            this.micTestAnalyser.smoothingTimeConstant = 0.5;
+            this.micTestSource.connect(this.micTestAnalyser);
+
+            if (enableLoopback) {
+                this.micTestGain = this.micTestContext.createGain();
+                this.micTestGain.gain.value = 0.85;
+                this.micTestSource.connect(this.micTestGain);
+                this.micTestGain.connect(this.micTestContext.destination);
+            }
+
+            const bufferLength = this.micTestAnalyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            const meterEl = document.getElementById(meterElementId);
+
+            const updateMeter = () => {
+                if (!this.isTestingMic || !this.micTestAnalyser) return;
+
+                this.micTestAnalyser.getByteFrequencyData(dataArray);
+
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    sum += dataArray[i];
+                }
+                const avg = sum / bufferLength;
+                const levelPct = Math.min(100, Math.round(Math.pow(avg / 120, 1.15) * 100));
+
+                if (meterEl) {
+                    const fillBar = meterEl.querySelector('.mic-meter-fill');
+                    const valueLabel = meterEl.querySelector('.mic-meter-value');
+                    if (fillBar) {
+                        fillBar.style.width = `${levelPct}%`;
+                        const thresh = sensitivityThreshold || 15;
+                        if (levelPct >= thresh) {
+                            fillBar.classList.add('active-speaking');
+                        } else {
+                            fillBar.classList.remove('active-speaking');
+                        }
+                    }
+                    if (valueLabel) {
+                        valueLabel.textContent = `${levelPct}%`;
+                    }
+                }
+
+                this.micTestAnimId = requestAnimationFrame(updateMeter);
+            };
+
+            updateMeter();
+            return true;
+        } catch (err) {
+            console.error('[gramAudio] startMicTest error:', err);
+            this.stopMicTest(meterElementId);
+            return false;
+        }
+    },
+
+    setMicTestLoopback: function (enable) {
+        this.micTestLoopback = !!enable;
+        if (!this.micTestContext || !this.micTestSource) return;
+
+        if (this.micTestLoopback) {
+            if (!this.micTestGain) {
+                this.micTestGain = this.micTestContext.createGain();
+                this.micTestGain.gain.value = 0.85;
+                this.micTestSource.connect(this.micTestGain);
+                this.micTestGain.connect(this.micTestContext.destination);
+            }
+        } else {
+            if (this.micTestGain) {
+                try {
+                    this.micTestGain.disconnect();
+                } catch (e) {}
+                this.micTestGain = null;
+            }
+        }
+    },
+
+    stopMicTest: function (meterElementId) {
+        this.isTestingMic = false;
+        if (this.micTestAnimId) {
+            cancelAnimationFrame(this.micTestAnimId);
+            this.micTestAnimId = null;
+        }
+        if (this.micTestGain) {
+            try { this.micTestGain.disconnect(); } catch (e) {}
+            this.micTestGain = null;
+        }
+        if (this.micTestSource) {
+            try { this.micTestSource.disconnect(); } catch (e) {}
+            this.micTestSource = null;
+        }
+        if (this.micTestStream) {
+            this.micTestStream.getTracks().forEach(t => t.stop());
+            this.micTestStream = null;
+        }
+        if (this.micTestContext) {
+            try { this.micTestContext.close(); } catch (e) {}
+            this.micTestContext = null;
+        }
+
+        const meterId = meterElementId || 'discordMicMeter';
+        const meterEl = document.getElementById(meterId);
+        if (meterEl) {
+            const fillBar = meterEl.querySelector('.mic-meter-fill');
+            const valueLabel = meterEl.querySelector('.mic-meter-value');
+            if (fillBar) {
+                fillBar.style.width = '0%';
+                fillBar.classList.remove('active-speaking');
+            }
+            if (valueLabel) {
+                valueLabel.textContent = '0%';
+            }
+        }
+    },
+
+    // Discord-like Harmonious Speaker Test Chime
+    speakerTestContext: null,
+    isTestingSpeaker: false,
+
+    playSpeakerTest: async function (outputDeviceId, volume) {
+        this.stopSpeakerTest();
+        this.isTestingSpeaker = true;
+
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            this.speakerTestContext = new AudioCtx();
+            if (this.speakerTestContext.state === 'suspended') {
+                await this.speakerTestContext.resume();
+            }
+
+            if (outputDeviceId && typeof this.speakerTestContext.setSinkId === 'function') {
+                try {
+                    await this.speakerTestContext.setSinkId(outputDeviceId);
+                } catch (e) {
+                    console.warn('[gramAudio] setSinkId notice:', e);
+                }
+            }
+
+            const ctx = this.speakerTestContext;
+            const now = ctx.currentTime;
+            const vol = Math.max(0.05, Math.min(1.0, (volume || 100) / 100));
+
+            const masterGain = ctx.createGain();
+            masterGain.gain.setValueAtTime(vol * 0.4, now);
+            masterGain.connect(ctx.destination);
+
+            // Play Discord-like bright multi-note chime: D5, F#5, A5, D6
+            const notes = [
+                { freq: 587.33, start: 0.00, dur: 0.20, type: 'sine' },
+                { freq: 739.99, start: 0.11, dur: 0.22, type: 'sine' },
+                { freq: 880.00, start: 0.22, dur: 0.26, type: 'sine' },
+                { freq: 1174.66, start: 0.35, dur: 0.55, type: 'triangle' }
+            ];
+
+            notes.forEach(note => {
+                const osc = ctx.createOscillator();
+                const noteGain = ctx.createGain();
+
+                osc.type = note.type;
+                osc.frequency.setValueAtTime(note.freq, now + note.start);
+
+                noteGain.gain.setValueAtTime(0, now + note.start);
+                noteGain.gain.linearRampToValueAtTime(0.65, now + note.start + 0.02);
+                noteGain.gain.exponentialRampToValueAtTime(0.001, now + note.start + note.dur);
+
+                osc.connect(noteGain);
+                noteGain.connect(masterGain);
+
+                osc.start(now + note.start);
+                osc.stop(now + note.start + note.dur + 0.04);
+            });
+
+            setTimeout(() => {
+                this.isTestingSpeaker = false;
+            }, 1000);
+
+            return true;
+        } catch (e) {
+            console.error('[gramAudio] playSpeakerTest error:', e);
+            this.isTestingSpeaker = false;
+            return false;
+        }
+    },
+
+    stopSpeakerTest: function () {
+        this.isTestingSpeaker = false;
+        if (this.speakerTestContext) {
+            try { this.speakerTestContext.close(); } catch (e) {}
+            this.speakerTestContext = null;
+        }
     }
 };

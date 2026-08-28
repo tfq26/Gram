@@ -2547,12 +2547,6 @@
         return label.Length <= 18 ? label : $"{label[..17]}…";
     }
 
-    private sealed class AudioDeviceInfo
-    {
-        public string Kind { get; set; } = "";
-        public string DeviceId { get; set; } = "";
-        public string Label { get; set; } = "";
-    }
 
     private async Task<string?> StopVoice()
     {
