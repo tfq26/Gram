@@ -75,6 +75,8 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.ToolboxManagerService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.MentionResolver>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.GramBoxWorktreeManager>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxScheduler, Gram.Blazor.Shared.SandboxScheduler>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxMergeCoordinator, Gram.Blazor.Shared.SandboxMergeCoordinator>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxCheckpointService, Gram.Blazor.Shared.SandboxCheckpointService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.NativeScratchpadDriver>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.GramBoxService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IGramBoxService>(sp => sp.GetRequiredService<Gram.Blazor.Shared.GramBoxService>());

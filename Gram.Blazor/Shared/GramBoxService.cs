@@ -13,11 +13,14 @@ public interface IGramBoxService
     string? StatusMessage { get; }
     event Action? OnStatusChanged;
 
-    Task<GramBoxSandboxSession> CreateSandboxAsync(string baseRepoPath, string? branchName = null, string? taskName = null, CancellationToken ct = default, string? runId = null);
+    Task<GramBoxSandboxSession> CreateSandboxAsync(string baseRepoPath, string? branchName = null, string? taskName = null, CancellationToken ct = default, string? runId = null, SandboxNetworkMode networkMode = SandboxNetworkMode.Disabled, IReadOnlyList<string>? allowedNetworkHosts = null);
     Task<GramBoxExecutionResult> ExecuteAsync(string command, string? sandboxId = null, string? relativeSubDir = null, int timeoutSeconds = 120, CancellationToken ct = default);
     Task<bool> WriteFileAsync(string relativePath, string content, string? sandboxId = null, CancellationToken ct = default);
     Task<string?> ReadFileAsync(string relativePath, string? sandboxId = null, CancellationToken ct = default);
     Task<SandboxDiffSummary> GetDiffAsync(string? sandboxId = null, CancellationToken ct = default);
+    Task<SandboxMergePreview> PreviewMergeAsync(string? sandboxId = null, string targetRef = "HEAD", CancellationToken ct = default);
+    Task<SandboxCheckpoint?> CreateCheckpointAsync(string reason, string? sandboxId = null, CancellationToken ct = default);
+    Task<bool> RollbackAsync(string checkpointId, string? sandboxId = null, CancellationToken ct = default);
     Task<bool> CommitChangesAsync(string commitMessage, string? sandboxId = null, CancellationToken ct = default);
     Task<bool> CloseSandboxAsync(string sandboxId, bool force = true, CancellationToken ct = default);
     void SelectActiveSession(string sandboxId);
@@ -29,6 +32,8 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
     private readonly GramBoxWorktreeManager _worktreeManager;
     private readonly NativeScratchpadDriver _nativeDriver;
     private readonly ISandboxScheduler _scheduler;
+    private readonly ISandboxMergeCoordinator _mergeCoordinator;
+    private readonly ISandboxCheckpointService _checkpointService;
     private readonly GramBoxConfig _config = new();
 
     private readonly ConcurrentDictionary<string, GramBoxSandboxSession> _sessions = new();
@@ -48,12 +53,16 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
         ILogger<GramBoxService> logger,
         GramBoxWorktreeManager worktreeManager,
         NativeScratchpadDriver nativeDriver,
-        ISandboxScheduler? scheduler = null)
+        ISandboxScheduler? scheduler = null,
+        ISandboxMergeCoordinator? mergeCoordinator = null,
+        ISandboxCheckpointService? checkpointService = null)
     {
         _logger = logger;
         _worktreeManager = worktreeManager;
         _nativeDriver = nativeDriver;
         _scheduler = scheduler ?? new SandboxScheduler();
+        _mergeCoordinator = mergeCoordinator ?? new SandboxMergeCoordinator(worktreeManager);
+        _checkpointService = checkpointService ?? new SandboxCheckpointService(worktreeManager, new StorageService());
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -90,16 +99,20 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
         string? branchName = null, 
         string? taskName = null, 
         CancellationToken ct = default,
-        string? runId = null)
+        string? runId = null,
+        SandboxNetworkMode networkMode = SandboxNetworkMode.Disabled,
+        IReadOnlyList<string>? allowedNetworkHosts = null)
     {
         NotifyState("Creating isolated Git Worktree sandbox...");
-        var lease = await _scheduler.AcquireAsync(new SandboxRequest(runId), ct);
+        var lease = await _scheduler.AcquireAsync(new SandboxRequest(runId, NetworkMode: networkMode, AllowedNetworkHosts: allowedNetworkHosts), ct);
         try
         {
             var session = await _worktreeManager.CreateWorktreeSessionAsync(baseRepoPath, branchName, taskName, ct);
             session.LeaseId = lease.Id;
             session.RunId = runId;
             session.ResourceBudget = lease.Budget;
+            session.NetworkMode = lease.NetworkMode;
+            session.AllowedNetworkHosts = lease.AllowedNetworkHosts.ToList();
             _sessions[session.Id] = session;
             _activeSessionId = session.Id;
 
@@ -130,9 +143,11 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
         }
 
         NotifyState($"[Sandbox: {targetSession.Id}] Running: {command}");
+        if (!string.IsNullOrWhiteSpace(targetSession.LeaseId)) _scheduler.Heartbeat(targetSession.LeaseId);
         try
         {
             var result = await _nativeDriver.ExecuteCommandAsync(targetSession, command, relativeSubDir, timeoutSeconds, ct);
+            if (!string.IsNullOrWhiteSpace(targetSession.LeaseId)) _scheduler.Heartbeat(targetSession.LeaseId);
             NotifyState($"[Sandbox: {targetSession.Id}] Command finished (Exit {result.ExitCode})");
             return result;
         }
@@ -175,6 +190,26 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
         if (targetSession == null) return new SandboxDiffSummary();
 
         return await _worktreeManager.GetWorktreeDiffAsync(targetSession, ct);
+    }
+
+    public async Task<SandboxMergePreview> PreviewMergeAsync(string? sandboxId = null, string targetRef = "HEAD", CancellationToken ct = default)
+    {
+        var targetSession = ResolveSession(sandboxId);
+        return targetSession == null
+            ? new SandboxMergePreview { TargetRef = targetRef }
+            : await _mergeCoordinator.PreviewAsync(targetSession, targetRef, ct);
+    }
+
+    public async Task<SandboxCheckpoint?> CreateCheckpointAsync(string reason, string? sandboxId = null, CancellationToken ct = default)
+    {
+        var session = ResolveSession(sandboxId);
+        return session is null ? null : await _checkpointService.CreateAsync(session, reason, ct);
+    }
+
+    public async Task<bool> RollbackAsync(string checkpointId, string? sandboxId = null, CancellationToken ct = default)
+    {
+        var session = ResolveSession(sandboxId);
+        return session is not null && await _checkpointService.RollbackAsync(session, checkpointId, ct);
     }
 
     public async Task<bool> CommitChangesAsync(string commitMessage, string? sandboxId = null, CancellationToken ct = default)

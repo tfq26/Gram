@@ -20,6 +20,8 @@ public enum SandboxStatus
     Disposed
 }
 
+public enum SandboxNetworkMode { Disabled, Allowlisted, Unrestricted }
+
 public sealed class GramBoxConfig
 {
     public GramBoxEngineType Engine { get; set; } = GramBoxEngineType.Auto;
@@ -28,6 +30,10 @@ public sealed class GramBoxConfig
     public int MaxProcessTimeoutSeconds { get; set; } = 180;
     public int MaxMemoryQuotaMb { get; set; } = 2048;
     public int MaxOutputBytes { get; set; } = 2 * 1024 * 1024;
+    public int MaxChildProcesses { get; set; } = 128;
+    public bool EnableUnixResourceLimits { get; set; } = true;
+    public SandboxNetworkMode DefaultNetworkMode { get; set; } = SandboxNetworkMode.Disabled;
+    public List<string> AllowedNetworkHosts { get; set; } = [];
     public bool StripSensitiveEnvVars { get; set; } = true;
     public bool SharedDependencyCaching { get; set; } = true;
     public bool UseCopyOnWriteCloning { get; set; } = true;
@@ -50,6 +56,8 @@ public sealed class GramBoxSandboxSession
     public string? LeaseId { get; set; }
     public string? RunId { get; set; }
     public SandboxResourceBudget? ResourceBudget { get; set; }
+    public SandboxNetworkMode NetworkMode { get; set; } = SandboxNetworkMode.Disabled;
+    public List<string> AllowedNetworkHosts { get; set; } = [];
 }
 
 public sealed class GramBoxExecutionResult
@@ -71,4 +79,26 @@ public sealed class SandboxDiffSummary
     public int Insertions { get; set; }
     public int Deletions { get; set; }
     public string DiffContent { get; set; } = "";
+}
+
+public sealed class SandboxMergePreview
+{
+    public string SandboxId { get; init; } = "";
+    public string SourceBranch { get; init; } = "";
+    public string TargetRef { get; init; } = "HEAD";
+    public bool CanMergeCleanly { get; init; }
+    public List<string> ChangedFiles { get; init; } = [];
+    public string ConflictOutput { get; init; } = "";
+    public string DiffContent { get; init; } = "";
+}
+
+public sealed class SandboxCheckpoint
+{
+    public string Id { get; init; } = "cp-" + Guid.NewGuid().ToString("N")[..12];
+    public string SandboxId { get; init; } = "";
+    public string? RunId { get; init; }
+    public string Reason { get; init; } = "";
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public string DiffPath { get; init; } = "";
+    public int FilesChanged { get; init; }
 }

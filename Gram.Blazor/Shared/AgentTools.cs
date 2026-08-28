@@ -437,6 +437,22 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
 
         tools.Add(new AgentToolDefinition
         {
+            Name = "grambox_preview_merge",
+            Description = "Preview whether a sandbox branch can merge cleanly into a target ref without changing the target workspace.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["sandboxId"] = new JsonObject { ["type"] = "string" },
+                    ["targetRef"] = new JsonObject { ["type"] = "string", ["description"] = "Optional target Git ref, default HEAD." }
+                },
+                ["required"] = new JsonArray { "sandboxId" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
             Name = "grambox_close_sandbox",
             Description = "Clean up and remove an isolated worktree sandbox and delete its ephemeral scratchpad.",
             Parameters = new JsonObject
@@ -447,6 +463,30 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     ["sandboxId"] = new JsonObject { ["type"] = "string", ["description"] = "The ID of the sandbox to remove (e.g. 'sb-abc12345')." }
                 },
                 ["required"] = new JsonArray { "sandboxId" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_checkpoint",
+            Description = "Save a durable checkpoint of the current sandbox diff before a risky or major change.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject { ["reason"] = new JsonObject { ["type"] = "string" }, ["sandboxId"] = new JsonObject { ["type"] = "string" } },
+                ["required"] = new JsonArray { "reason" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "grambox_rollback",
+            Description = "Reset only the isolated sandbox worktree to a previously created checkpoint.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject { ["checkpointId"] = new JsonObject { ["type"] = "string" }, ["sandboxId"] = new JsonObject { ["type"] = "string" } },
+                ["required"] = new JsonArray { "checkpointId" }
             }
         });
 
@@ -1271,6 +1311,23 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     break;
                 }
 
+                case "grambox_preview_merge":
+                {
+                    if (_gramBoxService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Gram Box service is not registered.";
+                        break;
+                    }
+
+                    var sandboxId = args?["sandboxId"]?.ToString();
+                    var targetRef = args?["targetRef"]?.ToString() ?? "HEAD";
+                    var preview = await _gramBoxService.PreviewMergeAsync(sandboxId, targetRef, cancellationToken);
+                    result.IsError = !preview.CanMergeCleanly;
+                    result.Output = $"[Merge Preview | Sandbox: {preview.SandboxId} | {preview.SourceBranch} → {preview.TargetRef}]\nCan merge cleanly: {preview.CanMergeCleanly}\nChanged files: {preview.ChangedFiles.Count}\n{(preview.CanMergeCleanly ? "No merge conflicts detected." : preview.ConflictOutput)}";
+                    break;
+                }
+
                 case "grambox_close_sandbox":
                 {
                     if (_gramBoxService == null)
@@ -1283,6 +1340,24 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     var sandboxId = args?["sandboxId"]?.ToString() ?? "";
                     var ok = await _gramBoxService.CloseSandboxAsync(sandboxId, force: true, cancellationToken);
                     result.Output = ok ? $"Sandbox worktree '{sandboxId}' successfully removed and cleaned up." : $"Failed to remove sandbox '{sandboxId}'.";
+                    break;
+                }
+
+                case "grambox_checkpoint":
+                {
+                    if (_gramBoxService == null) { result.IsError = true; result.Output = "Gram Box service is not registered."; break; }
+                    var checkpoint = await _gramBoxService.CreateCheckpointAsync(args?["reason"]?.ToString() ?? "Agent checkpoint", args?["sandboxId"]?.ToString(), cancellationToken);
+                    result.Output = checkpoint == null ? "No sandbox was available for checkpointing." : $"Checkpoint created: {checkpoint.Id} ({checkpoint.FilesChanged} changed files)";
+                    break;
+                }
+
+                case "grambox_rollback":
+                {
+                    if (_gramBoxService == null) { result.IsError = true; result.Output = "Gram Box service is not registered."; break; }
+                    var checkpointId = args?["checkpointId"]?.ToString() ?? "";
+                    var ok = await _gramBoxService.RollbackAsync(checkpointId, args?["sandboxId"]?.ToString(), cancellationToken);
+                    result.IsError = !ok;
+                    result.Output = ok ? $"Sandbox rolled back to checkpoint {checkpointId}." : $"Checkpoint {checkpointId} was not found or rollback failed.";
                     break;
                 }
 

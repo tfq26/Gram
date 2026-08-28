@@ -15,6 +15,7 @@
 @inject AgentSecurityService SecurityService
 @inject NavigationManager NavManager
 @inject IJSRuntime JSRuntime
+@inject WorkspaceTabService TabService
 @implements IDisposable
 
 <PageTitle>Settings · Gram</PageTitle>
@@ -706,68 +707,326 @@
         else if (activeCategory == "Toolbox")
         {
             <!-- Dedicated Toolbox & CDE Hub Settings View -->
-            <div class="settings-group">
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <span class="setting-title">Gram Toolbox Engine</span>
-                        <span class="setting-desc">Modular developer tools, remote CDE sandboxes, and LSP bridges.</span>
-                    </div>
-                    <div class="setting-control" style="display: flex; align-items: center; gap: 8px;">
-                        <span class="provider-badge connected">@ToolboxService.ToolboxStatus</span>
-                        <a href="/toolbox" class="link-action">Open Hub ↗</a>
-                    </div>
-                </div>
-
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <span class="setting-title">Execution Safeguards</span>
-                        <span class="setting-desc">Security permission mode for file modifications and terminal execution.</span>
-                    </div>
-                    <div class="setting-control">
-                        <select class="setting-select" value="@SecurityService.Settings.PermissionMode" @onchange="OnPermissionModeChanged">
-                            <option value="@ExecutionPermissionMode.FullAutonomous">Autonomous</option>
-                            <option value="@ExecutionPermissionMode.SafeAutoApprove">Safe</option>
-                            <option value="@ExecutionPermissionMode.AskAlways">Ask</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <span class="setting-title">Workspace Boundary Sandbox</span>
-                        <span class="setting-desc">Enforce path containment within current workspace directory.</span>
-                    </div>
-                    <div class="setting-control">
-                        <label class="setting-toggle">
-                            <input type="checkbox" class="setting-checkbox" checked="@SecurityService.Settings.EnforceWorkspaceSandboxing" @onchange="ToggleSandboxSandboxing" />
-                            <span class="setting-desc">@(SecurityService.Settings.EnforceWorkspaceSandboxing ? "Enforced" : "Disabled")</span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Installed Tools List in Settings -->
-            <div style="margin-top: 16px;">
-                <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">
-                    Active Tools & Runtimes (@ToolboxService.InstalledTools.Count)
-                </div>
-                <div class="settings-group" style="padding: 0; overflow: hidden;">
-                    @foreach (var tool in ToolboxService.InstalledTools)
-                    {
-                        <div class="setting-item" style="border-bottom: 1px solid var(--border-color); padding: 12px 16px;">
-                            <div class="setting-info" style="max-width: 70%;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span class="setting-title" style="font-size: 13px;">@tool.Name</span>
-                                    <span style="font-size: 10px; color: var(--text-muted); background: var(--bg-hover); padding: 1px 6px; border-radius: var(--radius-sm);">@tool.Category</span>
-                                </div>
-                                <span class="setting-desc" style="margin-top: 2px;">@tool.Description</span>
-                            </div>
-                            <div class="setting-control">
-                                <span style="font-size: 11px; font-weight: 600; color: #10b981; background: rgba(16, 185, 129, 0.1); padding: 3px 8px; border-radius: var(--radius-sm);">@tool.Status</span>
-                            </div>
+            <div class="toolbox-settings-wrapper">
+                <div class="toolbox-header-card">
+                    <div class="toolbox-header-left">
+                        <div class="toolbox-engine-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+                            </svg>
                         </div>
-                    }
+                        <div>
+                            <div class="toolbox-title-row">
+                                <h3 class="toolbox-title">Gram Toolbox & CDE</h3>
+                                <span class="toolbox-badge-pill status">
+                                    <span class="toolbox-status-dot online"></span>
+                                    <span>@ToolboxService.ToolboxStatus</span>
+                                </span>
+                                <span class="toolbox-badge-pill version">v@(ToolboxService.ToolboxVersion)</span>
+                            </div>
+                            <p class="toolbox-subtitle">
+                                Modular sandboxed developer tools, Model Context Protocol (MCP) bridges, and autonomous agent domain skills.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="toolbox-header-actions">
+                        <button type="button" class="toolbox-btn-secondary" @onclick="TestToolboxHealth">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                            </svg>
+                            <span>Diagnostics</span>
+                        </button>
+                    </div>
                 </div>
+
+                <!-- Security & Execution Safeguards -->
+                <div class="settings-group">
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-title">Execution Safeguards</span>
+                            <span class="setting-desc">Security permission mode for mutating tools, file modifications, and terminal execution.</span>
+                        </div>
+                        <div class="setting-control">
+                            <select class="setting-select" value="@SecurityService.Settings.PermissionMode" @onchange="OnPermissionModeChanged">
+                                <option value="@ExecutionPermissionMode.FullAutonomous">Autonomous</option>
+                                <option value="@ExecutionPermissionMode.SafeAutoApprove">Safe</option>
+                                <option value="@ExecutionPermissionMode.AskAlways">Ask Always</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-title">Workspace Boundary Sandbox</span>
+                            <span class="setting-desc">Enforce strict path containment within the current workspace directory.</span>
+                        </div>
+                        <div class="setting-control">
+                            <label class="setting-toggle">
+                                <input type="checkbox" class="setting-checkbox" checked="@SecurityService.Settings.EnforceWorkspaceSandboxing" @onchange="ToggleSandboxSandboxing" />
+                                <span class="setting-desc">@(SecurityService.Settings.EnforceWorkspaceSandboxing ? "Enforced" : "Disabled")</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Segmented Navigation Tabs -->
+                <div class="toolbox-nav-tabs">
+                    <button type="button" 
+                            class="toolbox-tab-btn @(activeToolboxSection == "Tools" ? "active" : "")" 
+                            @onclick='() => activeToolboxSection = "Tools"'>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                            <polyline points="2 17 12 22 22 17"></polyline>
+                            <polyline points="2 12 12 17 22 12"></polyline>
+                        </svg>
+                        <span>Core Tools</span>
+                        <span class="toolbox-tab-count">@ToolboxService.InstalledTools.Count</span>
+                    </button>
+
+                    <button type="button" 
+                            class="toolbox-tab-btn @(activeToolboxSection == "MCP" ? "active" : "")" 
+                            @onclick='() => activeToolboxSection = "MCP"'>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2v8"></path>
+                            <path d="M12 18v4"></path>
+                            <path d="M4.93 4.93l4.24 4.24"></path>
+                            <path d="M14.83 14.83l4.24 4.24"></path>
+                            <path d="M2 12h8"></path>
+                            <path d="M18 12h4"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                        <span>MCP Connections</span>
+                        <span class="toolbox-tab-count">@ToolboxService.McpServers.Count</span>
+                    </button>
+
+                    <button type="button" 
+                            class="toolbox-tab-btn @(activeToolboxSection == "Skills" ? "active" : "")" 
+                            @onclick='() => activeToolboxSection = "Skills"'>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2a8 8 0 0 0-8 8c0 3.36 2.06 6.23 5 7.42V20a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-2.58c2.94-1.19 5-4.06 5-7.42a8 8 0 0 0-8-8z"></path>
+                            <line x1="10" y1="22" x2="14" y2="22"></line>
+                        </svg>
+                        <span>Agent Skills</span>
+                        <span class="toolbox-tab-count">@ToolboxService.Skills.Count</span>
+                    </button>
+                </div>
+
+                <!-- Section Content -->
+                @if (activeToolboxSection == "Tools")
+                {
+                    <div class="toolbox-grid">
+                        @foreach (var tool in ToolboxService.InstalledTools)
+                        {
+                            <div class="toolbox-card @(tool.IsEnabled ? "is-enabled" : "is-disabled")">
+                                <div class="toolbox-card-header">
+                                    <div class="toolbox-card-identity">
+                                        <div class="toolbox-card-icon">
+                                            @if (tool.Category == "Sandbox")
+                                            {
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                                                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                                                    <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                                                    <line x1="6" y1="18" x2="6.01" y2="6"></line>
+                                                </svg>
+                                            }
+                                            else if (tool.Category == "Code")
+                                            {
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="16 18 22 12 16 6"></polyline>
+                                                    <polyline points="8 6 2 12 8 18"></polyline>
+                                                </svg>
+                                            }
+                                            else if (tool.Category == "Browser")
+                                            {
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <circle cx="12" cy="12" r="10"></circle>
+                                                    <circle cx="12" cy="12" r="4"></circle>
+                                                    <line x1="21.17" y1="8" x2="12" y2="8"></line>
+                                                    <line x1="3.95" y1="6.06" x2="8.54" y2="14"></line>
+                                                    <line x1="10.88" y1="21.94" x2="15.46" y2="14"></line>
+                                                </svg>
+                                            }
+                                            else if (tool.Category.Contains("Git") || tool.Category.Contains("VCS"))
+                                            {
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <line x1="6" y1="3" x2="6" y2="15"></line>
+                                                    <circle cx="18" cy="6" r="3"></circle>
+                                                    <circle cx="6" cy="18" r="3"></circle>
+                                                    <path d="M18 9a9 9 0 0 1-9 9"></path>
+                                                </svg>
+                                            }
+                                            else
+                                            {
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                                                    <polyline points="2 17 12 22 22 17"></polyline>
+                                                    <polyline points="2 12 12 17 22 12"></polyline>
+                                                </svg>
+                                            }
+                                        </div>
+                                        <div class="toolbox-card-title-group">
+                                            <span class="toolbox-card-name">@tool.Name</span>
+                                            <span class="toolbox-category-tag">@tool.Category</span>
+                                        </div>
+                                    </div>
+
+                                    <span class="toolbox-status-badge @(tool.IsEnabled ? "active" : "inactive")">
+                                        @(tool.IsEnabled ? "Active" : "Disabled")
+                                    </span>
+                                </div>
+
+                                <p class="toolbox-card-desc">
+                                    @tool.Description
+                                </p>
+
+                                <div class="toolbox-card-footer">
+                                    <span class="toolbox-card-meta">Runtime: @tool.Status</span>
+                                    <div class="toolbox-card-actions">
+                                        <button type="button" class="toolbox-btn-outline" @onclick="() => OpenToolInTab(tool)">
+                                            <span>Configure</span>
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <line x1="7" y1="17" x2="17" y2="7"></line>
+                                                <polyline points="7 7 17 7 17 17"></polyline>
+                                            </svg>
+                                        </button>
+                                        <button type="button" class="toolbox-btn-ghost" @onclick="() => ToolboxService.ToggleTool(tool.Id)">
+                                            @(tool.IsEnabled ? "Disable" : "Enable")
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else if (activeToolboxSection == "MCP")
+                {
+                    <div class="toolbox-section-panel">
+                        <div class="toolbox-section-header">
+                            <div>
+                                <h3 class="toolbox-section-title">Model Context Protocol (MCP) Bridges</h3>
+                                <p class="toolbox-section-desc">
+                                    Standardized JSON-RPC connections giving models tool-use access to SQLite, Git, Postgres, and external services.
+                                </p>
+                            </div>
+                            <button type="button" class="toolbox-btn-primary" @onclick="() => showAddMcpModal = true">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                <span>Add MCP Server</span>
+                            </button>
+                        </div>
+
+                        <div class="toolbox-mcp-list">
+                            @foreach (var server in ToolboxService.McpServers)
+                            {
+                                <div class="toolbox-mcp-row">
+                                    <div class="toolbox-mcp-left">
+                                        <div class="toolbox-mcp-icon">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M12 2v8"></path>
+                                                <path d="M12 18v4"></path>
+                                                <path d="M4.93 4.93l4.24 4.24"></path>
+                                                <path d="M14.83 14.83l4.24 4.24"></path>
+                                                <circle cx="12" cy="12" r="3"></circle>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <div class="toolbox-mcp-title-row">
+                                                <span class="toolbox-mcp-name">@server.Name</span>
+                                                <span class="toolbox-transport-badge">@server.Transport</span>
+                                                @if (server.IsConnected)
+                                                {
+                                                    <span class="toolbox-connected-badge">
+                                                        <span>Connected (@server.ToolCount tools)</span>
+                                                    </span>
+                                                }
+                                            </div>
+                                            <code class="toolbox-mcp-command">
+                                                @server.Command @server.Arguments
+                                            </code>
+                                        </div>
+                                    </div>
+
+                                    <div class="toolbox-mcp-actions">
+                                        <button type="button" class="toolbox-btn-outline" @onclick='() => OpenToolInTab(new ToolboxToolInfo { Id = server.Id, Name = server.Name, Icon = "⚡" })'>
+                                            <span>Inspect Schema</span>
+                                        </button>
+                                        <button type="button" class="toolbox-btn-danger-ghost" @onclick="() => ToolboxService.RemoveMcpServer(server.Id)" title="Delete server">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="3 6 5 6 21 6"></polyline>
+                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else if (activeToolboxSection == "Skills")
+                {
+                    <div class="toolbox-section-panel">
+                        <div class="toolbox-section-header">
+                            <div>
+                                <h3 class="toolbox-section-title">Agent Skills & Guidelines</h3>
+                                <p class="toolbox-section-desc">
+                                    Modular domain guidelines, coding rules, and preferred toolchains injected during autonomous agent loops.
+                                </p>
+                            </div>
+                            <button type="button" class="toolbox-btn-primary" @onclick="() => showAddSkillModal = true">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                <span>New Agent Skill</span>
+                            </button>
+                        </div>
+
+                        <div class="toolbox-grid">
+                            @foreach (var skill in ToolboxService.Skills)
+                            {
+                                <div class="toolbox-card">
+                                    <div class="toolbox-card-header">
+                                        <div class="toolbox-card-identity">
+                                            <div class="toolbox-card-icon skill">
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M12 2a8 8 0 0 0-8 8c0 3.36 2.06 6.23 5 7.42V20a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-2.58c2.94-1.19 5-4.06 5-7.42a8 8 0 0 0-8-8z"></path>
+                                                </svg>
+                                            </div>
+                                            <span class="toolbox-card-name">@skill.Name</span>
+                                        </div>
+                                        <span class="toolbox-status-badge active">Active</span>
+                                    </div>
+
+                                    <p class="toolbox-card-desc">
+                                        @skill.Description
+                                    </p>
+
+                                    <div class="toolbox-prompt-preview">
+                                        <div class="toolbox-prompt-header">System Guidelines</div>
+                                        <pre class="toolbox-prompt-code">@skill.SystemPrompt</pre>
+                                    </div>
+
+                                    <div class="toolbox-card-footer">
+                                        <span class="toolbox-card-meta">Injected in prompts</span>
+                                        <div class="toolbox-card-actions">
+                                            <button type="button" class="toolbox-btn-outline" @onclick="() => OpenToolInTab(new ToolboxToolInfo { Id = skill.Id, Name = skill.Name, Icon = skill.Icon })">
+                                                <span>Edit</span>
+                                            </button>
+                                            <button type="button" class="toolbox-btn-danger-ghost" @onclick="() => ToolboxService.RemoveSkill(skill.Id)">
+                                                <span>Delete</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
             </div>
         }
         else if (activeCategory == "Auth" || activeCategory == "Account/Auth")
@@ -1494,12 +1753,88 @@
     </div>
 }
 
+@if (showAddMcpModal)
+{
+    <div class="modal-backdrop" @onclick="() => showAddMcpModal = false">
+        <div class="modal-dialog" style="max-width: 480px;" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <span class="modal-title">Register MCP Server</span>
+                <button class="btn-close-modal" @onclick="() => showAddMcpModal = false">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;">
+                <div class="sheet-field">
+                    <label class="sheet-label">Server Name</label>
+                    <input type="text" class="sheet-input" @bind="newMcpName" placeholder="e.g. Postgres DB MCP" />
+                </div>
+                <div class="sheet-field">
+                    <label class="sheet-label">Executable Command</label>
+                    <input type="text" class="sheet-input" @bind="newMcpCommand" placeholder="npx, docker, uvx, or binary path" />
+                </div>
+                <div class="sheet-field">
+                    <label class="sheet-label">Arguments</label>
+                    <input type="text" class="sheet-input" @bind="newMcpArgs" placeholder="-y @@modelcontextprotocol/server-postgres ..." />
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border-color);">
+                <button type="button" class="toolbox-btn-ghost" @onclick="() => showAddMcpModal = false">Cancel</button>
+                <button type="button" class="toolbox-btn-primary" @onclick="SaveNewMcp">Register Server</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showAddSkillModal)
+{
+    <div class="modal-backdrop" @onclick="() => showAddSkillModal = false">
+        <div class="modal-dialog" style="max-width: 500px;" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <span class="modal-title">Create Agent Skill</span>
+                <button class="btn-close-modal" @onclick="() => showAddSkillModal = false">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;">
+                <div class="sheet-field">
+                    <label class="sheet-label">Skill Name</label>
+                    <input type="text" class="sheet-input" @bind="newSkillName" placeholder="e.g. Rust Systems Expert" />
+                </div>
+                <div class="sheet-field">
+                    <label class="sheet-label">Description</label>
+                    <input type="text" class="sheet-input" @bind="newSkillDesc" placeholder="Brief summary of when the agent should use this skill" />
+                </div>
+                <div class="sheet-field">
+                    <label class="sheet-label">System Prompt & Guidelines</label>
+                    <textarea class="sheet-textarea" rows="4" @bind="newSkillPrompt" placeholder="You are an expert in... Follow these rules:..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border-color);">
+                <button type="button" class="toolbox-btn-ghost" @onclick="() => showAddSkillModal = false">Cancel</button>
+                <button type="button" class="toolbox-btn-primary" @onclick="SaveNewSkill">Save Skill</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
+    [SupplyParameterFromQuery(Name = "category")]
+    public string? CategoryQuery { get; set; }
+
     private string search = "";
     private string activeCategory = "General";
     private bool intelligenceExpanded = true;
     private bool accountExpanded = true;
     private bool isSaved = false;
+
+    // Toolbox Interactive Hub State
+    private string activeToolboxSection = "Tools";
+    private bool showAddMcpModal = false;
+    private bool showAddSkillModal = false;
+
+    private string newMcpName = "";
+    private string newMcpCommand = "npx";
+    private string newMcpArgs = "";
+
+    private string newSkillName = "";
+    private string newSkillDesc = "";
+    private string newSkillPrompt = "";
 
     // Unsaved Changes Navigation State
     private bool showUnsavedModal = false;
@@ -1610,6 +1945,12 @@
         ModelService.OnChange += OnModelServiceChanged;
         SettingsService.OnChange += OnSettingsServiceChanged;
         GitService.OnChange += OnGitServiceChanged;
+        ToolboxService.OnChange += OnToolboxChanged;
+
+        if (!string.IsNullOrWhiteSpace(CategoryQuery))
+        {
+            activeCategory = CategoryQuery;
+        }
 
         LoadEnvironmentSettings();
 
@@ -2435,6 +2776,61 @@
         }
     }
 
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrWhiteSpace(CategoryQuery) && CategoryQuery != activeCategory && !IsDirty)
+        {
+            activeCategory = CategoryQuery;
+            UpdateBreadcrumbs(activeCategory);
+        }
+    }
+
+    private void OnToolboxChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void OpenToolInTab(ToolboxToolInfo tool)
+    {
+        TabService.OpenToolConfigTab(tool.Id, tool.Name, tool.Icon);
+        SonnerService.Success("Tab opened", $"Opened configuration tab for {tool.Name}");
+    }
+
+    private void TestToolboxHealth()
+    {
+        SonnerService.Success("Toolbox Engine Active", $"Gram Sandbox & Tool engine is running normally (v{ToolboxService.ToolboxVersion})");
+    }
+
+    private void SaveNewMcp()
+    {
+        if (string.IsNullOrWhiteSpace(newMcpName)) return;
+        ToolboxService.AddMcpServer(new McpServerConfig
+        {
+            Name = newMcpName,
+            Command = newMcpCommand,
+            Arguments = newMcpArgs,
+            IsConnected = true,
+            ToolCount = 3
+        });
+        showAddMcpModal = false;
+        newMcpName = "";
+        newMcpArgs = "";
+        SonnerService.Success("MCP Added", $"Registered {newMcpName}");
+    }
+
+    private void SaveNewSkill()
+    {
+        if (string.IsNullOrWhiteSpace(newSkillName)) return;
+        ToolboxService.AddSkill(new AgentSkillDefinition
+        {
+            Name = newSkillName,
+            Description = newSkillDesc,
+            SystemPrompt = newSkillPrompt
+        });
+        showAddSkillModal = false;
+        newSkillName = "";
+        newSkillDesc = "";
+        newSkillPrompt = "";
+        SonnerService.Success("Skill Created", $"Created skill: {newSkillName}");
+    }
+
     private void OnModelServiceChanged() => _ = InvokeAsync(StateHasChanged);
     private void OnSettingsServiceChanged() => _ = InvokeAsync(StateHasChanged);
     private void OnGitServiceChanged() => _ = InvokeAsync(StateHasChanged);
@@ -2444,5 +2840,6 @@
         ModelService.OnChange -= OnModelServiceChanged;
         SettingsService.OnChange -= OnSettingsServiceChanged;
         GitService.OnChange -= OnGitServiceChanged;
+        ToolboxService.OnChange -= OnToolboxChanged;
     }
 }

@@ -160,6 +160,43 @@ public sealed class GramBoxWorktreeManager
         return commitExit == 0;
     }
 
+    public async Task<SandboxMergePreview> PreviewMergeAsync(GramBoxSandboxSession session, string targetRef = "HEAD", CancellationToken ct = default)
+    {
+        var preview = new SandboxMergePreview { SandboxId = session.Id, SourceBranch = session.BranchName, TargetRef = targetRef };
+        if (!Directory.Exists(session.WorktreePath)) return preview;
+
+        var (diffExit, diff, _) = await RunGitAsync(session.BaseRepoPath, $"diff --no-ext-diff --name-only {targetRef}...{session.BranchName}", ct);
+        if (diffExit == 0) preview.ChangedFiles.AddRange(diff.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        var (mergeExit, mergeTree, mergeError) = await RunGitAsync(session.BaseRepoPath, $"merge-tree --write-tree {targetRef} {session.BranchName}", ct);
+        var (contentExit, contentDiff, _) = await RunGitAsync(session.BaseRepoPath, $"diff --no-ext-diff {targetRef}...{session.BranchName}", ct);
+        return new SandboxMergePreview
+        {
+            SandboxId = session.Id,
+            SourceBranch = session.BranchName,
+            TargetRef = targetRef,
+            CanMergeCleanly = mergeExit == 0,
+            ChangedFiles = preview.ChangedFiles,
+            ConflictOutput = mergeExit == 0 ? "" : string.Join('\n', new[] { mergeTree, mergeError }.Where(value => !string.IsNullOrWhiteSpace(value))),
+            DiffContent = contentExit == 0 ? contentDiff : ""
+        };
+    }
+
+    public async Task<bool> ResetWorktreeAsync(GramBoxSandboxSession session, CancellationToken ct = default)
+    {
+        if (!Directory.Exists(session.WorktreePath)) return false;
+        var (resetExit, _, _) = await RunGitAsync(session.WorktreePath, "reset --hard HEAD", ct);
+        var (cleanExit, _, _) = await RunGitAsync(session.WorktreePath, "clean -fd", ct);
+        return resetExit == 0 && cleanExit == 0;
+    }
+
+    public async Task<bool> ApplyPatchAsync(GramBoxSandboxSession session, string patchPath, CancellationToken ct = default)
+    {
+        if (!Directory.Exists(session.WorktreePath) || !File.Exists(patchPath)) return false;
+        var safePatchPath = patchPath.Replace("\"", "\\\"");
+        var (exit, _, _) = await RunGitAsync(session.WorktreePath, $"apply --whitespace=nowarn \"{safePatchPath}\"", ct);
+        return exit == 0;
+    }
+
     public async Task<bool> RemoveWorktreeSessionAsync(GramBoxSandboxSession session, bool force = true, CancellationToken ct = default)
     {
         try

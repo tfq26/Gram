@@ -60,6 +60,10 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
     {
         var sw = Stopwatch.StartNew();
         timeoutSeconds = Math.Clamp(timeoutSeconds, 1, _config.MaxProcessTimeoutSeconds);
+        if (!SandboxNetworkPolicy.CanExecuteCommand(command, session.NetworkMode, session.AllowedNetworkHosts, out var networkError))
+        {
+            return new GramBoxExecutionResult { Success = false, ExitCode = -1, ErrorMessage = networkError, Stderr = networkError ?? "Network policy blocked the command.", SandboxId = session.Id };
+        }
         if (!SandboxPathGuard.TryResolve(session.WorktreePath, relativeSubDir, out var workingDir, out var pathError))
         {
             return new GramBoxExecutionResult { Success = false, ExitCode = -1, ErrorMessage = pathError, Stderr = pathError ?? "Invalid sandbox path.", SandboxId = session.Id };
@@ -72,12 +76,23 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
 
         var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
         var shell = isWindows ? "cmd.exe" : "/bin/bash";
-        var args = isWindows ? $"/c {command}" : $"-c \"{command.Replace("\"", "\\\"")}\"";
+        var effectiveCommand = command;
+        if (!isWindows && _config.EnableUnixResourceLimits)
+        {
+            var budget = session.ResourceBudget;
+            var memoryMb = Math.Max(128, (int)Math.Min(int.MaxValue / 1024, (budget?.MemoryBytes ?? _config.MaxMemoryQuotaMb * 1024L * 1024L) / (1024L * 1024L)));
+            var cpuSeconds = Math.Max(1, timeoutSeconds * Math.Max(1, budget?.CpuCores ?? 1));
+            var isMac = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+            effectiveCommand = isMac
+                ? command
+                : $"ulimit -t {cpuSeconds} 2>/dev/null || true; ulimit -v {memoryMb * 1024L} 2>/dev/null || true; ulimit -u {_config.MaxChildProcesses} 2>/dev/null || true; {command}";
+        }
+        var args = isWindows ? $"/c {effectiveCommand}" : $"-c \"{effectiveCommand.Replace("\"", "\\\"")}\"";
 
         // Prepend nice +10 on macOS/Linux for low CPU priority
         if (!isWindows && _config.EnableLowCpuPriority)
         {
-            args = $"-c \"nice -n 10 {command.Replace("\"", "\\\"")}\"";
+            args = $"-c \"nice -n 10 {effectiveCommand.Replace("\"", "\\\"")}\"";
         }
 
         var psi = new ProcessStartInfo
@@ -94,11 +109,13 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
         // 1. Environment Sanitization
         if (_config.StripSensitiveEnvVars)
         {
-            foreach (var secretKey in SensitiveEnvVars)
+            foreach (var secretKey in SensitiveEnvVars.Concat(Environment.GetEnvironmentVariables().Keys.Cast<string>().Where(SandboxNetworkPolicy.IsSensitiveEnvironmentVariable)))
             {
                 psi.EnvironmentVariables.Remove(secretKey);
             }
         }
+        psi.EnvironmentVariables["GRAM_SANDBOX_NETWORK_MODE"] = session.NetworkMode.ToString();
+        psi.EnvironmentVariables["GRAM_SANDBOX_ALLOWED_HOSTS"] = string.Join(",", session.AllowedNetworkHosts);
 
         // 2. Shared Global Dependency Cache Injection (0 MB duplicate dependencies)
         if (_config.SharedDependencyCaching)

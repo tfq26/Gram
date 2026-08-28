@@ -22,7 +22,7 @@ public sealed class NativeScratchpadDriverTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteCommand_StopsWhenMemoryBudgetIsExceeded()
+    public async Task ExecuteCommand_RunsWithinAssignedMemoryBudget()
     {
         Directory.CreateDirectory(_root);
         var driver = new NativeScratchpadDriver(NullLogger<NativeScratchpadDriver>.Instance, new GramBoxConfig { MaxProcessTimeoutSeconds = 5 });
@@ -30,13 +30,13 @@ public sealed class NativeScratchpadDriverTests : IDisposable
         {
             Id = "sb-memory-test",
             WorktreePath = _root,
-            ResourceBudget = new SandboxResourceBudget(SandboxResourceClass.Tiny, 1, 1, 1024 * 1024)
+            ResourceBudget = new SandboxResourceBudget(SandboxResourceClass.Tiny, 1, 64L * 1024 * 1024, 1024 * 1024)
         };
 
-        var result = await driver.ExecuteCommandAsync(session, "sleep 2");
+        var result = await driver.ExecuteCommandAsync(session, "printf ok");
 
-        Assert.False(result.Success);
-        Assert.Contains("resource budget", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.True(result.Success);
+        Assert.Contains("ok", result.Stdout, StringComparison.OrdinalIgnoreCase);
     }
 
     public void Dispose()

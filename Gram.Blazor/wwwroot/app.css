@@ -7576,12 +7576,24 @@ button:active:not(:disabled),
    ========================================================================= */
 
 .toolbox-workbench-container {
-  padding: 24px 32px;
+  padding: 24px 32px 48px;
   max-width: 1140px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+}
+
+.toolbox-settings-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
 }
 
 .toolbox-header-card {
