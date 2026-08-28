@@ -1147,72 +1147,152 @@ window.gramAudio = {
     },
 
     // Discord-like Harmonious Speaker Test Chime
+    // Discord-like Harmonious Speaker Test Chime
     speakerTestContext: null,
     isTestingSpeaker: false,
+    activeTestAudioEl: null,
+
+    createChimeWavBlobUrl: function (volume) {
+        try {
+            const sampleRate = 44100;
+            const duration = 0.95;
+            const numSamples = Math.floor(sampleRate * duration);
+            const buffer = new ArrayBuffer(44 + numSamples * 2);
+            const view = new DataView(buffer);
+
+            const writeString = (offset, string) => {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            };
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + numSamples * 2, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); // PCM Mono
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeString(36, 'data');
+            view.setUint32(40, numSamples * 2, true);
+
+            const vol = Math.max(0.1, Math.min(1.0, (volume || 100) / 100)) * 0.9;
+            const notes = [
+                { freq: 587.33, start: 0.00, dur: 0.22 }, // D5
+                { freq: 739.99, start: 0.12, dur: 0.24 }, // F#5
+                { freq: 880.00, start: 0.24, dur: 0.28 }, // A5
+                { freq: 1174.66, start: 0.38, dur: 0.55 } // D6
+            ];
+
+            for (let i = 0; i < numSamples; i++) {
+                const t = i / sampleRate;
+                let sample = 0;
+                for (const n of notes) {
+                    if (t >= n.start && t <= n.start + n.dur) {
+                        const noteT = t - n.start;
+                        const attack = Math.min(1, noteT / 0.015);
+                        const decay = Math.exp(-noteT * 4.5);
+                        const env = attack * decay;
+                        sample += (Math.sin(2 * Math.PI * n.freq * noteT) + 0.2 * Math.sin(4 * Math.PI * n.freq * noteT)) * env * 0.45;
+                    }
+                }
+                const clamped = Math.max(-1, Math.min(1, sample * vol));
+                view.setInt16(44 + i * 2, clamped < 0 ? clamped * 0x8000 : clamped * 0x7FFF, true);
+            }
+
+            const blob = new Blob([buffer], { type: 'audio/wav' });
+            return URL.createObjectURL(blob);
+        } catch (e) {
+            console.warn('[gramAudio] WAV synthesis notice:', e);
+            return null;
+        }
+    },
 
     playSpeakerTest: async function (outputDeviceId, volume) {
         this.stopSpeakerTest();
         this.isTestingSpeaker = true;
 
+        const vol = Math.max(0.05, Math.min(1.0, (volume || 100) / 100));
+        let playedViaWebAudio = false;
+
         try {
             const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            this.speakerTestContext = new AudioCtx();
-            if (this.speakerTestContext.state === 'suspended') {
-                await this.speakerTestContext.resume();
-            }
+            if (AudioCtx) {
+                this.speakerTestContext = new AudioCtx();
+                if (this.speakerTestContext.state === 'suspended') {
+                    await this.speakerTestContext.resume();
+                }
 
-            if (outputDeviceId && typeof this.speakerTestContext.setSinkId === 'function') {
-                try {
-                    await this.speakerTestContext.setSinkId(outputDeviceId);
-                } catch (e) {
-                    console.warn('[gramAudio] setSinkId notice:', e);
+                if (this.speakerTestContext.state === 'running') {
+                    const ctx = this.speakerTestContext;
+                    const now = ctx.currentTime;
+
+                    const masterGain = ctx.createGain();
+                    masterGain.gain.setValueAtTime(vol * 0.85, now);
+                    masterGain.connect(ctx.destination);
+
+                    const notes = [
+                        { freq: 587.33, start: 0.00, dur: 0.22, type: 'sine' },
+                        { freq: 739.99, start: 0.12, dur: 0.24, type: 'sine' },
+                        { freq: 880.00, start: 0.24, dur: 0.28, type: 'sine' },
+                        { freq: 1174.66, start: 0.38, dur: 0.55, type: 'triangle' }
+                    ];
+
+                    notes.forEach(note => {
+                        const osc = ctx.createOscillator();
+                        const noteGain = ctx.createGain();
+
+                        osc.type = note.type;
+                        osc.frequency.setValueAtTime(note.freq, now + note.start);
+
+                        noteGain.gain.setValueAtTime(0, now + note.start);
+                        noteGain.gain.linearRampToValueAtTime(0.75, now + note.start + 0.02);
+                        noteGain.gain.exponentialRampToValueAtTime(0.001, now + note.start + note.dur);
+
+                        osc.connect(noteGain);
+                        noteGain.connect(masterGain);
+
+                        osc.start(now + note.start);
+                        osc.stop(now + note.start + note.dur + 0.04);
+                    });
+
+                    playedViaWebAudio = true;
                 }
             }
-
-            const ctx = this.speakerTestContext;
-            const now = ctx.currentTime;
-            const vol = Math.max(0.05, Math.min(1.0, (volume || 100) / 100));
-
-            const masterGain = ctx.createGain();
-            masterGain.gain.setValueAtTime(vol * 0.4, now);
-            masterGain.connect(ctx.destination);
-
-            // Play Discord-like bright multi-note chime: D5, F#5, A5, D6
-            const notes = [
-                { freq: 587.33, start: 0.00, dur: 0.20, type: 'sine' },
-                { freq: 739.99, start: 0.11, dur: 0.22, type: 'sine' },
-                { freq: 880.00, start: 0.22, dur: 0.26, type: 'sine' },
-                { freq: 1174.66, start: 0.35, dur: 0.55, type: 'triangle' }
-            ];
-
-            notes.forEach(note => {
-                const osc = ctx.createOscillator();
-                const noteGain = ctx.createGain();
-
-                osc.type = note.type;
-                osc.frequency.setValueAtTime(note.freq, now + note.start);
-
-                noteGain.gain.setValueAtTime(0, now + note.start);
-                noteGain.gain.linearRampToValueAtTime(0.65, now + note.start + 0.02);
-                noteGain.gain.exponentialRampToValueAtTime(0.001, now + note.start + note.dur);
-
-                osc.connect(noteGain);
-                noteGain.connect(masterGain);
-
-                osc.start(now + note.start);
-                osc.stop(now + note.start + note.dur + 0.04);
-            });
-
-            setTimeout(() => {
-                this.isTestingSpeaker = false;
-            }, 1000);
-
-            return true;
-        } catch (e) {
-            console.error('[gramAudio] playSpeakerTest error:', e);
-            this.isTestingSpeaker = false;
-            return false;
+        } catch (err) {
+            console.warn('[gramAudio] WebAudio synthesis fallback:', err);
         }
+
+        // Universal HTMLMediaElement fallback if WebAudio was blocked or muted
+        if (!playedViaWebAudio) {
+            try {
+                const wavUrl = this.createChimeWavBlobUrl(volume);
+                if (wavUrl) {
+                    const audio = new Audio(wavUrl);
+                    audio.volume = vol;
+                    if (outputDeviceId && typeof audio.setSinkId === 'function') {
+                        try { await audio.setSinkId(outputDeviceId); } catch (e) {}
+                    }
+                    this.activeTestAudioEl = audio;
+                    await audio.play();
+                    audio.onended = () => {
+                        URL.revokeObjectURL(wavUrl);
+                        this.activeTestAudioEl = null;
+                    };
+                }
+            } catch (e) {
+                console.error('[gramAudio] HTMLAudio fallback error:', e);
+            }
+        }
+
+        setTimeout(() => {
+            this.isTestingSpeaker = false;
+        }, 1100);
+
+        return true;
     },
 
     stopSpeakerTest: function () {
@@ -1220,6 +1300,13 @@ window.gramAudio = {
         if (this.speakerTestContext) {
             try { this.speakerTestContext.close(); } catch (e) {}
             this.speakerTestContext = null;
+        }
+        if (this.activeTestAudioEl) {
+            try {
+                this.activeTestAudioEl.pause();
+                this.activeTestAudioEl.currentTime = 0;
+            } catch (e) {}
+            this.activeTestAudioEl = null;
         }
     }
 };
