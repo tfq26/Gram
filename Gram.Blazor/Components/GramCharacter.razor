@@ -4,7 +4,7 @@
 
 <div @ref="elementRef"
      id="@elementId"
-     class="gram-character-container @Class @(isWaving ? "state-wave" : "") @(isThinking ? "state-thinking" : "") @(isLookingDown ? "state-lookdown" : "") @(isResearching ? "state-researching" : "") @(isDesigning ? "state-designing" : "") @(isReviewing ? "state-reviewing" : "") @(isComplete ? "state-complete" : "")"
+     class="gram-character-container @Class @(isWaving ? "state-wave" : "") @(isThinking ? "state-thinking" : "") @(isLookingDown ? "state-lookdown" : "") @(isResearching ? "state-researching" : "") @(isDesigning ? "state-designing" : "") @(isReviewing ? "state-reviewing" : "") @(isComplete ? "state-complete" : "") @(isLanding ? "state-landing is-jumping" : "") @(isTypingName ? "state-typing-name is-recognizing" : "") @(isTypingPassword ? "state-typing-password is-covering-eyes" : "")"
      style="width: @(Size)px; height: @(Size)px; display: inline-flex; align-items: center; justify-content: center; position: relative; @Style"
      @onclick="HandleClick">
     
@@ -229,6 +229,9 @@
     private bool isDesigning => State == "designing" || State == "assembling";
     private bool isReviewing => State == "reviewing";
     private bool isComplete => State == "complete";
+    private bool isLanding => State == "landing" || State == "excited" || State == "jump";
+    private bool isTypingName => State == "typing_name" || State == "name" || State == "recognize";
+    private bool isTypingPassword => State == "typing_password" || State == "password" || State == "peek_cover" || State == "shy";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

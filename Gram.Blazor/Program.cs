@@ -41,7 +41,9 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.IStreamingTranscriberFactory, G
 builder.Services.AddSingleton<Gram.Blazor.Shared.ITextToSpeechProvider, Gram.Blazor.Shared.ElevenLabsTextToSpeechProvider>();
 
 builder.Services.AddSingleton<Gram.Blazor.Shared.StorageService>();
-builder.Services.AddScoped<Gram.Blazor.Shared.IAgentRunTracker, Gram.Blazor.Shared.AgentRunTracker>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.SandboxAuditService>();
+builder.Services.AddScoped<Gram.Blazor.Shared.SandboxBenchmarkService>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.IAgentRunTracker, Gram.Blazor.Shared.AgentRunTracker>();
 
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL") 
     ?? Environment.GetEnvironmentVariable("POSTGRES_CONNECTION_STRING");
@@ -58,6 +60,7 @@ else
     builder.Services.AddSingleton<Gram.Blazor.Shared.SqliteDatabaseService>();
     builder.Services.AddSingleton<Gram.Blazor.Shared.IDatabaseProvider>(sp => sp.GetRequiredService<Gram.Blazor.Shared.SqliteDatabaseService>());
 }
+builder.Services.AddSingleton<Gram.Blazor.Shared.IEmailService, Gram.Blazor.Shared.EmailService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.SessionStorageService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.MarkdownService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IWebSearchProvider, Gram.Blazor.Shared.ParallelWebSearchProvider>();
@@ -95,6 +98,8 @@ builder.Services.AddScoped<Gram.Blazor.Shared.AgentOrchestrator>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IAgentWorkflow, Gram.Blazor.Shared.ChatWorkflow>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IAgentWorkflow, Gram.Blazor.Shared.ResearchWorkflow>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IAgentWorkflow, Gram.Blazor.Shared.PresentationWorkflow>();
+builder.Services.AddScoped<Gram.Blazor.Shared.IAgentWorkflow, Gram.Blazor.Shared.CodingWorkflow>();
+builder.Services.AddScoped<Gram.Blazor.Shared.IAgentWorkflow, Gram.Blazor.Shared.VoiceWorkflow>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IAgentWorkflowRouter, Gram.Blazor.Shared.AgentWorkflowRouter>();
 builder.Services.AddScoped<Gram.Blazor.Shared.ContextBuilder>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.RepositoryMapService>();
@@ -110,6 +115,13 @@ builder.Services.AddAuthentication();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<Gram.Blazor.Shared.ISonnerService, Gram.Blazor.Shared.SonnerService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.GitGramService>();
+builder.Services.AddScoped<Gram.Blazor.Shared.BackendFacade>();
+builder.Services.AddScoped<Gram.Blazor.Shared.IConversationApi>(sp => sp.GetRequiredService<Gram.Blazor.Shared.BackendFacade>());
+builder.Services.AddScoped<Gram.Blazor.Shared.IRunApi>(sp => sp.GetRequiredService<Gram.Blazor.Shared.BackendFacade>());
+builder.Services.AddScoped<Gram.Blazor.Shared.IModelApi>(sp => sp.GetRequiredService<Gram.Blazor.Shared.BackendFacade>());
+builder.Services.AddScoped<Gram.Blazor.Shared.ISearchApi>(sp => sp.GetRequiredService<Gram.Blazor.Shared.BackendFacade>());
+builder.Services.AddScoped<Gram.Blazor.Shared.IArtifactApi>(sp => sp.GetRequiredService<Gram.Blazor.Shared.BackendFacade>());
+builder.Services.AddScoped<Gram.Blazor.Shared.ILocalAgentApi>(sp => sp.GetRequiredService<Gram.Blazor.Shared.BackendFacade>());
 
 var app = builder.Build();
 app.UseWebSockets();
@@ -117,6 +129,51 @@ app.UseStaticFiles();
 app.UseAntiforgery();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", version = "1.0.0", timestamp = DateTimeOffset.UtcNow }));
+
+var api = app.MapGroup("/api/v1").AddEndpointFilter<Gram.Blazor.Shared.BackendAuthorizationFilter>();
+api.MapPost("/conversations", async (Gram.Blazor.Shared.CreateConversationRequest request, Gram.Blazor.Shared.IConversationApi conversations, CancellationToken ct) => Results.Ok(await conversations.CreateAsync(request, ct)));
+api.MapGet("/conversations", async (Gram.Blazor.Shared.IConversationApi conversations, CancellationToken ct) => Results.Ok(await conversations.ListAsync(ct)));
+api.MapGet("/conversations/{id}", async (string id, Gram.Blazor.Shared.IConversationApi conversations, CancellationToken ct) => (await conversations.GetAsync(id, ct)) is { } result ? Results.Ok(result) : Results.NotFound(new Gram.Blazor.Shared.ApiError("conversation_not_found", "Conversation was not found.")));
+api.MapPut("/conversations/{id}", async (string id, Gram.Blazor.Shared.SaveConversationRequest request, Gram.Blazor.Shared.IConversationApi conversations, CancellationToken ct) =>
+{
+    try { return (await conversations.SaveAsync(id, request, ct)) is { } result ? Results.Ok(result) : Results.NotFound(new Gram.Blazor.Shared.ApiError("conversation_not_found", "Conversation was not found.")); }
+    catch (Gram.Blazor.Shared.ConversationVersionConflictException ex) { return Results.Conflict(new Gram.Blazor.Shared.ApiError("version_conflict", ex.Message, Details: new Dictionary<string, string[]> { ["currentVersion"] = [ex.CurrentVersion.ToString()] })); }
+});
+api.MapDelete("/conversations/{id}", async (string id, Gram.Blazor.Shared.IConversationApi conversations, CancellationToken ct) => await conversations.DeleteAsync(id, ct) ? Results.NoContent() : Results.NotFound(new Gram.Blazor.Shared.ApiError("conversation_not_found", "Conversation was not found.")));
+api.MapPost("/conversations/{id}/runs", async (string id, Gram.Blazor.Shared.SendMessageRequest request, Gram.Blazor.Shared.IRunApi runs, CancellationToken ct) =>
+{
+    try { var result = await runs.StartAsync(id, request, ct); return Results.Accepted($"/api/v1/runs/{result.Id}", result); }
+    catch (KeyNotFoundException ex) { return Results.NotFound(new Gram.Blazor.Shared.ApiError("conversation_not_found", ex.Message)); }
+    catch (ArgumentException ex) { return Results.BadRequest(new Gram.Blazor.Shared.ApiError("invalid_request", ex.Message)); }
+});
+api.MapGet("/runs/{id}", (string id, Gram.Blazor.Shared.IRunApi runs) => runs.Get(id) is { } result ? Results.Ok(result) : Results.NotFound(new Gram.Blazor.Shared.ApiError("run_not_found", "Run was not found.")));
+api.MapPost("/runs/{id}/cancel", async (string id, Gram.Blazor.Shared.CancelRunRequest request, Gram.Blazor.Shared.IRunApi runs) => await runs.CancelAsync(id, request.Reason) ? Results.Accepted() : Results.NotFound(new Gram.Blazor.Shared.ApiError("run_not_found", "Run was not found.")));
+api.MapGet("/runs/{id}/events", async (HttpContext context, string id, Gram.Blazor.Shared.IRunApi runs, CancellationToken ct) =>
+{
+    if (runs.Get(id) is null) { context.Response.StatusCode = 404; return; }
+    context.Response.ContentType = "text/event-stream";
+    context.Response.Headers.CacheControl = "no-cache";
+    var last = long.TryParse(context.Request.Headers["Last-Event-ID"].FirstOrDefault(), out var headerSequence) ? headerSequence : 0;
+    while (!ct.IsCancellationRequested)
+    {
+        foreach (var item in runs.GetEvents(id, last))
+        {
+            last = item.Sequence;
+            await context.Response.WriteAsync($"id: {item.Sequence}\nevent: {item.EventType}\ndata: {System.Text.Json.JsonSerializer.Serialize(item, Gram.Blazor.Shared.BackendJson.Options)}\n\n", ct);
+            await context.Response.Body.FlushAsync(ct);
+        }
+        if (runs.Get(id)?.CompletedAt is not null) break;
+        await Task.Delay(250, ct);
+    }
+});
+api.MapGet("/models", (Gram.Blazor.Shared.IModelApi models) => Results.Ok(models.ListModels()));
+api.MapGet("/providers", (Gram.Blazor.Shared.IModelApi models) => Results.Ok(models.ListProviders()));
+api.MapPost("/search", async (Gram.Blazor.Shared.SearchRequest request, Gram.Blazor.Shared.ISearchApi search, CancellationToken ct) => Results.Ok(await search.SearchAsync(request, ct)));
+api.MapGet("/artifacts/{id}", async (string id, Gram.Blazor.Shared.IArtifactApi artifacts, CancellationToken ct) => (await artifacts.GetAsync(id, ct)) is { } result ? Results.Ok(result) : Results.NotFound(new Gram.Blazor.Shared.ApiError("artifact_not_found", "Artifact was not found.")));
+api.MapGet("/artifacts/{id}/content", async (string id, Gram.Blazor.Shared.IArtifactApi artifacts, CancellationToken ct) => (await artifacts.GetContentAsync(id, ct)) is { } result ? Results.Ok(result) : Results.NotFound(new Gram.Blazor.Shared.ApiError("artifact_not_found", "Artifact was not found.")));
+api.MapGet("/presentations/{id}", async (string id, Gram.Blazor.Shared.IArtifactApi artifacts, CancellationToken ct) => (await artifacts.GetContentAsync(id, ct)) is { } result && result.ContentType.Equals("text/html", StringComparison.OrdinalIgnoreCase) ? Results.Ok(result) : Results.NotFound(new Gram.Blazor.Shared.ApiError("presentation_not_found", "Presentation was not found.")));
+api.MapGet("/local-agent/status", (Gram.Blazor.Shared.ILocalAgentApi agent) => Results.Ok(agent.GetStatus()));
+api.MapGet("/local-agent/capabilities", (Gram.Blazor.Shared.ILocalAgentApi agent) => Results.Ok(agent.GetStatus().Capabilities ?? []));
 
 app.Map("/api/voice/assemblyai", async context =>
 {

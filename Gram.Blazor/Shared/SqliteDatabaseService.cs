@@ -86,6 +86,7 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 data_json TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
 
@@ -99,10 +100,24 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                code TEXT NOT NULL,
+                token TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                used INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
             CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
             CREATE INDEX IF NOT EXISTS idx_user_passkeys_user_id ON user_passkeys(user_id);
+            CREATE INDEX IF NOT EXISTS idx_reset_user_id ON password_reset_tokens(user_id);
+            CREATE INDEX IF NOT EXISTS idx_reset_code ON password_reset_tokens(code);
+            CREATE INDEX IF NOT EXISTS idx_reset_token ON password_reset_tokens(token);
         ";
         cmd.ExecuteNonQuery();
 
@@ -112,6 +127,14 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
             using var alterCmd = conn.CreateCommand();
             alterCmd.CommandText = "ALTER TABLE users ADD COLUMN image TEXT;";
             alterCmd.ExecuteNonQuery();
+        }
+        catch {}
+
+        try
+        {
+            using var alterConversation = conn.CreateCommand();
+            alterConversation.CommandText = "ALTER TABLE conversations ADD COLUMN version INTEGER NOT NULL DEFAULT 1;";
+            alterConversation.ExecuteNonQuery();
         }
         catch {}
 
@@ -352,7 +375,7 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
         await conn.OpenAsync(ct);
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, title, created_at, updated_at, model_id, system_prompt, rules FROM conversations WHERE user_id = @user_id ORDER BY updated_at DESC;";
+        cmd.CommandText = "SELECT id, title, created_at, updated_at, model_id, system_prompt, rules, version FROM conversations WHERE user_id = @user_id ORDER BY updated_at DESC;";
         cmd.Parameters.AddWithValue("@user_id", userId);
 
         using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -366,7 +389,8 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
                 Updated = DateTimeOffset.Parse(reader.GetString(3)),
                 ModelId = reader.IsDBNull(4) ? "" : reader.GetString(4),
                 SystemPromptOverride = reader.IsDBNull(5) ? "" : reader.GetString(5),
-                Rules = reader.IsDBNull(6) ? "" : reader.GetString(6)
+                Rules = reader.IsDBNull(6) ? "" : reader.GetString(6),
+                Version = reader.IsDBNull(7) ? 1 : reader.GetInt32(7)
             });
         }
         return list;
@@ -395,7 +419,7 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
         }
     }
 
-    public async Task<bool> SaveConversationAsync(Conversation conversation, string userId, CancellationToken ct = default)
+    public async Task<bool> SaveConversationAsync(Conversation conversation, string userId, CancellationToken ct = default, int? expectedVersion = null)
     {
         try
         {
@@ -405,10 +429,11 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
 
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
-                INSERT INTO conversations (id, user_id, title, model_id, system_prompt, rules, created_at, updated_at, data_json)
-                VALUES (@id, @user_id, @title, @model_id, @system_prompt, @rules, @created_at, @updated_at, @data_json)
+                INSERT INTO conversations (id, user_id, title, model_id, system_prompt, rules, created_at, updated_at, data_json, version)
+                VALUES (@id, @user_id, @title, @model_id, @system_prompt, @rules, @created_at, @updated_at, @data_json, @version)
                 ON CONFLICT (id) DO UPDATE 
-                SET title = @title, model_id = @model_id, system_prompt = @system_prompt, rules = @rules, updated_at = @updated_at, data_json = @data_json;
+                SET title = @title, model_id = @model_id, system_prompt = @system_prompt, rules = @rules, updated_at = @updated_at, data_json = @data_json, version = @version
+                WHERE @expected_version IS NULL OR conversations.version = @expected_version;
             """;
             cmd.Parameters.AddWithValue("@id", conversation.Id);
             cmd.Parameters.AddWithValue("@user_id", userId);
@@ -419,6 +444,8 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
             cmd.Parameters.AddWithValue("@created_at", conversation.Created.ToString("o"));
             cmd.Parameters.AddWithValue("@updated_at", conversation.Updated.ToString("o"));
             cmd.Parameters.AddWithValue("@data_json", json);
+            cmd.Parameters.AddWithValue("@version", conversation.Version);
+            cmd.Parameters.AddWithValue("@expected_version", (object?)expectedVersion ?? DBNull.Value);
 
             return await cmd.ExecuteNonQueryAsync(ct) > 0;
         }
@@ -552,6 +579,124 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
             cmd.Parameters.AddWithValue("@user_id", userId);
             var count = Convert.ToInt64(await cmd.ExecuteScalarAsync());
             return count > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> SavePasswordResetTokenAsync(string userId, string code, string token, DateTime expiresAt)
+    {
+        try
+        {
+            using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO password_reset_tokens (id, user_id, code, token, created_at, expires_at, used)
+                VALUES (@id, @user_id, @code, @token, @created_at, @expires_at, 0);
+            ";
+            cmd.Parameters.AddWithValue("@id", Guid.NewGuid().ToString("N"));
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            cmd.Parameters.AddWithValue("@code", code);
+            cmd.Parameters.AddWithValue("@token", token);
+            cmd.Parameters.AddWithValue("@created_at", DateTime.UtcNow.ToString("o"));
+            cmd.Parameters.AddWithValue("@expires_at", expiresAt.ToString("o"));
+            return await cmd.ExecuteNonQueryAsync() > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<PasswordResetRecord?> GetPasswordResetByCodeAsync(string email, string code)
+    {
+        try
+        {
+            using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT prt.id, prt.user_id, prt.code, prt.token, prt.created_at, prt.expires_at, prt.used
+                FROM password_reset_tokens prt
+                INNER JOIN users u ON prt.user_id = u.id
+                WHERE LOWER(u.email) = LOWER(@email) AND prt.code = @code
+                ORDER BY prt.created_at DESC
+                LIMIT 1;
+            ";
+            cmd.Parameters.AddWithValue("@email", email);
+            cmd.Parameters.AddWithValue("@code", code);
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return new PasswordResetRecord
+                {
+                    Id = reader.GetString(0),
+                    UserId = reader.GetString(1),
+                    Code = reader.GetString(2),
+                    Token = reader.GetString(3),
+                    CreatedAt = DateTime.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                    ExpiresAt = DateTime.Parse(reader.GetString(5), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                    Used = reader.GetInt32(6) == 1
+                };
+            }
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<PasswordResetRecord?> GetPasswordResetByTokenAsync(string token)
+    {
+        try
+        {
+            using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                SELECT id, user_id, code, token, created_at, expires_at, used
+                FROM password_reset_tokens
+                WHERE token = @token
+                ORDER BY created_at DESC
+                LIMIT 1;
+            ";
+            cmd.Parameters.AddWithValue("@token", token);
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return new PasswordResetRecord
+                {
+                    Id = reader.GetString(0),
+                    UserId = reader.GetString(1),
+                    Code = reader.GetString(2),
+                    Token = reader.GetString(3),
+                    CreatedAt = DateTime.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                    ExpiresAt = DateTime.Parse(reader.GetString(5), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                    Used = reader.GetInt32(6) == 1
+                };
+            }
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> InvalidatePasswordResetTokenAsync(string tokenId)
+    {
+        try
+        {
+            using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE password_reset_tokens SET used = 1 WHERE id = @id OR token = @id;";
+            cmd.Parameters.AddWithValue("@id", tokenId);
+            return await cmd.ExecuteNonQueryAsync() > 0;
         }
         catch
         {

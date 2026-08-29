@@ -140,11 +140,11 @@ public sealed class WebContentService
         {
             try
             {
-                var providerResults = await provider.SearchAsync(plan, maxResults - results.Count, cancellationToken);
+                var candidateCount = maxResults <= 2 ? maxResults : Math.Max(maxResults * 2, 8);
+                var providerResults = await provider.SearchAsync(plan, candidateCount, cancellationToken);
                 LastUsage = provider.LastUsage;
                 foreach (var result in providerResults)
                 {
-                    if (results.Count >= maxResults) break;
                     if (results.Any(existing => existing.Url.Equals(result.Url, StringComparison.OrdinalIgnoreCase))) continue;
                     results.Add(result);
                 }
@@ -154,7 +154,7 @@ public sealed class WebContentService
                 _logger?.LogWarning(ex, "{ProviderName} search failed; continuing with fallback sources", provider.Name);
             }
 
-            if (results.Count >= maxResults) break;
+            if (results.Count >= maxResults * 2) break;
         }
 
         // 2. DuckDuckGo Instant Answers API fallback
@@ -367,7 +367,9 @@ public sealed class WebContentService
             }
         }
 
-        results = SourceQualityScorer.Rank(results, plan).Take(maxResults).ToList();
+        var ranked = SourceQualityScorer.Rank(results, plan);
+        var filtered = ranked.Where(result => SourceQualityScorer.Score(result, plan) > 0).ToList();
+        results = (filtered.Count > 0 ? filtered : ranked).Take(maxResults).ToList();
         _searchCache[cacheKey] = (DateTimeOffset.UtcNow.Add(results.Count > 0 ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(30)), results.ToList());
         stopwatch.Stop();
         _logger?.LogInformation(

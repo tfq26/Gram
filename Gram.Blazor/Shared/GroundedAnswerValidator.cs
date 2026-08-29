@@ -28,8 +28,13 @@ public static class GroundedAnswerValidator
         if (string.IsNullOrWhiteSpace(answer)) return new(false, 0, 0, 0, 0, ["The answer was empty."]);
 
         var sourceUrls = sources.Select(source => NormalizeUrl(source.Url)).Where(url => url.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var sourceHosts = sources
+            .Select(s => Uri.TryCreate(s.Url, UriKind.Absolute, out var u) ? NormalizeHost(u.Host) : "")
+            .Where(h => h.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var citations = CitationRegex.Matches(answer).Select(match => NormalizeUrl(match.Groups[1].Value)).Where(url => url.Length > 0).ToList();
-        var validCitations = citations.Count(sourceUrls.Contains);
+        var validCitations = citations.Count(c => IsCitationValid(c, sourceUrls, sourceHosts));
         var invalidCitations = citations.Count - validCitations;
         if (invalidCitations > 0) issues.Add($"{invalidCitations} citation(s) do not point to a retrieved source.");
 
@@ -40,14 +45,36 @@ public static class GroundedAnswerValidator
             .Where(claim => claim.Length > 0)
             .Where(IsMaterialClaim)
             .ToList();
-        var citedClaims = claims.Count(claim => CitationRegex.IsMatch(claim) && CitationRegex.Matches(claim).Cast<Match>().Any(match => sourceUrls.Contains(NormalizeUrl(match.Groups[1].Value))));
+        var citedClaims = claims.Count(claim => CitationRegex.IsMatch(claim) && CitationRegex.Matches(claim).Cast<Match>().Any(match => IsCitationValid(NormalizeUrl(match.Groups[1].Value), sourceUrls, sourceHosts)));
         if (claims.Count > citedClaims) issues.Add($"{claims.Count - citedClaims} material claim(s) lack a citation to retrieved evidence.");
 
         var passed = issues.Count == 0 && (claims.Count == 0 || citedClaims == claims.Count);
         return new GroundedAnswerValidation(passed, claims.Count, citedClaims, validCitations, invalidCitations, issues);
     }
 
-    private static bool IsMaterialClaim(string text) => MaterialClaimRegex.IsMatch(text);
+    private static bool IsMaterialClaim(string text) => 
+        !text.StartsWith("#") && 
+        !text.StartsWith("Based on", StringComparison.OrdinalIgnoreCase) && 
+        !text.StartsWith("Here is", StringComparison.OrdinalIgnoreCase) && 
+        !text.StartsWith("Would you like", StringComparison.OrdinalIgnoreCase) && 
+        MaterialClaimRegex.IsMatch(text);
+
+    private static bool IsCitationValid(string citationUrl, HashSet<string> sourceUrls, HashSet<string> sourceHosts)
+    {
+        if (sourceUrls.Contains(citationUrl)) return true;
+        if (Uri.TryCreate(citationUrl, UriKind.Absolute, out var uri))
+        {
+            var host = NormalizeHost(uri.Host);
+            if (sourceHosts.Contains(host)) return true;
+        }
+        return false;
+    }
+
+    private static string NormalizeHost(string host)
+    {
+        var h = host.ToLowerInvariant();
+        return h.StartsWith("www.") ? h[4..] : h;
+    }
 
     private static string NormalizeUrl(string url)
     {

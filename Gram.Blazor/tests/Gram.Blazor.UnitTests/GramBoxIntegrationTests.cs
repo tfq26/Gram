@@ -5,9 +5,10 @@ using Xunit;
 
 namespace Gram.Blazor.UnitTests;
 
-public class GramBoxIntegrationTests
+public class GramBoxIntegrationTests : IDisposable
 {
     private readonly string _repoRoot;
+    private readonly string _testRepoRoot;
 
     public GramBoxIntegrationTests()
     {
@@ -21,6 +22,16 @@ public class GramBoxIntegrationTests
         }
 
         _repoRoot = current ?? Directory.GetCurrentDirectory();
+        _testRepoRoot = CreateWritableClone(_repoRoot);
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_testRepoRoot)) Directory.Delete(_testRepoRoot, true);
+        }
+        catch { }
     }
 
     [Fact]
@@ -28,7 +39,7 @@ public class GramBoxIntegrationTests
     {
         // Arrange
         var storage = new StorageService();
-        var worktreeManager = new GramBoxWorktreeManager(NullLogger<GramBoxWorktreeManager>.Instance, storage);
+        var worktreeManager = new GramBoxWorktreeManager(NullLogger<GramBoxWorktreeManager>.Instance, storage, Path.Combine(_testRepoRoot, ".worktrees"));
         var nativeDriver = new NativeScratchpadDriver(NullLogger<NativeScratchpadDriver>.Instance, new GramBoxConfig
         {
             StripSensitiveEnvVars = true,
@@ -38,7 +49,7 @@ public class GramBoxIntegrationTests
 
         // 1. Benchmark Sandbox Creation Latency
         var sw = Stopwatch.StartNew();
-        var session = await gramBoxService.CreateSandboxAsync(_repoRoot, taskName: "Test Sandbox Isolation");
+        var session = await gramBoxService.CreateSandboxAsync(_testRepoRoot, taskName: "Test Sandbox Isolation");
         sw.Stop();
         var creationMs = sw.ElapsedMilliseconds;
 
@@ -59,7 +70,7 @@ public class GramBoxIntegrationTests
             Assert.Equal(testFileContent, readContent);
 
             // CRITICAL CHECK: Verify main repo does NOT have this file
-            var mainRepoFilePath = Path.Combine(_repoRoot, testFileName);
+            var mainRepoFilePath = Path.Combine(_testRepoRoot, testFileName);
             Assert.False(File.Exists(mainRepoFilePath), "CRITICAL: Sandbox file leaked to main repo!");
 
             // 3. Test Command Execution & Environment Sanitization
@@ -89,7 +100,7 @@ public class GramBoxIntegrationTests
     public async Task GramBox_ResourceAndPerformance_Benchmark()
     {
         var storage = new StorageService();
-        var worktreeManager = new GramBoxWorktreeManager(NullLogger<GramBoxWorktreeManager>.Instance, storage);
+        var worktreeManager = new GramBoxWorktreeManager(NullLogger<GramBoxWorktreeManager>.Instance, storage, Path.Combine(_testRepoRoot, ".worktrees"));
         var nativeDriver = new NativeScratchpadDriver(NullLogger<NativeScratchpadDriver>.Instance);
         var gramBoxService = new GramBoxService(NullLogger<GramBoxService>.Instance, worktreeManager, nativeDriver);
 
@@ -100,7 +111,7 @@ public class GramBoxIntegrationTests
 
         // 1. Measure Sandbox Creation Speed
         var sw = Stopwatch.StartNew();
-        var session = await gramBoxService.CreateSandboxAsync(_repoRoot, taskName: "Benchmark Sandbox");
+        var session = await gramBoxService.CreateSandboxAsync(_testRepoRoot, taskName: "Benchmark Sandbox");
         sw.Stop();
         var creationMs = sw.ElapsedMilliseconds;
 
@@ -132,16 +143,16 @@ public class GramBoxIntegrationTests
     public async Task GramBox_ConcurrentSandboxes_IsolationAndPruning()
     {
         var storage = new StorageService();
-        var worktreeManager = new GramBoxWorktreeManager(NullLogger<GramBoxWorktreeManager>.Instance, storage);
+        var worktreeManager = new GramBoxWorktreeManager(NullLogger<GramBoxWorktreeManager>.Instance, storage, Path.Combine(_testRepoRoot, ".worktrees"));
         var nativeDriver = new NativeScratchpadDriver(NullLogger<NativeScratchpadDriver>.Instance);
         var gramBoxService = new GramBoxService(NullLogger<GramBoxService>.Instance, worktreeManager, nativeDriver);
 
         // Create 3 concurrent sandboxes simultaneously
         var tasks = new[]
         {
-            gramBoxService.CreateSandboxAsync(_repoRoot, taskName: "Concurrent SB 1"),
-            gramBoxService.CreateSandboxAsync(_repoRoot, taskName: "Concurrent SB 2"),
-            gramBoxService.CreateSandboxAsync(_repoRoot, taskName: "Concurrent SB 3")
+            gramBoxService.CreateSandboxAsync(_testRepoRoot, taskName: "Concurrent SB 1"),
+            gramBoxService.CreateSandboxAsync(_testRepoRoot, taskName: "Concurrent SB 2"),
+            gramBoxService.CreateSandboxAsync(_testRepoRoot, taskName: "Concurrent SB 3")
         };
 
         var sessions = await Task.WhenAll(tasks);
@@ -166,7 +177,7 @@ public class GramBoxIntegrationTests
             // Verify none of the files leaked to the main repository
             for (var i = 0; i < 3; i++)
             {
-                Assert.False(File.Exists(Path.Combine(_repoRoot, $"concurrent_test_{i}.txt")));
+                Assert.False(File.Exists(Path.Combine(_testRepoRoot, $"concurrent_test_{i}.txt")));
             }
         }
         finally
@@ -176,5 +187,29 @@ public class GramBoxIntegrationTests
             var results = await Task.WhenAll(closeTasks);
             Assert.All(results, Assert.True);
         }
+    }
+
+    private static string CreateWritableClone(string sourceRepo)
+    {
+        var destination = Path.Combine(Path.GetTempPath(), "gram-box-repo-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(destination);
+        Directory.Delete(destination);
+
+        using var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "git",
+            Arguments = $"clone --local --no-hardlinks \"{sourceRepo}\" \"{destination}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        }) ?? throw new InvalidOperationException("Could not start git clone for sandbox tests.");
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            var error = process.StandardError.ReadToEnd();
+            throw new InvalidOperationException($"Could not create writable sandbox test repository: {error}");
+        }
+        return destination;
     }
 }

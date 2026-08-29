@@ -20,6 +20,7 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
     private readonly GramBoxConfig _config;
     private readonly string _sharedCacheRoot;
     private readonly IPlatformSandboxController? _platformController;
+    private readonly ISandboxScheduler? _scheduler;
 
     public GramBoxEngineType EngineType => GramBoxEngineType.NativeWorktree;
 
@@ -36,11 +37,12 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
         "AZURE_OPENAI_API_KEY"
     };
 
-    public NativeScratchpadDriver(ILogger<NativeScratchpadDriver> logger, GramBoxConfig? config = null, IPlatformSandboxController? platformController = null)
+    public NativeScratchpadDriver(ILogger<NativeScratchpadDriver> logger, GramBoxConfig? config = null, IPlatformSandboxController? platformController = null, ISandboxScheduler? scheduler = null)
     {
         _logger = logger;
         _config = config ?? new GramBoxConfig();
         _platformController = platformController;
+        _scheduler = scheduler;
 
         var homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         _sharedCacheRoot = Path.Combine(homeDir, ".gram", "box", "cache");
@@ -160,6 +162,9 @@ public sealed class NativeScratchpadDriver : IGramBoxDriver
             session.CurrentCommand = command;
             session.LastActiveAt = DateTime.UtcNow;
 
+            using var executionReservation = _scheduler is null || session.ResourceBudget is null
+                ? null
+                : await _scheduler.AcquireExecutionAsync(session.ResourceBudget, ct);
             process.Start();
             using var platformAttachment = _platformController is null || session.ResourceBudget is null
                 ? null

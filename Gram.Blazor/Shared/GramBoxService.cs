@@ -34,6 +34,7 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
     private readonly ISandboxScheduler _scheduler;
     private readonly ISandboxMergeCoordinator _mergeCoordinator;
     private readonly ISandboxCheckpointService _checkpointService;
+    private readonly SandboxAuditService? _audit;
     private readonly GramBoxConfig _config = new();
 
     private readonly ConcurrentDictionary<string, GramBoxSandboxSession> _sessions = new();
@@ -55,7 +56,8 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
         NativeScratchpadDriver nativeDriver,
         ISandboxScheduler? scheduler = null,
         ISandboxMergeCoordinator? mergeCoordinator = null,
-        ISandboxCheckpointService? checkpointService = null)
+        ISandboxCheckpointService? checkpointService = null,
+        SandboxAuditService? audit = null)
     {
         _logger = logger;
         _worktreeManager = worktreeManager;
@@ -63,6 +65,7 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
         _scheduler = scheduler ?? new SandboxScheduler();
         _mergeCoordinator = mergeCoordinator ?? new SandboxMergeCoordinator(worktreeManager);
         _checkpointService = checkpointService ?? new SandboxCheckpointService(worktreeManager, new StorageService());
+        _audit = audit;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -117,6 +120,7 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
             _activeSessionId = session.Id;
 
             NotifyState($"Sandbox '{session.Name}' ready ({session.BranchName})");
+            if (_audit != null) _ = _audit.RecordAsync(new SandboxAuditEntry(DateTimeOffset.UtcNow, "sandbox.created", session.Id, session.RunId, EnforcementMode: "native-worktree"));
             return session;
         }
         catch (Exception ex)
@@ -148,6 +152,7 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
         {
             var result = await _nativeDriver.ExecuteCommandAsync(targetSession, command, relativeSubDir, timeoutSeconds, ct);
             if (!string.IsNullOrWhiteSpace(targetSession.LeaseId)) _scheduler.Heartbeat(targetSession.LeaseId);
+            if (_audit != null) _ = _audit.RecordAsync(new SandboxAuditEntry(DateTimeOffset.UtcNow, "command.completed", targetSession.Id, targetSession.RunId, command, result.Success, result.ElapsedMs, result.ErrorMessage, "native-worktree"));
             NotifyState($"[Sandbox: {targetSession.Id}] Command finished (Exit {result.ExitCode})");
             return result;
         }
@@ -233,6 +238,7 @@ public sealed class GramBoxService : IGramBoxService, IHostedService, IDisposabl
                 _activeSessionId = _sessions.Keys.FirstOrDefault();
             }
             NotifyState($"Closed sandbox {sandboxId}");
+            if (_audit != null) _ = _audit.RecordAsync(new SandboxAuditEntry(DateTimeOffset.UtcNow, "sandbox.closed", sandboxId, session.RunId, Success: ok));
             return ok;
         }
         return false;

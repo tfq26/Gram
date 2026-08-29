@@ -82,10 +82,19 @@
                 'state-sidebar-react', 'idle-sidebar-react',
                 'state-lookdown', 'is-typing',
                 'state-thinking', 'is-thinking',
-                'state-researching', 'state-designing', 'state-reviewing', 'state-complete'
+                'state-researching', 'state-designing', 'state-reviewing', 'state-complete',
+                'state-landing', 'is-jumping',
+                'state-typing-name', 'is-recognizing',
+                'state-typing-password', 'is-covering-eyes'
             );
 
-            if (stateName === 'wave') {
+            if (stateName === 'landing' || stateName === 'excited' || stateName === 'jump') {
+                this.root.classList.add('state-landing', 'is-jumping');
+            } else if (stateName === 'typing_name' || stateName === 'name' || stateName === 'recognize') {
+                this.root.classList.add('state-typing-name', 'is-recognizing');
+            } else if (stateName === 'typing_password' || stateName === 'password' || stateName === 'peek_cover' || stateName === 'shy') {
+                this.root.classList.add('state-typing-password', 'is-covering-eyes');
+            } else if (stateName === 'wave') {
                 this.root.classList.add('state-wave', 'is-waving');
             } else if (stateName === 'sidebar_open' || stateName === 'sidebar_react' || stateName === 'sidebar') {
                 this.root.classList.add('state-sidebar-open', 'state-sidebar-react');

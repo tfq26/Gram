@@ -77,6 +77,8 @@ public static class GroundingPolicy
 
 public static class SearchPlanBuilder
 {
+    private static readonly string[] ForwardLookingEntities = ["apple", "google", "microsoft", "openai", "meta", "nvidia", "amd", "intel", "tesla", "samsung", "iphone", "mac", "ipad", "android", "gemini", "chatgpt", "claude", "hardware", "phone", "chip"];
+
     public static SearchPlan ForQuestion(string question, string? clientModel = null)
     {
         var text = question.Trim();
@@ -87,7 +89,21 @@ public static class SearchPlanBuilder
         var mode = decision.Mode;
         var concise = System.Text.RegularExpressions.Regex.Replace(text, @"^(what|who|when|where|why|how)\s+(is|are|was|were|did|does|do|will)\s+", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).TrimEnd('?', '.', '!');
         var primaryQuery = string.IsNullOrWhiteSpace(concise) ? text : concise;
+        var lower = text.ToLowerInvariant();
+
         var queries = new List<SearchQueryPlan> { new(primaryQuery, current ? "news" : "general") };
+
+        var isForwardLooking = current || decision.TopicCategory == "news" || ForwardLookingEntities.Any(e => lower.Contains(e));
+
+        if (isForwardLooking)
+        {
+            // Horizon 1: Confirmed & Scheduled Events
+            queries.Add(new SearchQueryPlan($"{primaryQuery} official event keynote announcement date news", "news"));
+
+            // Horizon 2: Future Roadmap & Leaks / Expected Products
+            queries.Add(new SearchQueryPlan($"{primaryQuery} upcoming hardware roadmap rumors expected release timeline", "news"));
+        }
+
         if (mode == "advanced")
         {
             var terms = System.Text.RegularExpressions.Regex.Matches(primaryQuery, @"[A-Za-z0-9][A-Za-z0-9'\-.]{2,}")
@@ -102,6 +118,7 @@ public static class SearchPlanBuilder
                 queries.Add(new SearchQueryPlan(string.Join(' ', terms.Skip(midpoint).Take(5)), current ? "news" : "general"));
             }
         }
+
         IReadOnlyList<string>? domains = decision.PreferredDomains;
         return new SearchPlan(text, queries, mode, current ? "current" : "general", domains, primary, clientModel, $"gram-{Guid.NewGuid():N}", decision.TopicCategory, coverage);
     }
@@ -128,22 +145,89 @@ public static class SearchPlanBuilder
 
 public static class SourceQualityScorer
 {
-    private static readonly string[] PrimaryHosts = ["irs.gov", "treasury.gov", "ustr.gov", "epa.gov", "ec.europa.eu", "eur-lex.europa.eu", "nasa.gov", "federalreserve.gov", "sec.gov", "who.int", "un.org"];
+    private static readonly string[] Tier1AOfficialHosts =
+    [
+        "wikipedia.org", "apple.com", "microsoft.com", "google.com", "openai.com", "anthropic.com", 
+        "sec.gov", "irs.gov", "treasury.gov", "ustr.gov", "epa.gov", "ec.europa.eu", 
+        "eur-lex.europa.eu", "nasa.gov", "federalreserve.gov", "who.int", "reuters.com", "apnews.com"
+    ];
+
+    private static readonly string[] Tier1BReportingHosts =
+    [
+        "bloomberg.com", "theverge.com", "9to5mac.com", "macrumors.com", "arstechnica.com", 
+        "wsj.com", "ft.com", "cnbc.com", "techcrunch.com", "wired.com", "engadget.com", 
+        "tomshardware.com", "anandtech.com", "bbc.com", "nytimes.com"
+    ];
+
+    private static readonly string[] SpamSignals = ["coupon", "promo code", "discount code", "cheap deals", "affiliate", "best deals today", "free gift card"];
 
     public static int Score(WebSearchResult result, SearchPlan? plan = null)
     {
         if (!Uri.TryCreate(result.Url, UriKind.Absolute, out var uri)) return 0;
+        var host = uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? uri.Host[4..] : uri.Host;
         var score = 0;
-        if (PrimaryHosts.Any(host => uri.Host.Equals(host, StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith("." + host, StringComparison.OrdinalIgnoreCase))) score += 100;
-        else if (uri.Host.EndsWith(".gov", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".europa.eu", StringComparison.OrdinalIgnoreCase)) score += 80;
-        else if (result.Source?.Equals("Parallel", StringComparison.OrdinalIgnoreCase) == true || result.Source?.Equals("Tavily", StringComparison.OrdinalIgnoreCase) == true) score += 30;
-        if (result.Snippet.Contains("published:", StringComparison.OrdinalIgnoreCase)) score += 5;
-        if (plan?.RequiresPrimarySources == true && score < 80) score -= 20;
+
+        // Tier 1A: Official primary sources and encyclopedias
+        if (Tier1AOfficialHosts.Any(h => host.Equals(h, StringComparison.OrdinalIgnoreCase) || host.EndsWith("." + h, StringComparison.OrdinalIgnoreCase)))
+        {
+            score += 100;
+        }
+        // Tier 1B: Vetted journalism with strong track record
+        else if (Tier1BReportingHosts.Any(h => host.Equals(h, StringComparison.OrdinalIgnoreCase) || host.EndsWith("." + h, StringComparison.OrdinalIgnoreCase)))
+        {
+            score += 80;
+        }
+        else if (host.EndsWith(".gov", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".europa.eu", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".edu", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 85;
+        }
+        else
+        {
+            score += 40;
+        }
+
+        // Boost specific news / encyclopedia article permalinks over top-level homepages
+        if (uri.AbsolutePath.Length > 1 && (uri.AbsolutePath.Contains("/wiki/") || uri.AbsolutePath.Contains("/202") || uri.AbsolutePath.Contains("/news/") || uri.AbsolutePath.Contains("/articles/") || uri.AbsolutePath.Contains("/story/")))
+        {
+            score += 25;
+        }
+
+        // Penalize stale historical years for current / live news queries
+        if (plan?.Freshness == "current")
+        {
+            if (uri.AbsolutePath.Contains("/2018/") || uri.AbsolutePath.Contains("/2019/") || 
+                uri.AbsolutePath.Contains("/2020/") || uri.AbsolutePath.Contains("/2021/") || 
+                uri.AbsolutePath.Contains("/2022/") || uri.AbsolutePath.Contains("/2023/") ||
+                uri.AbsolutePath.Contains("/2018-") || uri.AbsolutePath.Contains("/2019-") || 
+                uri.AbsolutePath.Contains("/2020-") || uri.AbsolutePath.Contains("/2021-"))
+            {
+                score -= 120;
+            }
+        }
+
+        // Adjust news redirect aggregators so direct publisher/encyclopedia articles rank higher
+        if (host.Equals("news.google.com", StringComparison.OrdinalIgnoreCase))
+        {
+            score -= 10;
+        }
+
+        // Penalize spam / affiliate aggregators
+        var text = $"{result.Title} {result.Snippet}".ToLowerInvariant();
+        if (SpamSignals.Any(text.Contains))
+        {
+            score -= 60;
+        }
+
+        if (result.Snippet.Contains("published:", StringComparison.OrdinalIgnoreCase)) score += 10;
+        if (plan?.RequiresPrimarySources == true && score < 80) score -= 30;
+
         return score;
     }
 
     public static IReadOnlyList<WebSearchResult> Rank(IEnumerable<WebSearchResult> results, SearchPlan? plan = null) =>
-        plan?.RequiresPrimarySources == true
-            ? results.OrderByDescending(result => Score(result, plan)).ThenByDescending(result => result.Snippet.Length).ToList()
-            : results.ToList();
+        results.Select((r, i) => (Result: r, Score: Score(r, plan), Index: i))
+               .OrderByDescending(x => x.Score)
+               .ThenBy(x => x.Index)
+               .Select(x => x.Result)
+               .ToList();
 }

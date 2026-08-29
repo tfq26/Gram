@@ -46,6 +46,7 @@ public sealed class ConversationService
         {
             var user = _authService.CurrentUser;
             var loadedList = new List<Conversation>();
+            var loadedFromLocalStorage = false;
 
             if (user.IsAuthenticated && !string.IsNullOrWhiteSpace(user.Id))
             {
@@ -65,7 +66,8 @@ public sealed class ConversationService
                             ModelId = meta.ModelId,
                             SystemPromptOverride = meta.SystemPromptOverride,
                             Rules = meta.Rules,
-                            Updated = meta.Updated
+                            Updated = meta.Updated,
+                            Version = meta.Version
                         });
                     }
                 }
@@ -74,8 +76,9 @@ public sealed class ConversationService
             // 2. If no cloud conversations found or user is guest, check local storage
             if (loadedList.Count == 0)
             {
-                if (File.Exists(_legacyConversationsFilePath))
+                if (File.Exists(_legacyConversationsFilePath) || Directory.Exists(_storageService.GetFilePath("conversations")))
                 {
+                    BackupLegacyStorage();
                     await _sessionStorage.MigrateLegacyConversationsAsync(_legacyConversationsFilePath);
                 }
 
@@ -85,6 +88,12 @@ public sealed class ConversationService
                     var fullConv = await _sessionStorage.LoadFullConversationAsync(meta.Id);
                     loadedList.Add(fullConv);
                 }
+                loadedFromLocalStorage = loadedList.Count > 0;
+            }
+
+            if (loadedFromLocalStorage && user.IsAuthenticated && !string.IsNullOrWhiteSpace(user.Id))
+            {
+                await ImportLocalConversationsAsync(loadedList, user.Id);
             }
 
             if (loadedList.Count > 0)
@@ -118,15 +127,70 @@ public sealed class ConversationService
         }
     }
 
+    private async Task ImportLocalConversationsAsync(IReadOnlyList<Conversation> conversations, string userId)
+    {
+        var migrationDirectory = _storageService.GetFilePath("migrations");
+        Directory.CreateDirectory(migrationDirectory);
+        var markerPath = Path.Combine(migrationDirectory, $"conversations-v1-{Sanitize(userId)}.json");
+        if (File.Exists(markerPath)) return;
+
+        var imported = 0;
+        foreach (var conversation in conversations)
+        {
+            if (await _db.SaveConversationAsync(conversation, userId)) imported++;
+            else throw new IOException($"Could not import legacy conversation '{conversation.Id}'.");
+        }
+
+        await File.WriteAllTextAsync(markerPath, JsonSerializer.Serialize(new
+        {
+            completed = true,
+            completedAt = DateTimeOffset.UtcNow,
+            sourceFormat = "legacy-local-storage",
+            importedConversationCount = imported
+        }, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private void BackupLegacyStorage()
+    {
+        try
+        {
+            var backupRoot = _storageService.GetFilePath("backups");
+            if (Directory.Exists(backupRoot) && Directory.GetDirectories(backupRoot).Length > 0) return;
+            var backupDirectory = Path.Combine(backupRoot, $"pre-backend-migration-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}");
+            Directory.CreateDirectory(backupDirectory);
+            if (File.Exists(_legacyConversationsFilePath))
+                File.Copy(_legacyConversationsFilePath, Path.Combine(backupDirectory, "conversations.json"), true);
+            var localDirectory = _storageService.GetFilePath("conversations");
+            if (Directory.Exists(localDirectory)) CopyDirectory(localDirectory, Path.Combine(backupDirectory, "conversations"));
+        }
+        catch (Exception ex)
+        {
+            // A backup failure must stop migration rather than risk a partial import.
+            throw new IOException("Could not create the pre-migration backup.", ex);
+        }
+    }
+
+    private static string Sanitize(string value) => string.Concat(value.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_'));
+
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.GetFiles(source)) File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
+        foreach (var directory in Directory.GetDirectories(source)) CopyDirectory(directory, Path.Combine(destination, Path.GetFileName(directory)));
+    }
+
     public async Task SaveConversationAsync(Conversation conversation)
     {
         await _lock.WaitAsync();
         try
         {
             var user = _authService.CurrentUser;
+            var expectedVersion = conversation.Version;
+            conversation.Version = Math.Max(1, expectedVersion + 1);
             if (user.IsAuthenticated && !string.IsNullOrWhiteSpace(user.Id))
             {
-                await _db.SaveConversationAsync(conversation, user.Id);
+                if (!await _db.SaveConversationAsync(conversation, user.Id, expectedVersion: expectedVersion))
+                    throw new ConversationVersionConflictException(expectedVersion);
             }
             await _sessionStorage.SaveConversationMetaAsync(conversation);
             OnChange?.Invoke();

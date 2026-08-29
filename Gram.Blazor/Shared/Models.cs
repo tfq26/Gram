@@ -23,6 +23,7 @@ public sealed class Conversation
     public double EstimatedCostUsd { get; set; }
     public int ContextSummaryMessageCount { get; set; }
     public bool IsProject { get; set; }
+    public int Version { get; set; } = 1;
 
     public Conversation() {}
 
@@ -48,6 +49,7 @@ public sealed class ConversationMeta
     public int AttachmentCount { get; set; }
     public int ArtifactCount { get; set; }
     public bool IsProject { get; set; }
+    public int Version { get; set; } = 1;
 }
 
 public sealed class Message

@@ -43,14 +43,24 @@
         </section>
 
         <section class="search-test-input-panel">
-            <label class="voice-test-section-label" for="searchTestQuery">Custom prompt</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <label class="voice-test-section-label" for="searchTestQuery" style="margin: 0;">Target model & prompt</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <span style="font-size: 12px; color: var(--text-muted, #94a3b8);">Test Engine:</span>
+                    <select @bind="selectedModelOption" style="padding: 4px 10px; border-radius: 6px; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.15); font-size: 13px;">
+                        <option value="gram-q-plus">Gram Q+ (Gemini 3 Flash Preview)</option>
+                        <option value="gram-q">Gram Q (GPT OSS 120B / Groq)</option>
+                        <option value="both">Both (Side-by-Side Comparison)</option>
+                    </select>
+                </div>
+            </div>
             <textarea id="searchTestQuery"
                       class="search-test-query"
                       rows="3"
                       @bind="customQuery"
                       placeholder="Ask a current question, such as: What is the plot of Avengers: Doomsday?"></textarea>
             <div class="voice-test-controls search-test-controls">
-                <button type="button" class="voice-test-button" @onclick="RunCustomPromptAsync" disabled="@isRunning">Run custom prompt</button>
+                <button type="button" class="voice-test-button" @onclick="RunCustomPromptAsync" disabled="@isRunning">Run prompt (@selectedModelOption)</button>
                 <button type="button" class="voice-test-secondary-button" @onclick="RunStandardPromptsAsync" disabled="@isRunning">Run 5 grounded answers</button>
                 <button type="button" class="voice-test-secondary-button" @onclick="ClearResults" disabled="@(isRunning || runs.Count == 0)">Clear</button>
                 <span class="voice-test-status @(isRunning ? "listening" : "")">@status</span>
@@ -177,7 +187,7 @@
     private string customQuery = StandardPrompts[0];
     private string status = "Ready to test";
     private bool isRunning;
-    private const string EvaluationModelId = "gram-q-plus";
+    private string selectedModelOption = "gram-q-plus";
 
     private long AverageLatencyMs => runs.Count == 0 ? 0 : (long)runs.Average(run => run.ElapsedMilliseconds);
 
@@ -199,6 +209,10 @@
         var batchId = Guid.NewGuid().ToString("N")[..12];
         try
         {
+            var targetModels = selectedModelOption == "both" 
+                ? new[] { "gram-q-plus", "gram-q" } 
+                : new[] { selectedModelOption };
+
             foreach (var prompt in prompts)
             {
                 status = $"Searching: {prompt}";
@@ -212,42 +226,50 @@
                 {
                     var grounding = await SearchGroundingHarness.RunAsync(prompt, 5, bypassCache: true);
                     stopwatch.Stop();
-                    var run = grounding.Error is null
-                        ? SearchDiagnosticRun.Create(prompt, startedAt, stopwatch.ElapsedMilliseconds, grounding.Results, grounding.Context, EvaluationModelId, grounding.Usage) with { MissingCoverage = grounding.MissingCoverage }
-                        : SearchDiagnosticRun.Failed(prompt, startedAt, stopwatch.ElapsedMilliseconds, grounding.Error);
-                    if (grounding.Error is null && grounding.IsGrounded)
+
+                    foreach (var modelId in targetModels)
                     {
-                        var answer = new System.Text.StringBuilder();
-                        var modelTimer = Stopwatch.StartNew();
-                        using var evaluationCts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-                        await foreach (var step in AgentOrchestrator.RunAgentLoopAsync(
-                            EvaluationModelId,
-                            [new Message("user", prompt)],
-                            Environment.CurrentDirectory,
-                            GramSystemPrompt.DefaultBasePrompt,
-                            maxIterations: 3,
-                            forcedWebSearchQuery: prompt,
-                            prefetchedWebContextOverride: grounding.Context,
-                            disableTools: true,
-                            cancellationToken: evaluationCts.Token))
+                        var run = grounding.Error is null
+                            ? SearchDiagnosticRun.Create(prompt, startedAt, stopwatch.ElapsedMilliseconds, grounding.Results, grounding.Context, modelId, grounding.Usage) with { MissingCoverage = grounding.MissingCoverage }
+                            : SearchDiagnosticRun.Failed(prompt, startedAt, stopwatch.ElapsedMilliseconds, grounding.Error);
+
+                        if (grounding.Error is null && grounding.IsGrounded)
                         {
-                            if (!string.IsNullOrWhiteSpace(step.ContentDelta)) answer.Append(step.ContentDelta);
-                            if (!string.IsNullOrWhiteSpace(step.ErrorMessage)) run = run with { Error = step.ErrorMessage };
+                            status = $"Generating with {modelId}: {prompt}";
+                            await InvokeAsync(StateHasChanged);
+
+                            var answer = new System.Text.StringBuilder();
+                            var modelTimer = Stopwatch.StartNew();
+                            using var evaluationCts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+                            await foreach (var step in AgentOrchestrator.RunAgentLoopAsync(
+                                modelId,
+                                [new Message("user", prompt)],
+                                Environment.CurrentDirectory,
+                                GramSystemPrompt.DefaultBasePrompt,
+                                maxIterations: 3,
+                                forcedWebSearchQuery: prompt,
+                                prefetchedWebContextOverride: grounding.Context,
+                                disableTools: true,
+                                cancellationToken: evaluationCts.Token))
+                            {
+                                if (!string.IsNullOrWhiteSpace(step.ContentDelta)) answer.Append(step.ContentDelta);
+                                if (!string.IsNullOrWhiteSpace(step.ErrorMessage)) run = run with { Error = step.ErrorMessage };
+                            }
+                            modelTimer.Stop();
+                            var answerText = answer.ToString().Trim();
+                            var validation = GroundedAnswerValidator.Validate(answerText, grounding.Results);
+                            run = run with { Answer = answerText, AnswerUsesSources = UsesGrounding(answerText, grounding.Results), Validation = validation, ModelMilliseconds = modelTimer.ElapsedMilliseconds };
                         }
-                        modelTimer.Stop();
-                        var answerText = answer.ToString().Trim();
-                        var validation = GroundedAnswerValidator.Validate(answerText, grounding.Results);
-                        run = run with { Answer = answerText, AnswerUsesSources = UsesGrounding(answerText, grounding.Results), Validation = validation, ModelMilliseconds = modelTimer.ElapsedMilliseconds };
-                    }
-                    runs.Insert(0, run);
-                    await SearchDiagnosticsLog.AppendAsync(new SearchDiagnosticLogEntry
-                    {
-                        RunId = $"{batchId}-{Guid.NewGuid().ToString("N")[..8]}",
-                        Query = prompt,
-                        ModelId = run.ModelId,
-                        SearchMilliseconds = run.ElapsedMilliseconds,
-                        ModelMilliseconds = run.ModelMilliseconds,
-                        TotalMilliseconds = run.ElapsedMilliseconds + run.ModelMilliseconds,
+
+                        runs.Insert(0, run);
+                        await SearchDiagnosticsLog.AppendAsync(new SearchDiagnosticLogEntry
+                        {
+                            RunId = $"{batchId}-{Guid.NewGuid().ToString("N")[..8]}",
+                            Query = prompt,
+                            ModelId = run.ModelId,
+                            SearchMilliseconds = run.ElapsedMilliseconds,
+                            ModelMilliseconds = run.ModelMilliseconds,
+                            TotalMilliseconds = run.ElapsedMilliseconds + run.ModelMilliseconds,
                         ResultCount = run.Results.Count,
                         ResultsWithSnippets = run.SnippetCount,
                         RelevantResultCount = run.RelevantResultCount,
@@ -282,8 +304,9 @@
                             run.RelevantResultCount > 0 && ($"{result.Title} {result.Snippet}").Contains(prompt.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "", StringComparison.OrdinalIgnoreCase))).ToList()
                     });
                     Logger.LogInformation(
-                        "Search diagnostic completed for prompt: {Prompt}; GroundingReady={GroundingReady}; Results={ResultCount}; Snippets={SnippetCount}; Relevant={RelevantCount}; Sources={SourceCount}; FetchedPages={FetchedPages}; ElapsedMs={ElapsedMs}",
+                        "Search diagnostic completed for prompt: {Prompt}; Model={Model}; GroundingReady={GroundingReady}; Results={ResultCount}; Snippets={SnippetCount}; Relevant={RelevantCount}; Sources={SourceCount}; FetchedPages={FetchedPages}; ElapsedMs={ElapsedMs}",
                         prompt,
+                        run.ModelId,
                         run.GroundingReady,
                         run.Results.Count,
                         run.SnippetCount,
@@ -291,6 +314,7 @@
                         run.SourceCount,
                         grounding.FetchedPages,
                         run.ElapsedMilliseconds);
+                    }
                 }
                 catch (Exception ex)
                 {

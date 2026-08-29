@@ -57,7 +57,8 @@ public sealed class SessionStorageService
             Rules = conv.Rules,
             MessageCount = conv.Messages.Count,
             AttachmentCount = conv.Attachments.Count,
-            ArtifactCount = conv.Artifacts.Count
+            ArtifactCount = conv.Artifacts.Count,
+            Version = conv.Version
         };
 
         var metaPath = Path.Combine(GetConversationDirectory(conv.Id), "meta.json");
@@ -182,7 +183,8 @@ public sealed class SessionStorageService
             Updated = meta?.Updated ?? DateTimeOffset.UtcNow,
             ModelId = meta?.ModelId,
             SystemPromptOverride = meta?.SystemPromptOverride ?? "",
-            Rules = meta?.Rules ?? ""
+            Rules = meta?.Rules ?? "",
+            Version = meta?.Version ?? 1
         };
 
         // 1. Load Messages from Transcript (or construct from entries)

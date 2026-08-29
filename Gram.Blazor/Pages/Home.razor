@@ -17,6 +17,8 @@
 @inject Gram.Blazor.Shared.PresentationGenerationService PresentationGeneration
 @inject Gram.Blazor.Shared.IQuotaTracker QuotaTracker
 @inject Gram.Blazor.Shared.IAgentRunTracker AgentRunTracker
+@inject Gram.Blazor.Shared.IRunApi BackendRunApi
+@inject Gram.Blazor.Shared.IConversationApi BackendConversationApi
 @inject NavigationManager NavManager
 @inject Gram.Blazor.Shared.WorkspaceTabService TabService
 @inject Gram.Blazor.Shared.IAuthService AuthService
@@ -1328,6 +1330,30 @@
     private enum VoiceState { Idle, UserSpeaking, GramSpeaking }
 
     private List<Conversation> conversations => ConversationService.Conversations;
+
+    private async Task SaveConversationThroughApiAsync(Conversation conversation)
+    {
+        try
+        {
+            var saved = await BackendConversationApi.SaveAsync(conversation.Id, new SaveConversationRequest(
+                conversation.Title, conversation.ModelId, conversation.Messages, conversation.Version));
+            if (saved is null) return;
+            conversation.Version = saved.Version;
+            conversation.Updated = saved.Updated;
+        }
+        catch (ConversationVersionConflictException)
+        {
+            SonnerService.Warning("Conversation changed", "This chat was updated elsewhere. Reload it before saving again.");
+        }
+    }
+
+    private async Task DeleteConversationThroughApiAsync(string id)
+    {
+        if (await BackendConversationApi.DeleteAsync(id))
+        {
+            ConversationService.Conversations.RemoveAll(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+        }
+    }
     private string activeId = "default";
     private string draft = "";
     private readonly List<string> attachedFiles = new();
@@ -1489,7 +1515,7 @@
         {
             activeSidecarTab = SidecarTab.Settings;
         }
-        _ = ConversationService.SaveConversationAsync(Active);
+        _ = SaveConversationThroughApiAsync(Active);
         StateHasChanged();
     }
 
@@ -1794,7 +1820,7 @@
         Active.ModelId = modelId;
         isModelMenuOpen = false;
         StateHasChanged();
-        _ = ConversationService.SaveConversationAsync(Active);
+        _ = SaveConversationThroughApiAsync(Active);
     }
 
     private readonly Conversation _fallbackConversation = new("default", "New chat", DateTimeOffset.UtcNow);
@@ -2080,7 +2106,7 @@
                         ModelId = activeModelId
                     };
                     conversations.Insert(0, newConv);
-                    _ = ConversationService.SaveConversationAsync(newConv);
+                    _ = SaveConversationThroughApiAsync(newConv);
                 }
 
                 if (activeId != tabChatId)
@@ -2097,7 +2123,7 @@
     {
         Active.Title = newTitle;
         TabService.UpdateChatTabTitle(Active.Id, newTitle);
-        await ConversationService.SaveConversationAsync(Active);
+        await SaveConversationThroughApiAsync(Active);
         SonnerService.Success("Chat renamed", $"Title updated to: {newTitle}");
         await InvokeAsync(StateHasChanged);
     }
@@ -2123,7 +2149,7 @@
     {
         ChatStateService.ActiveChatTitle = Active.Title;
         TabService.UpdateChatTabTitle(Active.Id, Active.Title);
-        await ConversationService.SaveConversationAsync(Active);
+        await SaveConversationThroughApiAsync(Active);
     }
 
     private void NewConversation()
@@ -2140,20 +2166,40 @@
         pendingMentions.Clear();
         selectedArtifact = null;
         activeDiffs.Clear();
-        _ = ConversationService.SaveConversationAsync(newConv);
+        _ = SaveConversationThroughApiAsync(newConv);
         TabService.OpenChatTab(id, "New chat");
         ChatStateService.ActiveChatTitle = "New chat";
         isSidebarOpen = false;
         StateHasChanged();
     }
 
-    private void SelectConversation(string id)
+    private async Task SelectConversation(string id)
     {
         activeId = id;
         var chat = conversations.FirstOrDefault(c => c.Id == id);
+        if (chat is not null)
+        {
+            try
+            {
+                var remote = await BackendConversationApi.GetAsync(id);
+                if (remote is not null)
+                {
+                    chat.Title = remote.Title;
+                    chat.ModelId = remote.ModelId;
+                    chat.Messages = remote.Messages.ToList();
+                    chat.Version = remote.Version;
+                    chat.Updated = remote.Updated;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Home] Could not refresh conversation {id}: {ex.Message}");
+            }
+        }
         TabService.OpenChatTab(id, chat?.Title ?? "New chat");
         ChatStateService.ActiveChatTitle = Active.Title;
         isSidebarOpen = false;
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task ToggleSidebar(bool open)
@@ -2192,7 +2238,7 @@
                 }
             }
             TabService.CloseTabsForChat(targetId);
-            await ConversationService.DeleteConversationAsync(targetId);
+            await DeleteConversationThroughApiAsync(targetId);
             StateHasChanged();
         }
     }
@@ -2206,7 +2252,7 @@
         pendingMentions.Clear();
         ChatStateService.ActiveChatTitle = Active.Title;
         await StopVoice();
-        await ConversationService.SaveConversationAsync(Active);
+        await SaveConversationThroughApiAsync(Active);
         SonnerService.Success("Chat cleared", "Conversation history has been reset.");
     }
 
@@ -2245,7 +2291,7 @@
         conversations.Insert(0, duplicate);
         activeId = newId;
         ChatStateService.ActiveChatTitle = duplicate.Title;
-        await ConversationService.SaveConversationAsync(duplicate);
+            await SaveConversationThroughApiAsync(duplicate);
         SonnerService.Success("Chat duplicated", $"Created copy: {duplicate.Title}");
     }
 
@@ -2307,7 +2353,7 @@
                 SonnerService.Error("Upload failed", ex.Message);
             }
         }
-        await ConversationService.SaveConversationAsync(Active);
+        await SaveConversationThroughApiAsync(Active);
         StateHasChanged();
     }
 
@@ -2337,7 +2383,7 @@
                 SonnerService.Error("Upload failed", ex.Message);
             }
         }
-        await ConversationService.SaveConversationAsync(Active);
+        await SaveConversationThroughApiAsync(Active);
         StateHasChanged();
     }
 
@@ -2851,7 +2897,7 @@
                                ?? "anthropic/claude-3.7-sonnet";
         }
 
-        currentRun = AgentRunTracker.Start(Active.Id, effectiveModelId);
+        currentRun = null;
         showRunDetails = false;
         StateHasChanged();
 
@@ -2888,88 +2934,46 @@
         try
         {
             assistantMsg.ToolCalls = new List<ToolCallInfo>();
-
-            await foreach (var step in AgentWorkflowRouter.RunAsync(new AgentWorkflowRequest(
-                effectiveModelId,
-                promptText,
-                contextResult.Messages,
-                workspacePath,
-                contextResult.SystemPrompt,
-                8,
-                contextResult.RepositoryMap,
-                null,
-                mentionResolution.ForcedWebSearchQuery,
+            var runSummary = await BackendRunApi.StartAsync(Active.Id, new SendMessageRequest(
+                promptText, effectiveModelId, workspacePath,
                 isPresentationMode || mentionResolution.IsPresentationRequested,
-                token)))
+                mentionResolution.ForcedWebSearchQuery,
+                contextResult.Messages, contextResult.SystemPrompt, contextResult.RepositoryMap), token);
+            currentRun = AgentRunTracker.Get(runSummary.Id);
+            long lastSequence = 0;
+            while (!token.IsCancellationRequested)
             {
-                if (currentRun != null)
+                foreach (var runEvent in BackendRunApi.GetEvents(runSummary.Id, lastSequence))
                 {
-                    var status = step.ToolCall != null ? AgentRunStatus.Executing : AgentRunStatus.Executing;
-                    AgentRunTracker.Update(currentRun.Id, status, step.ToolCall != null ? $"Using {step.ToolCall.ToolName}" : "Generating response");
-                    currentRun = AgentRunTracker.Get(currentRun.Id);
-                }
-                if (!string.IsNullOrWhiteSpace(step.ErrorMessage))
-                {
-                    assistantMsg.ErrorDetail = step.ErrorMessage;
-                }
-
-                if (!string.IsNullOrEmpty(step.ContentDelta))
-                {
-                    assistantMsg.Text += step.ContentDelta;
-                }
-
-                if (step.ToolCall != null)
-                {
-                    var existing = assistantMsg.ToolCalls.FirstOrDefault(t => t.Id == step.ToolCall.Id);
-                    if (existing != null)
+                    lastSequence = runEvent.Sequence;
+                    if (runEvent.EventType != "run.step") continue;
+                    using var eventJson = System.Text.Json.JsonDocument.Parse(runEvent.Payload);
+                    var root = eventJson.RootElement;
+                    if (root.TryGetProperty("contentDelta", out var delta) && delta.ValueKind == System.Text.Json.JsonValueKind.String)
+                        assistantMsg.Text += delta.GetString();
+                    if (root.TryGetProperty("errorMessage", out var error) && error.ValueKind == System.Text.Json.JsonValueKind.String)
+                        assistantMsg.ErrorDetail = error.GetString();
+                    if (root.TryGetProperty("toolCall", out var toolCall) && toolCall.ValueKind == System.Text.Json.JsonValueKind.Object)
                     {
-                        existing.Result = step.ToolCall.Result;
-                        existing.IsError = step.ToolCall.IsError;
-                    }
-                    else
-                    {
-                        assistantMsg.ToolCalls.Add(step.ToolCall);
-                    }
-
-                    // Record tool call entry in session storage
-                    if (!string.IsNullOrWhiteSpace(step.ToolCall.Result))
-                    {
-                        _ = SessionStorage.AppendTranscriptEntryAsync(Active.Id, new TranscriptEntry
+                        var parsedTool = System.Text.Json.JsonSerializer.Deserialize<ToolCallInfo>(toolCall.GetRawText(), BackendJson.Options);
+                        if (parsedTool is not null)
                         {
-                            Step = Active.Messages.Count,
-                            Type = TranscriptEntryType.TOOL_RESULT,
-                            ToolName = step.ToolCall.ToolName,
-                            ToolArgs = step.ToolCall.Arguments,
-                            ToolResult = step.ToolCall.Result,
-                            Timestamp = DateTimeOffset.UtcNow
-                        });
+                            var existing = assistantMsg.ToolCalls.FirstOrDefault(t => t.Id == parsedTool.Id);
+                            if (existing is not null) { existing.Result = parsedTool.Result; existing.IsError = parsedTool.IsError; }
+                            else assistantMsg.ToolCalls.Add(parsedTool);
+                        }
                     }
                 }
-
-                if (step.PromptTokens.HasValue)
-                {
-                    Active.PromptTokens = step.PromptTokens.Value;
-                }
-                if (step.CachedPromptTokens.HasValue)
-                {
-                    Active.CachedPromptTokens = step.CachedPromptTokens.Value;
-                }
-                if (step.CompletionTokens.HasValue)
-                {
-                    Active.CompletionTokens = step.CompletionTokens.Value;
-                }
-                if (step.LatencyMs.HasValue)
-                {
-                    Active.LastLatencyMs = step.LatencyMs.Value;
-                }
-
+                currentRun = AgentRunTracker.Get(runSummary.Id);
                 StateHasChanged();
                 _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
+                if (currentRun?.CompletedAt is not null) break;
+                await Task.Delay(100, token);
             }
         }
         catch (OperationCanceledException)
         {
-            if (currentRun != null) AgentRunTracker.Complete(currentRun.Id, AgentRunStatus.Cancelled, "Generation cancelled.");
+            if (currentRun != null) await BackendRunApi.CancelAsync(currentRun.Id, "Generation cancelled.");
             if (string.IsNullOrWhiteSpace(assistantMsg.Text) && (assistantMsg.ToolCalls == null || assistantMsg.ToolCalls.Count == 0))
             {
                 assistantMsg.Text = "[Generation stopped]";
@@ -2982,7 +2986,7 @@
         }
         finally
         {
-            if (currentRun != null && currentRun.Status is not (AgentRunStatus.Cancelled or AgentRunStatus.Failed))
+            if (currentRun != null && currentRun.CompletedAt is null && currentRun.Status is not (AgentRunStatus.Cancelled or AgentRunStatus.Failed))
             {
                 AgentRunTracker.Complete(currentRun.Id);
                 currentRun = AgentRunTracker.Get(currentRun.Id);
@@ -3000,7 +3004,7 @@
                 Timestamp = assistantMsg.Timestamp
             });
 
-            await ConversationService.SaveConversationAsync(Active);
+        await SaveConversationThroughApiAsync(Active);
             StateHasChanged();
             _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
         }
@@ -3164,7 +3168,7 @@
                     ChatStateService.ActiveChatTitle = generatedTitle;
                 }
                 TabService.UpdateChatTabTitle(conversation.Id, generatedTitle);
-                await ConversationService.SaveConversationAsync(conversation);
+                await SaveConversationThroughApiAsync(conversation);
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -3185,7 +3189,7 @@
             // 2. Safely save conversation state and tabs
             if (Active.Messages.Count > 0)
             {
-                await ConversationService.SaveConversationAsync(Active);
+            await SaveConversationThroughApiAsync(Active);
             }
             TabService.SaveTabs();
         }

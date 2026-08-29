@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -19,6 +20,8 @@ public interface IAuthService
     Task<bool> UpdateProfileAsync(string name, string nickname);
     Task<bool> UpdateAvatarAsync(string? imageBase64OrUrl);
     Task<AuthResult> ResetPasswordAsync(string currentPassword, string newPassword);
+    Task<PasswordResetRequestResult> RequestPasswordResetAsync(string email, string? baseUrl = null);
+    Task<PasswordResetCompleteResult> CompletePasswordResetAsync(string email, string codeOrToken, string newPassword);
     Task<List<PasskeyRecord>> GetPasskeysAsync();
     Task<AuthResult> RegisterPasskeyAsync(string credentialId, string publicKey, string name);
     Task<AuthResult> RegisterPasskeyAsync();
@@ -36,6 +39,7 @@ public sealed class GramAuthService : IAuthService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly StorageService _storageService;
     private readonly IDatabaseProvider _db;
+    private readonly IEmailService? _emailService;
     private readonly IHttpContextAccessor? _httpContextAccessor;
     private readonly string _sessionTokenFilePath;
     private GramUser _currentUser;
@@ -49,12 +53,14 @@ public sealed class GramAuthService : IAuthService
         IHttpClientFactory httpClientFactory,
         StorageService storageService,
         IDatabaseProvider db,
+        IEmailService? emailService = null,
         IHttpContextAccessor? httpContextAccessor = null)
     {
         _configuration = configuration;
         _httpClientFactory = httpClientFactory;
         _storageService = storageService;
         _db = db;
+        _emailService = emailService;
         _httpContextAccessor = httpContextAccessor;
         _sessionTokenFilePath = _storageService.GetFilePath("auth_session.json");
 
@@ -549,6 +555,130 @@ public sealed class GramAuthService : IAuthService
         catch (Exception ex)
         {
             return new AuthResult { Success = false, ErrorMessage = $"Database error: {ex.Message}" };
+        }
+    }
+
+    public async Task<PasswordResetRequestResult> RequestPasswordResetAsync(string email, string? baseUrl = null)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return new PasswordResetRequestResult { Success = false, ErrorMessage = "Email address is required." };
+        }
+
+        try
+        {
+            var user = await _db.GetUserByEmailAsync(email.Trim());
+            if (user == null)
+            {
+                return new PasswordResetRequestResult { Success = false, ErrorMessage = "No account found with this email address." };
+            }
+
+            // Generate cryptographically secure 6-digit verification code
+            var code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+            var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+            var expiresAt = DateTime.UtcNow.AddMinutes(15);
+
+            var saved = await _db.SavePasswordResetTokenAsync(user.Id, code, token, expiresAt);
+            if (!saved)
+            {
+                return new PasswordResetRequestResult { Success = false, ErrorMessage = "Could not initialize reset session." };
+            }
+
+            var baseUri = baseUrl?.TrimEnd('/') ?? "http://localhost:7337";
+            var resetUrl = $"{baseUri}/login?resetCode={code}&email={Uri.EscapeDataString(user.Email)}";
+
+            if (_emailService != null)
+            {
+                await _emailService.SendPasswordResetEmailAsync(user.Email, user.Name ?? user.Email, code, resetUrl);
+            }
+
+            var isDev = _emailService == null || !_emailService.IsConfigured;
+            return new PasswordResetRequestResult
+            {
+                Success = true,
+                IsDevMode = isDev,
+                DevCode = isDev ? code : null,
+                DevResetUrl = isDev ? resetUrl : null
+            };
+        }
+        catch (Exception ex)
+        {
+            return new PasswordResetRequestResult { Success = false, ErrorMessage = $"Error processing password reset: {ex.Message}" };
+        }
+    }
+
+    public async Task<PasswordResetCompleteResult> CompletePasswordResetAsync(string email, string codeOrToken, string newPassword)
+    {
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(codeOrToken))
+        {
+            return new PasswordResetCompleteResult { Success = false, ErrorMessage = "Email and verification code are required." };
+        }
+
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 6)
+        {
+            return new PasswordResetCompleteResult { Success = false, ErrorMessage = "New password must be at least 6 characters." };
+        }
+
+        try
+        {
+            var trimmedEmail = email.Trim();
+            var trimmedCode = codeOrToken.Trim();
+
+            var resetRecord = await _db.GetPasswordResetByCodeAsync(trimmedEmail, trimmedCode)
+                           ?? await _db.GetPasswordResetByTokenAsync(trimmedCode);
+
+            if (resetRecord == null)
+            {
+                return new PasswordResetCompleteResult { Success = false, ErrorMessage = "Invalid verification code or email address." };
+            }
+
+            if (resetRecord.Used)
+            {
+                return new PasswordResetCompleteResult { Success = false, ErrorMessage = "This reset code has already been used. Please request a new one." };
+            }
+
+            if (DateTime.UtcNow > resetRecord.ExpiresAt)
+            {
+                return new PasswordResetCompleteResult { Success = false, ErrorMessage = "This verification code has expired. Please request a new one." };
+            }
+
+            // Update user password
+            var updated = await _db.UpdatePasswordAsync(resetRecord.UserId, newPassword);
+            if (!updated)
+            {
+                return new PasswordResetCompleteResult { Success = false, ErrorMessage = "Failed to update password in database." };
+            }
+
+            // Invalidate the reset token
+            await _db.InvalidatePasswordResetTokenAsync(resetRecord.Id);
+
+            // Automatically create authenticated session
+            var user = await _db.GetUserByIdAsync(resetRecord.UserId);
+            if (user != null)
+            {
+                var session = await _db.CreateSessionAsync(user.Id);
+                _currentUser = new GramUser
+                {
+                    Id = user.Id,
+                    Name = user.Name,
+                    Email = user.Email,
+                    Image = user.Image,
+                    IsAuthenticated = true,
+                    Roles = [user.Role],
+                    SessionToken = session.Token,
+                    ExpiresAt = session.ExpiresAt
+                };
+
+                await SaveSessionTokenAsync(session.Token, _currentUser);
+                OnAuthStateChanged?.Invoke();
+                return new PasswordResetCompleteResult { Success = true, User = _currentUser, Token = session.Token };
+            }
+
+            return new PasswordResetCompleteResult { Success = true };
+        }
+        catch (Exception ex)
+        {
+            return new PasswordResetCompleteResult { Success = false, ErrorMessage = $"Failed to complete password reset: {ex.Message}" };
         }
     }
 

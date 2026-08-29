@@ -27,6 +27,7 @@ public sealed class PasskeyAuthUnitTests : IDisposable
 
         var httpClientFactory = new TestHttpClientFactory();
         _authService = new GramAuthService(config, httpClientFactory, _storageService, _db);
+        _authService.Settings.Provider = AuthProviderType.None;
     }
 
     public void Dispose()

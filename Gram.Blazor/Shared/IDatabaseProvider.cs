@@ -22,10 +22,15 @@ public interface IDatabaseProvider
     Task<bool> DeletePasskeyAsync(string userId, string credentialId);
     Task<bool> HasPasskeysAsync(string userId);
 
+    // Password Reset Operations
+    Task<bool> SavePasswordResetTokenAsync(string userId, string code, string token, DateTime expiresAt);
+    Task<PasswordResetRecord?> GetPasswordResetByCodeAsync(string email, string code);
+    Task<PasswordResetRecord?> GetPasswordResetByTokenAsync(string token);
+    Task<bool> InvalidatePasswordResetTokenAsync(string tokenId);
+
     // Conversation & Message Persistence
     Task<List<ConversationMeta>> ListConversationsAsync(string userId, CancellationToken ct = default);
     Task<Conversation?> GetConversationAsync(string conversationId, string userId, CancellationToken ct = default);
-    Task<bool> SaveConversationAsync(Conversation conversation, string userId, CancellationToken ct = default);
+    Task<bool> SaveConversationAsync(Conversation conversation, string userId, CancellationToken ct = default, int? expectedVersion = null);
     Task<bool> DeleteConversationAsync(string conversationId, string userId, CancellationToken ct = default);
 }
-

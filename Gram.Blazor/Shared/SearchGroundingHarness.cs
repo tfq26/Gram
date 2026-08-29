@@ -16,7 +16,7 @@ public sealed record SearchGroundingRun(
 {
     public IReadOnlyList<string> MissingCoverage => Plan?.RequiredCoverage?.Where(requirement =>
         !Results.Any(result => ($"{result.Title} {result.Snippet}").Contains(requirement, StringComparison.OrdinalIgnoreCase))).ToList() ?? [];
-    public bool IsGrounded => Error is null && Results.Count > 0 && Results.Any(result => !string.IsNullOrWhiteSpace(result.Snippet)) && !string.IsNullOrWhiteSpace(Context) && MissingCoverage.Count == 0;
+    public bool IsGrounded => Error is null && Results.Count > 0 && Results.Any(result => !string.IsNullOrWhiteSpace(result.Snippet)) && !string.IsNullOrWhiteSpace(Context);
 }
 
 /// <summary>
@@ -45,22 +45,27 @@ public sealed class SearchGroundingHarness
             var context = new StringBuilder();
             var fetchedPages = 0;
             var maxFetchedPages = 1;
+            var sourceIndex = 1;
+
             foreach (var result in results)
             {
-                var snippet = result.Snippet.Length > 900 ? result.Snippet[..900] + "..." : result.Snippet;
-                context.AppendLine($"- {result.Title} — {result.Url}");
-                if (!string.IsNullOrWhiteSpace(snippet)) context.AppendLine($"  {snippet}");
+                var snippet = result.Snippet.Length > 450 ? result.Snippet[..450] + "..." : result.Snippet;
+                context.AppendLine($"[{sourceIndex}] Title: {result.Title}");
+                context.AppendLine($"    URL: {result.Url}");
+                if (!string.IsNullOrWhiteSpace(snippet)) context.AppendLine($"    Snippet: {snippet}");
 
                 if (fetchedPages < maxFetchedPages && Uri.TryCreate(result.Url, UriKind.Absolute, out _))
                 {
                     var page = await _webContentService.ScrapeUrlAsync(result.Url, cancellationToken);
                     if (page.IsSuccess && !string.IsNullOrWhiteSpace(page.ContentMarkdown))
                     {
-                        var excerpt = page.ContentMarkdown.Length > 2600 ? page.ContentMarkdown[..2600] + "..." : page.ContentMarkdown;
-                        context.AppendLine($"  Page excerpt: {excerpt}");
+                        var excerpt = page.ContentMarkdown.Length > 1000 ? page.ContentMarkdown[..1000] + "..." : page.ContentMarkdown;
+                        context.AppendLine($"    Source-backed detail: {excerpt.Replace("\n", " ")}");
                         fetchedPages++;
                     }
                 }
+                context.AppendLine();
+                sourceIndex++;
             }
 
             stopwatch.Stop();

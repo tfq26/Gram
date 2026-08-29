@@ -18,9 +18,10 @@ public sealed class AgentRunSnapshot
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAt { get; set; }
     public string? Error { get; set; }
+    public string? Output { get; set; }
 }
 
-public sealed record AgentRunEvent(string RunId, string Type, string Message, DateTimeOffset Timestamp, int Iteration = 0, string? ToolName = null);
+public sealed record AgentRunEvent(string RunId, string Type, string Message, DateTimeOffset Timestamp, int Iteration = 0, string? ToolName = null, long Sequence = 0);
 
 public interface IAgentRunTracker
 {
@@ -30,6 +31,12 @@ public interface IAgentRunTracker
     void Complete(string runId, AgentRunStatus status = AgentRunStatus.Completed, string? error = null);
     AgentRunSnapshot? Get(string runId);
     IReadOnlyList<AgentRunEvent> GetEvents(string runId, int max = 20);
+    IReadOnlyList<AgentRunEvent> GetEventsAfter(string runId, long sequence = 0);
+    void AppendOutput(string runId, string text);
+    string? GetOutput(string runId);
+    void EmitPayload(string runId, string type, string payload);
+    bool Cancel(string runId, string reason);
+    CancellationToken GetCancellationToken(string runId);
 }
 
 public sealed class AgentRunTracker : IAgentRunTracker
@@ -38,6 +45,7 @@ public sealed class AgentRunTracker : IAgentRunTracker
     private readonly ILogger<AgentRunTracker> _logger;
     private readonly Dictionary<string, AgentRunSnapshot> _runs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<AgentRunEvent>> _events = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CancellationTokenSource> _cancellations = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _sync = new();
     private readonly string _directory;
     public event Action<AgentRunEvent>? OnEvent;
@@ -53,7 +61,7 @@ public sealed class AgentRunTracker : IAgentRunTracker
     public AgentRunSnapshot Start(string conversationId, string modelId)
     {
         var run = new AgentRunSnapshot { ConversationId = conversationId, ModelId = modelId, Status = AgentRunStatus.Planning, StatusText = "Preparing the request" };
-        lock (_sync) { _runs[run.Id] = run; _events[run.Id] = []; Persist(run); }
+        lock (_sync) { _runs[run.Id] = run; _events[run.Id] = []; _cancellations[run.Id] = new CancellationTokenSource(); Persist(run); }
         Emit(new AgentRunEvent(run.Id, "run.started", run.StatusText, run.StartedAt));
         return run;
     }
@@ -86,6 +94,36 @@ public sealed class AgentRunTracker : IAgentRunTracker
         lock (_sync) return _events.TryGetValue(runId, out var events) ? events.TakeLast(Math.Clamp(max, 1, 100)).ToList() : [];
     }
 
+    public IReadOnlyList<AgentRunEvent> GetEventsAfter(string runId, long sequence = 0)
+    {
+        lock (_sync) return _events.TryGetValue(runId, out var events) ? events.Where(x => x.Sequence > sequence).ToList() : [];
+    }
+
+    public void AppendOutput(string runId, string text)
+    {
+        lock (_sync) if (_runs.TryGetValue(runId, out var run)) { run.Output = (run.Output ?? "") + text; run.UpdatedAt = DateTimeOffset.UtcNow; Persist(run); }
+    }
+
+    public string? GetOutput(string runId) { lock (_sync) return _runs.TryGetValue(runId, out var run) ? run.Output : null; }
+
+    public void EmitPayload(string runId, string type, string payload) => Emit(new AgentRunEvent(runId, type, payload, DateTimeOffset.UtcNow));
+
+    public bool Cancel(string runId, string reason)
+    {
+        lock (_sync)
+        {
+            if (!_runs.ContainsKey(runId)) return false;
+            if (_cancellations.TryGetValue(runId, out var cancellation)) cancellation.Cancel();
+        }
+        Complete(runId, AgentRunStatus.Cancelled, reason);
+        return true;
+    }
+
+    public CancellationToken GetCancellationToken(string runId)
+    {
+        lock (_sync) return _cancellations.TryGetValue(runId, out var cancellation) ? cancellation.Token : new CancellationToken(true);
+    }
+
     private void Persist(AgentRunSnapshot run)
     {
         try { File.WriteAllText(Path.Combine(_directory, $"{run.Id}.json"), JsonSerializer.Serialize(run, new JsonSerializerOptions { WriteIndented = true })); }
@@ -97,6 +135,7 @@ public sealed class AgentRunTracker : IAgentRunTracker
         lock (_sync)
         {
             if (!_events.TryGetValue(entry.RunId, out var events)) _events[entry.RunId] = events = [];
+            entry = entry with { Sequence = events.Count == 0 ? 1 : events[^1].Sequence + 1 };
             events.Add(entry);
             if (events.Count > 100) events.RemoveRange(0, events.Count - 100);
             try { File.AppendAllText(Path.Combine(_directory, $"{entry.RunId}.events.jsonl"), JsonSerializer.Serialize(entry) + Environment.NewLine); }

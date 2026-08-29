@@ -41,6 +41,17 @@ public sealed class SandboxSchedulingTests : IDisposable
         Assert.False(File.Exists(Path.Combine(directory, "expired.json")));
     }
 
+    [Fact]
+    public async Task TenIdleSandboxes_DoNotConsumeExecutionSlots()
+    {
+        var scheduler = new SandboxScheduler(CreateStorage(), NullLogger<SandboxScheduler>.Instance);
+        var leases = await Task.WhenAll(Enumerable.Range(1, 10).Select(index => scheduler.AcquireAsync(new SandboxRequest($"run-{index}"))));
+
+        Assert.Equal(10, scheduler.ActiveLeaseCount);
+        Assert.Equal(0, scheduler.ActiveExecutionCount);
+        foreach (var lease in leases) scheduler.Release(lease.Id);
+    }
+
     private StorageService CreateStorage() => new(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Storage:DataDir"] = _root }).Build());
 
     public void Dispose()

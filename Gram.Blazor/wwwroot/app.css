@@ -1448,6 +1448,199 @@ html, body {
   animation: gramCharSidebarCloseHand 1.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
+/* --- LOGIN STATE 1: EXCITED LANDING JUMP --- */
+.gram-character-container.state-landing .gram-char-float,
+.gram-character-container.is-jumping .gram-char-float {
+  animation: gramCharExcitedJump 2.2s cubic-bezier(0.28, 0.84, 0.42, 1) infinite;
+  transform-origin: 64px 120px;
+}
+
+.gram-character-container.state-landing .gram-char-aura,
+.gram-character-container.is-jumping .gram-char-aura {
+  animation: gramCharJumpAura 2.2s ease-in-out infinite;
+}
+
+.gram-character-container.state-landing .gram-char-brow-l,
+.gram-character-container.is-jumping .gram-char-brow-l {
+  animation: gramCharJumpBrowL 2.2s ease-in-out infinite;
+}
+
+.gram-character-container.state-landing .gram-char-brow-r,
+.gram-character-container.is-jumping .gram-char-brow-r {
+  animation: gramCharJumpBrowR 2.2s ease-in-out infinite;
+}
+
+.gram-character-container.state-landing .gram-char-gaze,
+.gram-character-container.is-jumping .gram-char-gaze {
+  animation: gramCharJumpGaze 2.2s ease-in-out infinite;
+}
+
+@keyframes gramCharExcitedJump {
+  0%, 100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  15% {
+    transform: translateY(4px) scale(1.1, 0.88);
+  }
+  35% {
+    transform: translateY(-22px) scale(0.92, 1.12);
+  }
+  50% {
+    transform: translateY(0) scale(1.06, 0.94);
+  }
+  65% {
+    transform: translateY(-14px) scale(0.95, 1.08);
+  }
+  80% {
+    transform: translateY(0) scale(1.04, 0.96);
+  }
+  90% {
+    transform: translateY(-4px) scale(1, 1);
+  }
+}
+
+@keyframes gramCharJumpAura {
+  0%, 50%, 80%, 100% {
+    transform: scale(1.15);
+    opacity: 0.35;
+  }
+  35% {
+    transform: scale(0.45);
+    opacity: 0.08;
+  }
+  65% {
+    transform: scale(0.65);
+    opacity: 0.12;
+  }
+}
+
+@keyframes gramCharJumpBrowL {
+  0%, 100% { transform: translateY(0); }
+  25%, 75% { transform: translateY(-4px) rotate(-8deg); }
+}
+
+@keyframes gramCharJumpBrowR {
+  0%, 100% { transform: translateY(0); }
+  25%, 75% { transform: translateY(-4px) rotate(8deg); }
+}
+
+@keyframes gramCharJumpGaze {
+  0%, 100% { transform: scale(1); }
+  30%, 70% { transform: scale(1.12); }
+}
+
+/* --- LOGIN STATE 2: TYPING NAME & RECOGNITION --- */
+.gram-character-container.state-typing-name .gram-char-head,
+.gram-character-container.is-recognizing .gram-char-head {
+  animation: gramCharRecognizeHead 2.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  transform-origin: 64px 80px;
+}
+
+.gram-character-container.state-typing-name .gram-char-gaze,
+.gram-character-container.is-recognizing .gram-char-gaze {
+  animation: gramCharRecognizeGaze 2.8s ease-in-out infinite;
+}
+
+.gram-character-container.state-typing-name .gram-char-brow-l,
+.gram-character-container.is-recognizing .gram-char-brow-l {
+  animation: gramCharRecognizeBrowL 2.8s ease-in-out infinite;
+}
+
+.gram-character-container.state-typing-name .gram-char-brow-r,
+.gram-character-container.is-recognizing .gram-char-brow-r {
+  animation: gramCharRecognizeBrowR 2.8s ease-in-out infinite;
+}
+
+@keyframes gramCharRecognizeHead {
+  0%, 100% {
+    transform: rotate(0deg) translateY(0);
+  }
+  20% {
+    transform: rotate(4deg) translateY(6px);
+  }
+  45% {
+    transform: rotate(-7deg) translateY(-5px);
+  }
+  65% {
+    transform: rotate(0deg) translateY(3px);
+  }
+  80% {
+    transform: rotate(-2deg) translateY(-2px);
+  }
+}
+
+@keyframes gramCharRecognizeGaze {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  20% {
+    transform: translate(0, 8px) scale(0.95);
+  }
+  45%, 70% {
+    transform: translate(0, -2px) scale(1.16);
+  }
+}
+
+@keyframes gramCharRecognizeBrowL {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  20% { transform: translateY(2px) rotate(4deg); }
+  45%, 70% { transform: translateY(-6px) rotate(-12deg); }
+}
+
+@keyframes gramCharRecognizeBrowR {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  20% { transform: translateY(2px) rotate(-4deg); }
+  45%, 70% { transform: translateY(-6px) rotate(12deg); }
+}
+
+/* --- LOGIN STATE 3: TYPING PASSWORD - CLOSING EYES NO PEEKING --- */
+.gram-character-container.state-typing-password .gram-char-head,
+.gram-character-container.is-covering-eyes .gram-char-head {
+  animation: gramCharPasswordHead 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  transform-origin: 64px 80px;
+}
+
+.gram-character-container.state-typing-password .gram-char-blink,
+.gram-character-container.is-covering-eyes .gram-char-blink {
+  transform: scaleY(0.08) scaleX(1.15) !important;
+  opacity: 0.85;
+  transition: transform 0.15s ease;
+}
+
+.gram-character-container.state-typing-password .gram-char-brow-l,
+.gram-character-container.is-covering-eyes .gram-char-brow-l {
+  animation: gramCharPasswordBrowL 2.4s ease-in-out infinite;
+}
+
+.gram-character-container.state-typing-password .gram-char-brow-r,
+.gram-character-container.is-covering-eyes .gram-char-brow-r {
+  animation: gramCharPasswordBrowR 2.4s ease-in-out infinite;
+}
+
+.gram-character-container.state-typing-password .gram-char-aura,
+.gram-character-container.is-covering-eyes .gram-char-aura {
+  fill: rgba(192, 132, 252, 0.35) !important;
+}
+
+@keyframes gramCharPasswordHead {
+  0%, 100% {
+    transform: rotate(-6deg) translateY(-2px);
+  }
+  50% {
+    transform: rotate(-9deg) translateY(-4px);
+  }
+}
+
+@keyframes gramCharPasswordBrowL {
+  0%, 100% { transform: translateY(-3px) rotate(10deg); }
+  50% { transform: translateY(-5px) rotate(14deg); }
+}
+
+@keyframes gramCharPasswordBrowR {
+  0%, 100% { transform: translateY(-3px) rotate(-10deg); }
+  50% { transform: translateY(-5px) rotate(-14deg); }
+}
+
 @keyframes gramCharAmbientFloat {
   0%, 100% {
     transform: translateY(0px);
@@ -8694,6 +8887,23 @@ button:active:not(:disabled),
   text-align: center;
 }
 
+.gram-auth-mascot-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.gram-auth-login-mascot {
+  filter: drop-shadow(0 10px 24px rgba(147, 51, 234, 0.42));
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gram-auth-login-mascot:hover {
+  transform: scale(1.06);
+}
+
 .gram-auth-icon-wrap {
   display: flex;
   align-items: center;
@@ -8757,6 +8967,57 @@ button:active:not(:disabled),
   font-size: 12px;
   text-align: left;
   margin-bottom: 16px;
+}
+
+.gram-auth-alert-info {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(147, 51, 234, 0.15);
+  border: 1px solid rgba(192, 132, 252, 0.35);
+  color: #e9d5ff;
+  border-radius: var(--radius-sm, 4px);
+  font-size: 12px;
+  text-align: left;
+  margin-bottom: 16px;
+  line-height: 1.45;
+}
+
+.gram-auth-dev-code-box {
+  width: 100%;
+  padding: 12px 14px;
+  background: rgba(15, 7, 26, 0.85);
+  border: 1px dashed rgba(192, 132, 252, 0.5);
+  border-radius: var(--radius-sm, 4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.gram-auth-dev-code-label {
+  font-size: 11px;
+  color: #c084fc;
+  font-weight: 500;
+}
+
+.gram-auth-dev-code-val {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: #ffffff;
+  font-family: var(--font-mono, monospace);
+  padding: 2px 8px;
+  background: rgba(147, 51, 234, 0.25);
+  border-radius: 4px;
+}
+
+.gram-auth-code-input {
+  letter-spacing: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .gram-auth-form-body {
@@ -9010,6 +9271,26 @@ button:active:not(:disabled),
     linear-gradient(90deg, rgba(216, 180, 254, 0.06) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
+}
+
+.gram-auth-character-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  pointer-events: auto;
+}
+
+.gram-auth-character-stage .gram-character-container {
+  filter: drop-shadow(0 16px 40px rgba(147, 51, 234, 0.48));
+  cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gram-auth-character-stage .gram-character-container:hover {
+  transform: scale(1.05);
 }
 
 .gram-auth-artwork-vignette {

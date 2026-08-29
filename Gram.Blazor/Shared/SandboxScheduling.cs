@@ -24,7 +24,9 @@ public sealed class SandboxLease
 public interface ISandboxScheduler
 {
     int ActiveLeaseCount { get; }
+    int ActiveExecutionCount { get; }
     Task<SandboxLease> AcquireAsync(SandboxRequest request, CancellationToken cancellationToken = default);
+    Task<IDisposable> AcquireExecutionAsync(SandboxResourceBudget budget, CancellationToken cancellationToken = default);
     void Heartbeat(string leaseId);
     void Release(string leaseId);
     IReadOnlyList<SandboxLease> GetLeases();
@@ -43,12 +45,14 @@ public static class SandboxResourceCatalog
 
 public sealed class SandboxScheduler : ISandboxScheduler, IDisposable
 {
-    private readonly SemaphoreSlim _slots = new(Math.Max(1, Environment.ProcessorCount - 1));
+    private readonly SemaphoreSlim _executionSlots = new(Math.Max(1, Environment.ProcessorCount - 1));
     private readonly Dictionary<string, SandboxLease> _leases = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _sync = new();
     private readonly string _leaseDirectory;
     private readonly ILogger<SandboxScheduler>? _logger;
     public int ActiveLeaseCount { get { lock (_sync) return _leases.Count; } }
+    public int ActiveExecutionCount { get { lock (_sync) return _executionCount; } }
+    private int _executionCount;
 
     public SandboxScheduler(StorageService? storage = null, ILogger<SandboxScheduler>? logger = null)
     {
@@ -58,13 +62,19 @@ public sealed class SandboxScheduler : ISandboxScheduler, IDisposable
         RecoverExpiredLeases();
     }
 
-    public async Task<SandboxLease> AcquireAsync(SandboxRequest request, CancellationToken cancellationToken = default)
+    public Task<SandboxLease> AcquireAsync(SandboxRequest request, CancellationToken cancellationToken = default)
     {
-        await _slots.WaitAsync(cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var lease = new SandboxLease { RunId = request.RunId, Budget = SandboxResourceCatalog.For(request.ResourceClass), LastHeartbeatAt = now, ExpiresAt = now.AddMinutes(30), NetworkMode = request.NetworkMode, AllowedNetworkHosts = request.AllowedNetworkHosts?.ToList() ?? [] };
         lock (_sync) { _leases[lease.Id] = lease; Persist(lease); }
-        return lease;
+        return Task.FromResult(lease);
+    }
+
+    public async Task<IDisposable> AcquireExecutionAsync(SandboxResourceBudget budget, CancellationToken cancellationToken = default)
+    {
+        await _executionSlots.WaitAsync(cancellationToken);
+        lock (_sync) _executionCount++;
+        return new ExecutionReservation(this);
     }
 
     public void Heartbeat(string leaseId)
@@ -84,7 +94,17 @@ public sealed class SandboxScheduler : ISandboxScheduler, IDisposable
         {
             if (!_leases.Remove(leaseId)) return;
             try { File.Delete(Path.Combine(_leaseDirectory, $"{leaseId}.json")); } catch { }
-            _slots.Release();
+        }
+    }
+
+    private sealed class ExecutionReservation(SandboxScheduler owner) : IDisposable
+    {
+        private int _released;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) != 0) return;
+            lock (owner._sync) owner._executionCount--;
+            owner._executionSlots.Release();
         }
     }
 
@@ -116,5 +136,5 @@ public sealed class SandboxScheduler : ISandboxScheduler, IDisposable
         }
     }
 
-    public void Dispose() => _slots.Dispose();
+    public void Dispose() => _executionSlots.Dispose();
 }

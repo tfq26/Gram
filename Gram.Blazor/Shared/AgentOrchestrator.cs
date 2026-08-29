@@ -133,7 +133,7 @@ public sealed class AgentOrchestrator
             fullSystemPrompt.AppendLine("""
 
                 <research_answer_protocol>
-                Use the live evidence above as the source of truth for current claims. Cite every material factual, numeric, legal, financial, or date-sensitive claim with an inline Markdown link to a provided source. Prefer primary sources and do not use a secondary source to override an authoritative source. Keep current, historical, proposed, and expired rules separate. Do not combine numbers unless the calculation and assumptions are shown. If the evidence does not establish a claim, say so rather than filling the gap from memory. If sources conflict, explain the conflict and identify the more authoritative source. Never invent a citation or cite a URL that is not present in the evidence.
+                Use the live evidence above as the source of truth for current claims. Cite every material factual, numeric, legal, financial, or date-sensitive claim with an inline Markdown link to a provided source. When the user specifies a timeframe (e.g., 'in the last week', 'today', 'this month'), strictly verify publish and event dates against the current runtime date and only include items that occurred within that requested window; exclude older historical items. Keep confirmed announcements and forward-looking rumors/roadmaps clearly distinguished. If the evidence does not establish a claim, say so rather than filling the gap from memory. Never invent a citation or cite a URL that is not present in the evidence.
                 </research_answer_protocol>
                 """);
         }
@@ -349,20 +349,70 @@ public sealed class AgentOrchestrator
 
             if (!response.IsSuccessStatusCode)
             {
-                var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
                 var status = (int)response.StatusCode;
                 _quotaTracker?.RecordUsage(quotaKey, status, null, null, null, 0, status == 429);
-                var quotaScope = quotaKey.Scope.Equals("system", StringComparison.OrdinalIgnoreCase) ? "system" : "BYOK";
-                var friendlyError = status switch
-                {
-                    401 => $"[401 Unauthorized] API key invalid for {providerId}. Please verify your key in Settings > Intelligence > Providers.",
-                    429 => $"[429 Quota / Rate Limit] {quotaScope} quota or rate limit reached for {actualModel} ({providerId}). Gram will wait for the provider reset before retrying.",
-                    500 or 502 or 503 => $"[{status} Provider Error] {providerId} upstream service is currently overloaded. Please try again in a moment.",
-                    _ => $"[API Error {status}] {responseJson}"
-                };
 
-                yield return new AgentStepUpdate { IsComplete = true, ErrorMessage = friendlyError };
-                yield break;
+                // Automatic resilient fallback for platform models (Gram Q & Gram Q+) on 429 rate limit
+                if (status == 429)
+                {
+                    (string fallbackModel, string fallbackProv, string fallbackEndpoint, string? fallbackKey)? fallbackTarget = null;
+
+                    if (modelId.Equals("gram-q", StringComparison.OrdinalIgnoreCase) && actualModel == "llama-3.3-70b-versatile")
+                    {
+                        var gKey = _modelService.GetSystemApiKey("groq") ?? _modelService.GetUserApiKey("groq");
+                        if (!string.IsNullOrWhiteSpace(gKey))
+                        {
+                            fallbackTarget = ("llama-3.1-8b-instant", "groq", "https://api.groq.com/openai/v1/chat/completions", gKey);
+                        }
+                    }
+                    else if (modelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase) && actualModel == "gemini-2.5-flash")
+                    {
+                        var gemKey = _modelService.GetSystemApiKey("google") ?? _modelService.GetUserApiKey("google");
+                        if (!string.IsNullOrWhiteSpace(gemKey))
+                        {
+                            fallbackTarget = ("gemini-2.0-flash", "google", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", gemKey);
+                        }
+                    }
+
+                    if (fallbackTarget != null)
+                    {
+                        response.Dispose();
+                        var fb = fallbackTarget.Value;
+                        requestPayload["model"] = fb.fallbackModel;
+                        using var fallbackReq = new HttpRequestMessage(HttpMethod.Post, fb.fallbackEndpoint);
+                        if (!string.IsNullOrWhiteSpace(fb.fallbackKey))
+                        {
+                            fallbackReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", fb.fallbackKey);
+                        }
+                        fallbackReq.Content = new StringContent(requestPayload.ToJsonString(), Encoding.UTF8, "application/json");
+
+                        try
+                        {
+                            response = await _httpClient.SendAsync(fallbackReq, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                        }
+                        catch (Exception fbEx)
+                        {
+                            networkError = fbEx.Message;
+                        }
+                    }
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+                    var errStatus = (int)response.StatusCode;
+                    var quotaScope = quotaKey.Scope.Equals("system", StringComparison.OrdinalIgnoreCase) ? "system" : "BYOK";
+                    var friendlyError = errStatus switch
+                    {
+                        401 => $"[401 Unauthorized] API key invalid for {providerId}. Please verify your key in Settings > Intelligence > Providers.",
+                        429 => $"[429 Quota / Rate Limit] {quotaScope} quota or rate limit reached for {actualModel} ({providerId}). Gram will wait for the provider reset before retrying.",
+                        500 or 502 or 503 => $"[{errStatus} Provider Error] {providerId} upstream service is currently overloaded. Please try again in a moment.",
+                        _ => $"[API Error {errStatus}] {responseJson}"
+                    };
+
+                    yield return new AgentStepUpdate { IsComplete = true, ErrorMessage = friendlyError };
+                    yield break;
+                }
             }
 
             // Read SSE Stream
@@ -870,36 +920,32 @@ public sealed class AgentOrchestrator
 
         if (urls.Count > 0)
         {
+            var sourceIndex = 1;
             foreach (var url in urls.Take(2))
             {
                 var page = await _webContentService.ScrapeUrlAsync(url, cancellationToken);
                 if (!page.IsSuccess || string.IsNullOrWhiteSpace(page.ContentMarkdown)) continue;
 
-                lines.AppendLine($"Source: {page.Title} ({page.Url})");
-                lines.AppendLine(page.ContentMarkdown.Length > 5000 ? page.ContentMarkdown[..5000] + "...[truncated]" : page.ContentMarkdown);
+                var excerpt = page.ContentMarkdown.Length > 1500 ? page.ContentMarkdown[..1500] + "..." : page.ContentMarkdown;
+                lines.AppendLine($"[{sourceIndex}] Title: {page.Title}");
+                lines.AppendLine($"    URL: {page.Url}");
+                lines.AppendLine($"    Snippet: {excerpt.Replace("\n", " ")}");
                 lines.AppendLine();
+                sourceIndex++;
             }
         }
         else
         {
-            var results = await _webContentService.SearchWebAsync(prompt!, 4, cancellationToken);
-            var fetchedPages = 0;
+            var results = await _webContentService.SearchWebAsync(prompt!, 5, cancellationToken);
+            var sourceIndex = 1;
             foreach (var result in results)
             {
-                var snippet = result.Snippet.Length > 900 ? result.Snippet[..900] + "..." : result.Snippet;
-                lines.AppendLine($"- {result.Title} — {result.Url}");
-                if (!string.IsNullOrWhiteSpace(snippet)) lines.AppendLine($"  {snippet}");
-
-                if (fetchedPages < 2 && Uri.TryCreate(result.Url, UriKind.Absolute, out _))
-                {
-                    var page = await _webContentService.ScrapeUrlAsync(result.Url, cancellationToken);
-                    if (page.IsSuccess && !string.IsNullOrWhiteSpace(page.ContentMarkdown))
-                    {
-                        var pageText = page.ContentMarkdown.Length > 2600 ? page.ContentMarkdown[..2600] + "...[truncated]" : page.ContentMarkdown;
-                        lines.AppendLine($"  Page excerpt: {pageText}");
-                        fetchedPages++;
-                    }
-                }
+                var snippet = result.Snippet.Length > 450 ? result.Snippet[..450] + "..." : result.Snippet;
+                lines.AppendLine($"[{sourceIndex}] Title: {result.Title}");
+                lines.AppendLine($"    URL: {result.Url}");
+                if (!string.IsNullOrWhiteSpace(snippet)) lines.AppendLine($"    Snippet: {snippet}");
+                lines.AppendLine();
+                sourceIndex++;
             }
         }
 
@@ -914,10 +960,10 @@ public sealed class AgentOrchestrator
 
     private (string actualModel, string providerId, string endpoint, string? apiKey) ResolveTargetModel(string modelId)
     {
-        // Gram Q and Gram Q+ are platform models and may use system keys only.
+        // Gram Q and Gram Q+ are platform models and may use system keys or user BYOK keys
         if (modelId.Equals("gram-q", StringComparison.OrdinalIgnoreCase))
         {
-            var groqKey = _modelService.GetSystemApiKey("groq");
+            var groqKey = _modelService.GetSystemApiKey("groq") ?? _modelService.GetUserApiKey("groq");
             if (!string.IsNullOrWhiteSpace(groqKey))
             {
                 return ("openai/gpt-oss-120b", "groq", "https://api.groq.com/openai/v1/chat/completions", groqKey);
@@ -927,7 +973,7 @@ public sealed class AgentOrchestrator
 
         if (modelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase))
         {
-            var geminiKey = _modelService.GetSystemApiKey("google");
+            var geminiKey = _modelService.GetSystemApiKey("google") ?? _modelService.GetUserApiKey("google");
             if (!string.IsNullOrWhiteSpace(geminiKey))
             {
                 return ("gemini-3-flash-preview", "google", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", geminiKey);

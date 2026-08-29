@@ -233,6 +233,16 @@ public sealed class ModelService
         RegisterSystemKey("groq", "GROQ_API_KEY", "GRAM_GROQ_KEY");
         RegisterSystemKey("google", "GEMINI_API_KEY", "GOOGLE_API_KEY");
 
+        // Fall back to secure key storage if environment variables are not set
+        if (!systemKeys.ContainsKey("groq") && secureKeys.TryGetValue("groq", out var groqKey) && !string.IsNullOrWhiteSpace(groqKey))
+        {
+            systemKeys["groq"] = groqKey;
+        }
+        if (!systemKeys.ContainsKey("google") && secureKeys.TryGetValue("google", out var googleKey) && !string.IsNullOrWhiteSpace(googleKey))
+        {
+            systemKeys["google"] = googleKey;
+        }
+
         // Refresh connected states for providers
         foreach (var prov in Providers)
         {

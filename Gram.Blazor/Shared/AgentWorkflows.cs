@@ -80,6 +80,26 @@ public sealed class PresentationWorkflow : IAgentWorkflow
     }
 }
 
+public sealed class CodingWorkflow : IAgentWorkflow
+{
+    private readonly AgentOrchestrator _orchestrator;
+    public CodingWorkflow(AgentOrchestrator orchestrator) => _orchestrator = orchestrator;
+    public string Name => "coding";
+    public bool CanHandle(AgentWorkflowRequest request) => request.UserPrompt.Contains("code", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("bug", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("implement", StringComparison.OrdinalIgnoreCase);
+    public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
+    { await foreach (var update in _orchestrator.RunAgentLoopAsync(request.ModelId, request.History, request.WorkspacePath, request.SystemPrompt, request.MaxIterations, request.RepositoryMap, request.AllowedToolNames, cancellationToken: request.CancellationToken)) yield return update; }
+}
+
+public sealed class VoiceWorkflow : IAgentWorkflow
+{
+    private readonly AgentOrchestrator _orchestrator;
+    public VoiceWorkflow(AgentOrchestrator orchestrator) => _orchestrator = orchestrator;
+    public string Name => "voice";
+    public bool CanHandle(AgentWorkflowRequest request) => request.SystemPrompt?.Contains("voice", StringComparison.OrdinalIgnoreCase) == true;
+    public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
+    { await foreach (var update in _orchestrator.RunAgentLoopAsync(request.ModelId, request.History, request.WorkspacePath, request.SystemPrompt, Math.Min(request.MaxIterations, 4), request.RepositoryMap, [], cancellationToken: request.CancellationToken)) yield return update; }
+}
+
 public sealed class AgentWorkflowRouter : IAgentWorkflowRouter
 {
     private readonly IReadOnlyList<IAgentWorkflow> _workflows;
@@ -88,6 +108,8 @@ public sealed class AgentWorkflowRouter : IAgentWorkflowRouter
     public IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request) =>
         (_workflows.FirstOrDefault(workflow => workflow.Name == "presentation" && workflow.CanHandle(request))
          ?? _workflows.FirstOrDefault(workflow => workflow.Name == "research" && workflow.CanHandle(request))
+         ?? _workflows.FirstOrDefault(workflow => workflow.Name == "coding" && workflow.CanHandle(request))
+         ?? _workflows.FirstOrDefault(workflow => workflow.Name == "voice" && workflow.CanHandle(request))
          ?? _workflows.FirstOrDefault(workflow => workflow.Name == "chat")
          ?? _workflows.First(workflow => workflow.CanHandle(request))).RunAsync(request);
 }

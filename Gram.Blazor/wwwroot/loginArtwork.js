@@ -1,6 +1,7 @@
 /**
- * Gram Interactive Purple Pixel Matrix & Cybernetic Crest Tapestry
- * Discrete tactile pixel grid featuring a compact shield frame with flat subtle eyebrows and glowing eyes (no nose)
+ * Gram Interactive Purple Pixel Matrix Tapestry
+ * Discrete tactile cyber pixel grid with fluid procedural wave harmonics,
+ * direct pointer excitation, kinetic motion trails, and rotating thought-provoking captions.
  */
 (function () {
     const instances = new Map();
@@ -75,7 +76,7 @@
             this.canvas.height = Math.round(this.height * this.pixelRatio);
             this.ctx.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
 
-            // Sizing for crisp, tactile pixel blocks
+            // Crisp tactile pixel blocks
             const cellSize = this.width > 900 ? 11 : 9.5;
             this.columns = Math.max(28, Math.floor(this.width / cellSize));
             this.rows = Math.max(36, Math.floor(this.height / cellSize));
@@ -91,20 +92,12 @@
         initGridData() {
             const count = this.columns * this.rows;
             this.basePattern = new Float32Array(count);
-            this.glyphMask = new Float32Array(count);
-            this.browMask = new Uint8Array(count);
-
-            const cx = this.columns / 2;
-            const cy = this.rows * 0.48;
-            // Compact, smaller scale
-            const scaleX = this.columns * 0.22;
-            const scaleY = this.rows * 0.24;
 
             for (let r = 0; r < this.rows; r++) {
                 for (let c = 0; c < this.columns; c++) {
                     const idx = r * this.columns + c;
 
-                    // 1. Multi-frequency background sinusoidal noise
+                    // Multi-frequency background sinusoidal noise
                     const nx_bg = c / this.columns;
                     const ny_bg = r / this.rows;
                     const v1 = Math.sin(nx_bg * 12 + ny_bg * 8);
@@ -112,35 +105,6 @@
                     const v3 = Math.sin((nx_bg + ny_bg) * 16);
                     const base = (v1 * 0.4 + v2 * 0.4 + v3 * 0.2 + 1) * 0.5;
                     this.basePattern[idx] = Math.max(0, Math.min(1, base * 0.42));
-
-                    // 2. Compact Shield Frame with Eyes & Flat Small Eyebrows (No Nose)
-                    const nx = (c - cx) / scaleX;
-                    const ny = (r - cy) / scaleY;
-
-                    // Hexagonal / stadium crest formula
-                    const shapeDist = Math.max(Math.abs(nx), Math.abs(ny) * 0.85 + Math.abs(nx) * 0.35);
-
-                    let glyphVal = 0.0;
-
-                    // Outer crest frame border
-                    if (shapeDist >= 0.80 && shapeDist <= 1.05) {
-                        glyphVal = 0.72;
-                    } else if (shapeDist < 0.80) {
-                        glyphVal = 0.16; // Soft interior tint
-                    }
-
-                    // Flat, subtle, small eyebrows
-                    if (ny >= -0.28 && ny <= -0.20 && Math.abs(nx) >= 0.18 && Math.abs(nx) <= 0.46) {
-                        glyphVal = 0.75;
-                        this.browMask[idx] = 1;
-                    }
-
-                    // The Eyes (crisp, glowing horizontal slits)
-                    if (ny >= -0.06 && ny <= 0.08 && Math.abs(nx) >= 0.16 && Math.abs(nx) <= 0.48) {
-                        glyphVal = 1.0;
-                    }
-
-                    this.glyphMask[idx] = glyphVal;
                 }
             }
         }
@@ -230,21 +194,14 @@
                     const x = c * cw;
                     const cellCenterX = x + cw * 0.5;
 
-                    // 1. Base procedural wave oscillation
+                    // 1. Base procedural wave harmonics
                     const waveX = Math.sin(c * 0.18 + this.time * 1.6);
                     const waveY = Math.cos(r * 0.14 - this.time * 1.2);
                     const sweep = Math.sin((c + r) * 0.12 - this.time * 2.4);
 
                     let lum = this.basePattern[idx] * 0.55 + (waveX * waveY * 0.15 + sweep * 0.12);
 
-                    // 2. Glyph mask (compact shield, eyes, flat eyebrows)
-                    const glyphWeight = this.glyphMask[idx];
-                    if (glyphWeight > 0) {
-                        const glyphGlow = Math.sin(this.time * 2.2 + (c - r) * 0.1) * 0.18 + 0.52;
-                        lum = Math.max(lum, glyphWeight * glyphGlow);
-                    }
-
-                    // 3. Direct Pointer Light Excitation
+                    // 2. Direct Pointer Light Excitation
                     if (pointer.active && pointer.x >= 0) {
                         const dist = Math.hypot(cellCenterX - pointer.x, cellCenterY - pointer.y);
                         if (dist < 140) {
@@ -253,7 +210,7 @@
                         }
                     }
 
-                    // 4. Pointer Motion Trail Ripple
+                    // 3. Pointer Motion Trail Ripple
                     for (let t = 0; t < this.trail.length; t++) {
                         const tp = this.trail[t];
                         const age = (now - tp.time) / 650; // 0 to 1
@@ -268,10 +225,7 @@
 
                     // Precision Color Mapping
                     let fill = '';
-                    if (this.browMask[idx]) {
-                        // Keep the brow detail crisp and white, independent of the matrix brightness.
-                        fill = '#ffffff';
-                    } else if (lum < 0.14) {
+                    if (lum < 0.14) {
                         // Deep muted violet background pixel
                         fill = `rgba(36, 17, 60, ${0.3 + lum * 2})`;
                     } else if (lum < 0.38) {
@@ -279,10 +233,10 @@
                         const alpha = 0.5 + lum * 0.5;
                         fill = `rgba(107, 33, 168, ${alpha})`;
                     } else if (lum < 0.68) {
-                        // Radiant bright amethyst (frame, eyebrows)
+                        // Radiant bright amethyst
                         fill = `rgba(168, 85, 247, ${0.75 + lum * 0.25})`;
                     } else if (lum < 0.88) {
-                        // Luminous lavender highlight (eyes)
+                        // Luminous lavender highlight
                         fill = '#c084fc';
                     } else {
                         // Super-excited white-hot violet highlight
@@ -311,12 +265,10 @@
             this.captionTimer = setInterval(() => {
                 if (!this.isVisible || !this.isDocumentVisible || !this.captionEl) return;
 
-                // Pick a new random message index different from the current one
                 let nextIdx = Math.floor(Math.random() * (this.captions.length - 1));
                 if (nextIdx >= this.captionIndex) nextIdx++;
                 this.captionIndex = nextIdx;
 
-                // Smooth fade-out & translation shift
                 this.captionEl.style.opacity = '0';
                 this.captionEl.style.transform = 'translateY(4px)';
 
