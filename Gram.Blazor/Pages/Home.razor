@@ -56,7 +56,8 @@
                               IsLoading="isLoadingConversations"
                               OnNewConversation="NewConversation"
                               OnSelectConversation="SelectConversation"
-                              OnDeleteConversation="DeleteConversation"
+                              OnDeleteConversation="PromptDeleteSingle"
+                              OnDeleteMultiple="PromptDeleteMultiple"
                               OnContextMenu="OnConversationContextMenu" />
 
             <!-- Sidebar User Profile Footer -->
@@ -969,6 +970,11 @@
         <ChildContent>Delete</ChildContent>
     </ContextMenuItem>
 </ContextMenu>
+
+<DeleteConversationDialog IsOpen="@isDeleteDialogOpen"
+                          TargetConversations="@deleteDialogTargets"
+                          OnCancel="CancelDelete"
+                          OnConfirm="ConfirmDeleteAsync" />
 
 @code {
     private enum VoiceState { Idle, UserSpeaking, GramSpeaking }
@@ -1982,27 +1988,68 @@
 
     private void SetComposerReference(ElementReference reference) => textareaRef = reference;
 
-    private async Task DeleteConversation(string id)
+    private bool isDeleteDialogOpen = false;
+    private List<Conversation> deleteDialogTargets = [];
+
+    private void PromptDeleteSingle(string id)
     {
         if (conversations.Count <= 1) return;
-        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Delete this conversation? This cannot be undone.")) return;
-        var targetId = id;
-        var index = conversations.FindIndex(x => x.Id == targetId);
-        if (index >= 0)
+        var target = conversations.FirstOrDefault(c => c.Id == id);
+        if (target == null) return;
+        deleteDialogTargets = [target];
+        isDeleteDialogOpen = true;
+    }
+
+    private void PromptDeleteMultiple(List<string> ids)
+    {
+        if (ids == null || ids.Count == 0) return;
+        deleteDialogTargets = conversations.Where(c => ids.Contains(c.Id)).ToList();
+        if (deleteDialogTargets.Count == 0) return;
+        isDeleteDialogOpen = true;
+    }
+
+    private void CancelDelete()
+    {
+        isDeleteDialogOpen = false;
+        deleteDialogTargets.Clear();
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        isDeleteDialogOpen = false;
+        var targetIds = deleteDialogTargets.Select(c => c.Id).ToList();
+        deleteDialogTargets.Clear();
+        await ExecuteBulkDeleteAsync(targetIds);
+    }
+
+    private async Task ExecuteBulkDeleteAsync(List<string> targetIds)
+    {
+        if (targetIds == null || targetIds.Count == 0) return;
+
+        var deletedCount = 0;
+        foreach (var id in targetIds)
         {
-            if (activeId == targetId)
-            {
-                var nextIndex = index > 0 ? index - 1 : index + 1;
-                if (nextIndex < conversations.Count)
-                {
-                    activeId = conversations[nextIndex].Id;
-                    ChatStateService.ActiveChatTitle = Active.Title;
-                }
-            }
-            TabService.CloseTabsForChat(targetId);
-            await DeleteConversationThroughApiAsync(targetId);
-            StateHasChanged();
+            TabService.CloseTabsForChat(id);
+            await DeleteConversationThroughApiAsync(id);
+            deletedCount++;
         }
+
+        if (targetIds.Contains(activeId))
+        {
+            var remaining = conversations.FirstOrDefault(c => !targetIds.Contains(c.Id));
+            if (remaining != null)
+            {
+                activeId = remaining.Id;
+                ChatStateService.ActiveChatTitle = Active.Title;
+            }
+            else
+            {
+                NewConversation();
+            }
+        }
+
+        StateHasChanged();
+        SonnerService.Success("Deleted", deletedCount == 1 ? "Conversation deleted." : $"{deletedCount} conversations deleted.");
     }
 
     private async Task ClearCurrentChat()
@@ -2075,12 +2122,11 @@
         catch {}
     }
 
-    private async Task DeleteFromContextMenu(Conversation? chat)
+    private void DeleteFromContextMenu(Conversation? chat)
     {
         isContextMenuOpen = false;
         if (chat == null) return;
-        await DeleteConversation(chat.Id);
-        SonnerService.Info("Chat deleted", "The conversation has been removed.");
+        PromptDeleteSingle(chat.Id);
     }
 
     private bool isAttachMenuOpen = false;

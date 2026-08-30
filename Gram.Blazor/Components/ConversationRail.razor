@@ -1,9 +1,28 @@
 @using Gram.Blazor.Shared
 
-<section class="conversation-rail" aria-label="Conversations">
-    <button class="btn-new-chat" type="button" @onclick="OnNewConversation">
-        + New chat
-    </button>
+<section class="conversation-rail" aria-label="Conversations" @onkeydown="HandleRailKeyDown" tabindex="0">
+    <div class="rail-header-actions">
+        <button class="btn-new-chat" type="button" @onclick="HandleNewChat">
+            + New chat
+        </button>
+    </div>
+
+    @if (selectedIds.Count > 1)
+    {
+        <div class="rail-bulk-actions-bar">
+            <div class="bulk-count-badge">@selectedIds.Count selected</div>
+            <div class="bulk-actions-group">
+                <button type="button" class="btn-rail-bulk-delete" @onclick="HandleBulkDelete" title="Delete selected chats">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    <span>Delete (@selectedIds.Count)</span>
+                </button>
+                <button type="button" class="btn-rail-clear-selection" @onclick="ClearSelection" title="Clear selection">✕</button>
+            </div>
+        </div>
+    }
 
     @if (IsLoading && Conversations.Count == 0)
     {
@@ -12,24 +31,45 @@
     else
     {
         <div class="conversation-list" role="list">
-            @foreach (var chat in Conversations)
+            @for (var i = 0; i < Conversations.Count; i++)
             {
-                <div class="conversation-item @(chat.Id == ActiveId ? "active" : "")"
+                var index = i;
+                var chat = Conversations[i];
+                var isMultiSelected = selectedIds.Contains(chat.Id);
+                var isActive = chat.Id == ActiveId && selectedIds.Count <= 1;
+
+                <div class="conversation-item @(isActive ? "active" : "") @(isMultiSelected ? "is-selected" : "")"
                      role="listitem"
                      tabindex="0"
-                     aria-current="@(chat.Id == ActiveId ? "page" : null)"
-                     @onclick="() => OnSelectConversation.InvokeAsync(chat.Id)"
-                     @onkeydown="e => HandleConversationKeyDown(e, chat.Id)"
+                     aria-current="@(isActive ? "page" : null)"
+                     @onclick="e => HandleItemClick(e, chat, index)"
+                     @onkeydown="e => HandleConversationKeyDown(e, chat, index)"
                      @oncontextmenu="e => OnContextMenu.InvokeAsync(new ConversationContextMenu(e, chat))"
                      @oncontextmenu:preventDefault="true">
+                    
+                    @if (selectedIds.Count > 1)
+                    {
+                        <div class="conv-select-indicator" @onclick:stopPropagation="true" @onclick="e => ToggleItemSelection(chat.Id, index)">
+                            <span class="conv-checkbox @(isMultiSelected ? "checked" : "")">
+                                @if (isMultiSelected)
+                                {
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                }
+                            </span>
+                        </div>
+                    }
+
                     <div class="conv-meta">
                         <span class="conv-title">@chat.Title</span>
                         <span class="conv-time">@chat.Updated.ToLocalTime().ToString("MMM d")</span>
                     </div>
+
                     @if (Conversations.Count > 1)
                     {
                         <button class="conv-delete" type="button" title="Delete" aria-label="Delete @chat.Title"
-                                @onclick:stopPropagation="true" @onclick="() => OnDeleteConversation.InvokeAsync(chat.Id)">✕</button>
+                                @onclick:stopPropagation="true" @onclick="() => HandleSingleDeleteClick(chat.Id)">✕</button>
                     }
                 </div>
             }
@@ -44,10 +84,128 @@
     [Parameter] public EventCallback OnNewConversation { get; set; }
     [Parameter] public EventCallback<string> OnSelectConversation { get; set; }
     [Parameter] public EventCallback<string> OnDeleteConversation { get; set; }
+    [Parameter] public EventCallback<List<string>> OnDeleteMultiple { get; set; }
     [Parameter] public EventCallback<ConversationContextMenu> OnContextMenu { get; set; }
 
     public sealed record ConversationContextMenu(MouseEventArgs Event, Conversation Conversation);
 
-    private Task HandleConversationKeyDown(KeyboardEventArgs args, string id) =>
-        args.Key is "Enter" or " " ? OnSelectConversation.InvokeAsync(id) : Task.CompletedTask;
+    private readonly HashSet<string> selectedIds = [];
+    private int anchorIndex = -1;
+
+    private async Task HandleNewChat()
+    {
+        selectedIds.Clear();
+        await OnNewConversation.InvokeAsync();
+    }
+
+    private void ClearSelection()
+    {
+        selectedIds.Clear();
+        anchorIndex = -1;
+    }
+
+    private async Task HandleItemClick(MouseEventArgs e, Conversation chat, int index)
+    {
+        if (e.ShiftKey)
+        {
+            // Shift-Click: Select range between anchor and current
+            var start = anchorIndex >= 0 ? anchorIndex : GetActiveIndex();
+            var min = Math.Min(start, index);
+            var max = Math.Max(start, index);
+
+            selectedIds.Clear();
+            for (var i = min; i <= max && i < Conversations.Count; i++)
+            {
+                selectedIds.Add(Conversations[i].Id);
+            }
+            StateHasChanged();
+            return;
+        }
+
+        if (e.CtrlKey || e.MetaKey)
+        {
+            // Cmd/Ctrl-Click: Toggle individual selection
+            ToggleItemSelection(chat.Id, index);
+            return;
+        }
+
+        // Regular Click
+        if (selectedIds.Count > 1)
+        {
+            selectedIds.Clear();
+        }
+        anchorIndex = index;
+        await OnSelectConversation.InvokeAsync(chat.Id);
+    }
+
+    private void ToggleItemSelection(string id, int index)
+    {
+        if (selectedIds.Contains(id))
+        {
+            selectedIds.Remove(id);
+        }
+        else
+        {
+            selectedIds.Add(id);
+            anchorIndex = index;
+        }
+        StateHasChanged();
+    }
+
+    private int GetActiveIndex()
+    {
+        for (var i = 0; i < Conversations.Count; i++)
+        {
+            if (Conversations[i].Id == ActiveId) return i;
+        }
+        return 0;
+    }
+
+    private async Task HandleSingleDeleteClick(string id)
+    {
+        if (selectedIds.Contains(id) && selectedIds.Count > 1)
+        {
+            await HandleBulkDelete();
+        }
+        else
+        {
+            await OnDeleteConversation.InvokeAsync(id);
+        }
+    }
+
+    private async Task HandleBulkDelete()
+    {
+        if (selectedIds.Count > 0)
+        {
+            await OnDeleteMultiple.InvokeAsync(selectedIds.ToList());
+        }
+    }
+
+    private async Task HandleConversationKeyDown(KeyboardEventArgs args, Conversation chat, int index)
+    {
+        if (args.Key is "Enter" or " ")
+        {
+            await OnSelectConversation.InvokeAsync(chat.Id);
+        }
+        else if (args.Key is "Delete" or "Backspace")
+        {
+            if (selectedIds.Count > 1 && selectedIds.Contains(chat.Id))
+            {
+                await HandleBulkDelete();
+            }
+            else
+            {
+                await OnDeleteConversation.InvokeAsync(chat.Id);
+            }
+        }
+    }
+
+    private void HandleRailKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            ClearSelection();
+        }
+    }
 }
+
