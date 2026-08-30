@@ -54,10 +54,8 @@
                         }
                         @if (string.IsNullOrEmpty(message.Text) && isLastGenerating && (message.ToolCalls is null || message.ToolCalls.Count == 0))
                         {
-                            <div class="assistant-thinking-indicator" role="status" aria-label="Thinking">
-                                <span class="thinking-dot"></span>
-                                <span class="thinking-dot"></span>
-                                <span class="thinking-dot"></span>
+                            <div class="assistant-thinking-indicator" role="status">
+                                <span>Thinking...</span>
                             </div>
                         }
                         else if (!string.IsNullOrEmpty(message.Text))
