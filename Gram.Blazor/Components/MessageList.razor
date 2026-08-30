@@ -54,7 +54,11 @@
                         }
                         @if (string.IsNullOrEmpty(message.Text) && isLastGenerating && (message.ToolCalls is null || message.ToolCalls.Count == 0))
                         {
-                            <div class="assistant-thinking-indicator"><GramCharacter Size="30" State="thinking" Interactive="false" AutoWaveOnLoad="false" Class="assistant-thinking-character" /><div class="thought-bubble" role="status" aria-label="Gram is formulating a response"><span class="thought-bubble-dot"></span><span class="thought-bubble-dot"></span><span class="thought-bubble-dot"></span></div></div>
+                            <div class="assistant-thinking-indicator" role="status" aria-label="Thinking">
+                                <span class="thinking-dot"></span>
+                                <span class="thinking-dot"></span>
+                                <span class="thinking-dot"></span>
+                            </div>
                         }
                         else if (!string.IsNullOrEmpty(message.Text))
                         {

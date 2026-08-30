@@ -2044,16 +2044,38 @@ html, body {
 .assistant-thinking-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  color: var(--text-muted);
-  font-size: 11.5px;
-  font-style: italic;
+  gap: 5px;
+  min-height: 24px;
+  padding: 4px 0;
+  color: var(--text-muted, #71717a);
 }
 
-.assistant-thinking-character {
-  flex-shrink: 0;
-  opacity: 0.88;
+.thinking-dot {
+  width: 4.5px;
+  height: 4.5px;
+  border-radius: 50%;
+  background: var(--text-muted, #71717a);
+  opacity: 0.35;
+  animation: minimalThinkingDotPulse 1.4s ease-in-out infinite;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes minimalThinkingDotPulse {
+  0%, 100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.2);
+  }
 }
 
 /* Presentation Deck Builder - Minimal Linear-Style Progress Tracker */
@@ -2454,68 +2476,27 @@ html, body {
 }
 
 .thought-bubble {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  min-width: 48px;
-  height: 29px;
-  padding: 0 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 15px;
-  background: var(--bg-panel-subtle);
-  color: var(--text-secondary);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
-}
-
-.thought-bubble::before,
-.thought-bubble::after {
-  position: absolute;
-  content: "";
-  border: 1px solid var(--border-color);
-  border-radius: 50%;
-  background: var(--bg-panel-subtle);
-}
-
-.thought-bubble::before {
-  left: -7px;
-  bottom: -4px;
-  width: 8px;
-  height: 8px;
-}
-
-.thought-bubble::after {
-  left: -12px;
-  bottom: -10px;
-  width: 4px;
-  height: 4px;
+  gap: 5px;
+  min-height: 20px;
 }
 
 .thought-bubble-dot {
-  width: 5px;
-  height: 5px;
+  width: 4.5px;
+  height: 4.5px;
   border-radius: 50%;
-  background: var(--text-muted);
-  animation: thoughtBubblePulse 1.15s ease-in-out infinite;
+  background: var(--text-muted, #71717a);
+  opacity: 0.35;
+  animation: minimalThinkingDotPulse 1.4s ease-in-out infinite;
 }
 
 .thought-bubble-dot:nth-child(2) {
-  animation-delay: 0.15s;
+  animation-delay: 0.18s;
 }
 
 .thought-bubble-dot:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes thoughtBubblePulse {
-  0%, 60%, 100% {
-    opacity: 0.35;
-    transform: translateY(0) scale(0.85);
-  }
-  30% {
-    opacity: 1;
-    transform: translateY(-2px) scale(1);
-  }
+  animation-delay: 0.36s;
 }
 
 /* Minimal Generation Stopped Note */
@@ -10237,29 +10218,6 @@ button:active:not(:disabled),
   50% {
     opacity: 0.15;
     transform: scaleY(0.65);
-  }
-}
-
-/* 3. Thinking Accordion Pulse Glow */
-.assistant-thinking-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.03)) 90%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent, #6366f1) 25%, transparent);
-  animation: thinkingIndicatorGlow 2s ease-in-out infinite alternate;
-}
-
-@keyframes thinkingIndicatorGlow {
-  0% {
-    box-shadow: 0 0 0 rgba(99, 102, 241, 0);
-    border-color: color-mix(in srgb, var(--accent, #6366f1) 20%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 12px color-mix(in srgb, var(--accent, #6366f1) 20%, transparent);
-    border-color: color-mix(in srgb, var(--accent, #6366f1) 50%, transparent);
   }
 }
 
