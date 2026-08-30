@@ -36,7 +36,7 @@
     <div class="mobile-sidebar-backdrop @(isSidebarOpen ? "visible" : "")" @onclick="() => ToggleSidebar(false)"></div>
 
     <!-- Left Pane: Chats Rail -->
-    <aside class="pane pane-left @(isSidebarOpen ? "open" : "closed")">
+    <aside class="pane pane-left sidebar @(isSidebarOpen ? "open" : "closed")" data-ui-region="sidebar">
         <div class="pane-content">
             <div class="rail-header">
                 <span class="rail-title">Previous Chats</span>
@@ -121,8 +121,8 @@
     </aside>
 
     <!-- Center Pane: Main Chat Area -->
-    <main class="pane pane-center">
-        <header class="chat-header">
+    <main class="pane pane-center canvas" data-ui-region="canvas">
+        <header class="chat-header" data-ui-region="canvas-header">
             <div class="chat-header-left" style="display: flex; align-items: center; gap: 8px;">
                 @if (!isSidebarOpen)
                 {
@@ -930,7 +930,7 @@
     </main>
 
     <!-- Right Pane: Reusable Multi-Purpose Sidecar -->
-    <aside class="pane pane-right @(isSettingsSheetOpen ? "open" : "closed")">
+    <aside class="pane pane-right infosheet @(isSettingsSheetOpen ? "open" : "closed")" data-ui-region="infosheet">
         <div class="pane-content">
             <div class="sheet-header">
                 <!-- Sidecar Header Mode Switcher -->
@@ -948,7 +948,7 @@
                             }
                         </button>
                     }
-                    @if (IsProjectActive)
+                    @if (WebCodingEnabled && IsProjectActive)
                     {
                         <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.GitDiff ? "active" : "")" @onclick="LoadGitDiff">
                             <span>Diff</span>
@@ -1005,16 +1005,19 @@
                         <input type="text" class="sheet-input" @bind="Active.Title" @bind:event="oninput" @bind:after="OnTitleChanged" placeholder="Chat title" />
                     </div>
 
-                    <!-- Project Workspace Mode Toggle -->
-                    <div class="sheet-toggle-row">
-                        <div class="sheet-toggle-text">
-                            <span class="sheet-toggle-title">Project Workspace</span>
-                            <span class="sheet-toggle-desc">Enable repository diffs, git control, and sandbox engine</span>
+                    @if (WebCodingEnabled)
+                    {
+                        <!-- Project Workspace Mode Toggle -->
+                        <div class="sheet-toggle-row">
+                            <div class="sheet-toggle-text">
+                                <span class="sheet-toggle-title">Project Workspace</span>
+                                <span class="sheet-toggle-desc">Enable repository diffs, git control, and sandbox engine</span>
+                            </div>
+                            <input type="checkbox" class="sheet-checkbox" checked="@Active.IsProject" @onchange="ToggleProjectMode" />
                         </div>
-                        <input type="checkbox" class="sheet-checkbox" checked="@Active.IsProject" @onchange="ToggleProjectMode" />
-                    </div>
+                    }
 
-                    @if (IsProjectActive)
+                    @if (WebCodingEnabled && IsProjectActive)
                     {
                         <div class="sheet-project-active-badge">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #22c55e;">
@@ -1395,7 +1398,8 @@
     private string presentationStatusLabel = "Planning the story";
     private int presentationStatusVersion;
     private bool isPresentationCardDismissed = false;
-    private bool IsProjectActive => Active.IsProject || Active.Attachments.Any(a => !a.IsImage) || Active.Artifacts.Count > 0 || GramBox.ActiveSessions.Count > 0 || activeDiffs.Count > 0;
+    private bool WebCodingEnabled => false;
+    private bool IsProjectActive => WebCodingEnabled && (Active.IsProject || Active.Attachments.Any(a => !a.IsImage) || Active.Artifacts.Count > 0 || GramBox.ActiveSessions.Count > 0 || activeDiffs.Count > 0);
     private bool PresentationProgressVisible => activePresentationProject != null && !isPresentationCardDismissed;
     private int PresentationReadySections => activePresentationProject?.Sections.Count(section => section.Status == ContentSectionStatus.Ready) ?? 0;
     private int PresentationProgressPercent => activePresentationProject?.Sections.Count > 0
@@ -2132,7 +2136,16 @@
     {
         _ = InvokeAsync(() =>
         {
-            if (!string.IsNullOrWhiteSpace(activeId))
+            if (string.IsNullOrWhiteSpace(activeId) || activeId == "default" || !conversations.Any(c => c.Id == activeId))
+            {
+                if (conversations.Count > 0)
+                {
+                    activeId = conversations[0].Id;
+                    TabService.UpdateChatTabTitle(activeId, conversations[0].Title);
+                    ChatStateService.ActiveChatTitle = conversations[0].Title;
+                }
+            }
+            else
             {
                 var current = conversations.FirstOrDefault(c => c.Id == activeId);
                 if (current != null)
@@ -2224,6 +2237,7 @@
     private async Task DeleteConversation(string id)
     {
         if (conversations.Count <= 1) return;
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Delete this conversation? This cannot be undone.")) return;
         var targetId = id;
         var index = conversations.FindIndex(x => x.Id == targetId);
         if (index >= 0)

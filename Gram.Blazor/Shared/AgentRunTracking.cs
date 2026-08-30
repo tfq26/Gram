@@ -56,6 +56,7 @@ public sealed class AgentRunTracker : IAgentRunTracker
         _logger = logger;
         _directory = _storage.GetFilePath("agent-runs");
         Directory.CreateDirectory(_directory);
+        LoadPersistedState();
     }
 
     public AgentRunSnapshot Start(string conversationId, string modelId)
@@ -128,6 +129,47 @@ public sealed class AgentRunTracker : IAgentRunTracker
     {
         try { File.WriteAllText(Path.Combine(_directory, $"{run.Id}.json"), JsonSerializer.Serialize(run, new JsonSerializerOptions { WriteIndented = true })); }
         catch (Exception ex) { _logger.LogWarning(ex, "Could not persist agent run {RunId}.", run.Id); }
+    }
+
+    private void LoadPersistedState()
+    {
+        foreach (var path in Directory.GetFiles(_directory, "*.json"))
+        {
+            try
+            {
+                var run = JsonSerializer.Deserialize<AgentRunSnapshot>(File.ReadAllText(path));
+                if (run is null || string.IsNullOrWhiteSpace(run.Id)) continue;
+                if (run.CompletedAt is null)
+                {
+                    run.Status = AgentRunStatus.Failed;
+                    run.StatusText = "Backend restarted";
+                    run.Error = "The backend restarted before this run completed.";
+                    run.CompletedAt = DateTimeOffset.UtcNow;
+                    run.UpdatedAt = run.CompletedAt.Value;
+                }
+                _runs[run.Id] = run;
+                _events[run.Id] = LoadEvents(run.Id);
+                _cancellations[run.Id] = new CancellationTokenSource();
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Could not restore persisted run from {Path}.", path); }
+        }
+    }
+
+    private List<AgentRunEvent> LoadEvents(string runId)
+    {
+        var path = Path.Combine(_directory, $"{runId}.events.jsonl");
+        if (!File.Exists(path)) return [];
+        var events = new List<AgentRunEvent>();
+        foreach (var line in File.ReadLines(path))
+        {
+            try
+            {
+                var entry = JsonSerializer.Deserialize<AgentRunEvent>(line);
+                if (entry is not null) events.Add(entry with { Sequence = events.Count + 1 });
+            }
+            catch { }
+        }
+        return events.TakeLast(100).ToList();
     }
 
     private void Emit(AgentRunEvent entry)

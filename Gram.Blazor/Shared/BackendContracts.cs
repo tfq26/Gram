@@ -8,7 +8,7 @@ public sealed record ConversationSummary(string Id, string Title, DateTimeOffset
 public sealed record ConversationDetail(string Id, string Title, DateTimeOffset Created, DateTimeOffset Updated, string? ModelId, IReadOnlyList<Message> Messages, IReadOnlyList<ArtifactSummary> Artifacts, int Version = 1);
 public sealed record CreateConversationRequest(string? Title = null, string? ModelId = null);
 public sealed record SaveConversationRequest(string? Title = null, string? ModelId = null, IReadOnlyList<Message>? Messages = null, int Version = 1);
-public sealed record SendMessageRequest(string Text, string? ModelId = null, string? WorkspacePath = null, bool PresentationMode = false, string? ForcedSearchQuery = null, IReadOnlyList<Message>? ContextMessages = null, string? SystemPrompt = null, string? RepositoryMap = null, IReadOnlyList<string>? AllowedToolNames = null);
+public sealed record SendMessageRequest(string Text, string? ModelId = null, string? WorkspacePath = null, bool PresentationMode = false, string? ForcedSearchQuery = null, IReadOnlyList<Message>? ContextMessages = null, string? SystemPrompt = null, string? RepositoryMap = null, IReadOnlyList<string>? AllowedToolNames = null, bool AllowLocalCapabilities = false);
 public sealed record CancelRunRequest(string? Reason = null);
 public sealed record RunSummary(string Id, string ConversationId, string ModelId, string Status, string StatusText, DateTimeOffset StartedAt, DateTimeOffset UpdatedAt, DateTimeOffset? CompletedAt, string? Error, int Version = 1);
 public sealed record RunEvent(string RunId, long Sequence, DateTimeOffset Timestamp, string EventType, string Payload);

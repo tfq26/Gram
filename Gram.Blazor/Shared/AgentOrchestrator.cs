@@ -64,7 +64,8 @@ public sealed class AgentOrchestrator
         string? forcedWebSearchQuery = null,
         string? prefetchedWebContextOverride = null,
         bool disableTools = false,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
+        bool allowLocalCapabilities = true)
     {
         var isLocal = _settingsService.IsFeatureSupported("localFileStorage");
         var activeGit = _gitService.Accounts.FirstOrDefault(a => a.IsDefault) ?? _gitService.Accounts.FirstOrDefault();
@@ -79,6 +80,18 @@ public sealed class AgentOrchestrator
             {
                 tools = tools.Where(t => filter.Contains(t.Name)).ToList();
             }
+        }
+
+        if (!allowLocalCapabilities)
+        {
+            var localTools = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "view_file", "write_file", "edit_file", "list_directory", "find_files", "grep_search", "run_command",
+                "grambox_create_sandbox", "grambox_exec", "grambox_list_sandboxes", "grambox_write_file", "grambox_read_file",
+                "grambox_get_diff", "grambox_commit_sandbox", "grambox_preview_merge", "grambox_close_sandbox",
+                "grambox_checkpoint", "grambox_rollback", "grambox_status"
+            };
+            tools = tools.Where(tool => !localTools.Contains(tool.Name)).ToList();
         }
 
         var lastUserPrompt = history.LastOrDefault(x => x.Role.Equals("user", StringComparison.OrdinalIgnoreCase))?.Text;

@@ -10,7 +10,7 @@
 <div class="app-shell" data-theme="@ThemeService.ActiveThemeName.ToLowerInvariant().Replace(" ", "-")" style="@ThemeService.GetInlineCssVariables()">
 @if (!IsLoginPage())
     {
-        <header class="topbar">
+        <header class="topbar menubar" data-ui-region="menubar">
             <div class="topbar-left">
                 <a class="brand" href="/" style="display: inline-flex; align-items: center; gap: 7px;">
                     <img src="icons/gram-logo.svg" alt="Gram" style="width: 17px; height: 17px; display: block;" />

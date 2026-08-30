@@ -185,12 +185,10 @@ public sealed class ConversationService
         try
         {
             var user = _authService.CurrentUser;
-            var expectedVersion = conversation.Version;
-            conversation.Version = Math.Max(1, expectedVersion + 1);
+            conversation.Version = Math.Max(1, conversation.Version + 1);
             if (user.IsAuthenticated && !string.IsNullOrWhiteSpace(user.Id))
             {
-                if (!await _db.SaveConversationAsync(conversation, user.Id, expectedVersion: expectedVersion))
-                    throw new ConversationVersionConflictException(expectedVersion);
+                await _db.SaveConversationAsync(conversation, user.Id);
             }
             await _sessionStorage.SaveConversationMetaAsync(conversation);
             OnChange?.Invoke();

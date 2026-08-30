@@ -62,12 +62,15 @@ public sealed class SessionStorageService
         };
 
         var metaPath = Path.Combine(GetConversationDirectory(conv.Id), "meta.json");
+        var dataPath = Path.Combine(GetConversationDirectory(conv.Id), "conversation.json");
         var json = JsonSerializer.Serialize(meta, JsonOptions);
+        var fullJson = JsonSerializer.Serialize(conv, JsonOptions);
         var sem = GetLock(conv.Id);
         await sem.WaitAsync();
         try
         {
             await File.WriteAllTextAsync(metaPath, json);
+            await File.WriteAllTextAsync(dataPath, fullJson);
         }
         finally
         {
@@ -187,27 +190,55 @@ public sealed class SessionStorageService
             Version = meta?.Version ?? 1
         };
 
-        // 1. Load Messages from Transcript (or construct from entries)
-        var entries = await LoadTranscriptAsync(conversationId);
-        if (entries.Count > 0)
+        // 1. Try loading full conversation.json first
+        var dataPath = Path.Combine(GetConversationDirectory(conversationId), "conversation.json");
+        if (File.Exists(dataPath))
         {
-            foreach (var entry in entries)
+            try
             {
-                if (entry.Type == TranscriptEntryType.USER_INPUT)
+                var fullJson = await File.ReadAllTextAsync(dataPath);
+                var full = JsonSerializer.Deserialize<Conversation>(fullJson, JsonOptions);
+                if (full != null && full.Messages is { Count: > 0 })
                 {
-                    conv.Messages.Add(new Message("user", entry.Content ?? "")
-                    {
-                        Timestamp = entry.Timestamp,
-                        Mentions = entry.Mentions ?? []
-                    });
+                    conv.Messages = full.Messages;
+                    conv.SystemPromptOverride = full.SystemPromptOverride ?? conv.SystemPromptOverride;
+                    conv.Rules = full.Rules ?? conv.Rules;
+                    conv.ModelId = full.ModelId ?? conv.ModelId;
+                    conv.Title = full.Title ?? conv.Title;
+                    conv.Version = full.Version;
+                    conv.Updated = full.Updated;
                 }
-                else if (entry.Type == TranscriptEntryType.MODEL_RESPONSE)
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SessionStorage] Error reading conversation.json for {conversationId}: {ex.Message}");
+            }
+        }
+
+        // 2. Fallback to Transcript if Messages are still empty
+        if (conv.Messages.Count == 0)
+        {
+            var entries = await LoadTranscriptAsync(conversationId);
+            if (entries.Count > 0)
+            {
+                foreach (var entry in entries)
                 {
-                    conv.Messages.Add(new Message("assistant", entry.Content ?? "")
+                    if (entry.Type == TranscriptEntryType.USER_INPUT)
                     {
-                        Timestamp = entry.Timestamp,
-                        Thinking = entry.Thinking
-                    });
+                        conv.Messages.Add(new Message("user", entry.Content ?? "")
+                        {
+                            Timestamp = entry.Timestamp,
+                            Mentions = entry.Mentions ?? []
+                        });
+                    }
+                    else if (entry.Type == TranscriptEntryType.MODEL_RESPONSE)
+                    {
+                        conv.Messages.Add(new Message("assistant", entry.Content ?? "")
+                        {
+                            Timestamp = entry.Timestamp,
+                            Thinking = entry.Thinking
+                        });
+                    }
                 }
             }
         }

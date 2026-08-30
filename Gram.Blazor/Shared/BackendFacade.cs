@@ -63,8 +63,6 @@ public sealed class BackendFacade : IConversationApi, IRunApi, IModelApi, ISearc
         }
         else
         {
-            if (request.Version > 0 && request.Version != conversation.Version) 
-                throw new ConversationVersionConflictException(conversation.Version);
             if (request.Title is not null) conversation.Title = request.Title.Trim();
             if (request.ModelId is not null) conversation.ModelId = request.ModelId;
             if (request.Messages is not null) conversation.Messages = request.Messages.ToList();
@@ -123,7 +121,7 @@ public sealed class BackendFacade : IConversationApi, IRunApi, IModelApi, ISearc
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_tracker.GetCancellationToken(runId));
             var workspace = string.IsNullOrWhiteSpace(request.WorkspacePath) ? Environment.CurrentDirectory : request.WorkspacePath!;
             var history = request.ContextMessages?.ToList() ?? conversation.Messages;
-            await foreach (var step in router.RunAsync(new AgentWorkflowRequest(run.ModelId, request.Text, history, workspace, request.SystemPrompt, RepositoryMap: request.RepositoryMap, AllowedToolNames: request.AllowedToolNames, IsPresentationMode: request.PresentationMode, ForcedWebSearchQuery: request.ForcedSearchQuery, CancellationToken: linked.Token)))
+            await foreach (var step in router.RunAsync(new AgentWorkflowRequest(run.ModelId, request.Text, history, workspace, request.SystemPrompt, RepositoryMap: request.RepositoryMap, AllowedToolNames: request.AllowedToolNames, IsPresentationMode: request.PresentationMode, ForcedWebSearchQuery: request.ForcedSearchQuery, CancellationToken: linked.Token, AllowLocalCapabilities: request.AllowLocalCapabilities)))
             {
                 if (step.ContentDelta is { Length: > 0 } delta) _tracker.AppendOutput(runId, delta);
                 _tracker.Update(runId, AgentRunStatus.Executing, step.ToolCall is null ? "Generating response" : $"Using {step.ToolCall.ToolName}", toolName: step.ToolCall?.ToolName);
