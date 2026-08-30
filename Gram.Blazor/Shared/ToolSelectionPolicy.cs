@@ -7,7 +7,10 @@ public static class ToolSelectionPolicy
         "view_file",
         "find_files",
         "grep_search",
-        "search_web"
+        "search_web",
+        "manage_tasks",
+        "remember_rule",
+        "set_reminder"
     };
 
     public static List<AgentToolDefinition> SelectForIntent(
