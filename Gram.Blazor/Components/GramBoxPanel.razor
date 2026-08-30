@@ -66,7 +66,7 @@
 
                     @if (!string.IsNullOrWhiteSpace(task.SandboxPath))
                     {
-                        <div style="font-size: 10.5px; color: var(--text-muted); font-family: monospace;">
+                        <div style="font-size: 10.5px; color: var(--text-muted);">
                             Sandbox: @task.SandboxPath
                         </div>
                     }
@@ -107,20 +107,20 @@
                     <div style="display: flex; align-items: center; justify-content: space-between;">
                         <div style="display: flex; align-items: center; gap: 6px;">
                             <span style="font-weight: 600; font-size: 13px; color: var(--text-primary);">@session.Name</span>
-                            <Badge Variant="outline" Style="font-size: 10px; font-family: monospace;">@session.BranchName</Badge>
+                            <Badge Variant="outline" Style="font-size: 10px;">@session.BranchName</Badge>
                         </div>
                         <Badge Variant="@(session.Status == SandboxStatus.RunningCommand ? "default" : "secondary")" Style="font-size: 10px;">
                             @session.Status
                         </Badge>
                     </div>
 
-                    <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <div style="font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         @session.WorktreePath
                     </div>
 
                     @if (!string.IsNullOrEmpty(session.CurrentCommand))
                     {
-                        <div style="background: var(--bg-code, #111); padding: 6px 8px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #38bdf8;">
+                        <div style="background: var(--bg-code, #111); padding: 6px 8px; border-radius: 4px; font-size: 11px; color: #38bdf8;">
                             &gt; @session.CurrentCommand
                         </div>
                     }

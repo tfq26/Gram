@@ -1050,7 +1050,7 @@ html, body {
 .model-item-quota {
   font-size: 10.5px;
   color: var(--text-muted);
-  font-family: var(--font-mono, monospace);
+  font-family: inherit;
   line-height: 1.2;
 }
 
@@ -2935,7 +2935,7 @@ html, body {
 
 .btn-diagram-zoom.reset {
   min-width: 34px;
-  font-family: var(--font-mono);
+  font-family: inherit;
 }
 
 .diagram-zoom-level {
@@ -3426,7 +3426,7 @@ html, body {
 
 .voice-eyebrow {
   color: color-mix(in srgb, var(--voice-glow, var(--accent-text)) 75%, var(--text-muted));
-  font-family: var(--font-mono);
+  font-family: inherit;
   font-size: 9px;
   font-weight: 650;
   letter-spacing: 0.14em;
@@ -5066,7 +5066,7 @@ body.tab-drag-in-progress {
   border-radius: var(--radius-sm);
   padding: 12px 14px;
   color: var(--text-primary);
-  font-family: var(--font-mono);
+  font-family: inherit;
   font-size: 13px;
   line-height: 1.55;
   outline: none;
@@ -5113,7 +5113,7 @@ body.tab-drag-in-progress {
 .setting-value {
   font-size: 13px;
   color: var(--text-secondary);
-  font-family: var(--font-mono);
+  font-family: inherit;
 }
 
 .btn-secondary {
@@ -6245,7 +6245,7 @@ body.tab-drag-in-progress {
 
 .model-id-badge {
   font-size: 11px;
-  font-family: var(--font-mono);
+  font-family: inherit;
   color: var(--text-muted);
 }
 
@@ -6748,7 +6748,7 @@ body.tab-drag-in-progress {
 .model-ctx-badge {
   font-size: 11px;
   font-weight: 500;
-  font-family: var(--font-mono);
+  font-family: inherit;
   padding: 2px 7px;
   border-radius: var(--radius-sm);
   background: var(--bg-panel-subtle);
@@ -7283,7 +7283,7 @@ button:active:not(:disabled),
 
 .sheet-usage-val {
   color: var(--text-secondary, #d4d4d8);
-  font-family: var(--font-mono, monospace);
+  font-family: inherit;
   font-size: 11px;
 }
 
@@ -7341,7 +7341,7 @@ button:active:not(:disabled),
 .about-version-badge {
   font-size: 11px;
   font-weight: 600;
-  font-family: var(--font-mono);
+  font-family: inherit;
   color: var(--accent);
   letter-spacing: 0.02em;
 }
@@ -7786,7 +7786,7 @@ button:active:not(:disabled),
   color: #c084fc;
   font-size: 11px;
   font-weight: 600;
-  font-family: var(--font-mono);
+  font-family: inherit;
 }
 
 .subagent-role-name {
@@ -7941,7 +7941,7 @@ button:active:not(:disabled),
 }
 
 .tool-step-target-text {
-  font-family: var(--font-mono);
+  font-family: inherit;
   font-size: 11px;
   color: var(--text-muted);
   overflow: hidden;
@@ -8068,7 +8068,7 @@ button:active:not(:disabled),
 .tool-output-meta {
   font-size: 10px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: inherit;
 }
 
 .tool-copy-action-btn {
@@ -8104,7 +8104,7 @@ button:active:not(:disabled),
   display: flex;
   align-items: baseline;
   gap: 10px;
-  font-family: var(--font-mono);
+  font-family: inherit;
   font-size: 11px;
   line-height: 1.45;
 }
@@ -8274,7 +8274,7 @@ button:active:not(:disabled),
   border-radius: var(--radius-full, 9999px);
   font-size: 11px;
   font-weight: 500;
-  font-family: var(--font-mono);
+  font-family: inherit;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -8382,7 +8382,7 @@ button:active:not(:disabled),
 
 .toolbox-tab-count {
   font-size: 10.5px;
-  font-family: var(--font-mono);
+  font-family: inherit;
   padding: 1px 5px;
   border-radius: var(--radius-full, 9999px);
   background: var(--bg-hover);
@@ -8465,7 +8465,7 @@ button:active:not(:disabled),
 .toolbox-category-tag {
   font-size: 10.5px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: inherit;
 }
 
 .toolbox-status-badge {
@@ -8511,7 +8511,7 @@ button:active:not(:disabled),
 }
 
 .toolbox-prompt-code {
-  font-family: var(--font-mono);
+  font-family: inherit;
   font-size: 11px;
   color: var(--text-secondary);
   margin: 0;
@@ -8680,7 +8680,7 @@ button:active:not(:disabled),
 
 .toolbox-transport-badge {
   font-size: 10.5px;
-  font-family: var(--font-mono);
+  font-family: inherit;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
   background: var(--bg-hover);
@@ -8701,7 +8701,7 @@ button:active:not(:disabled),
   display: block;
   font-size: 11px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: inherit;
   margin-top: 2px;
 }
 
@@ -9042,7 +9042,8 @@ button:active:not(:disabled),
   font-weight: 700;
   letter-spacing: 6px;
   color: #ffffff;
-  font-family: var(--font-mono, monospace);
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
   padding: 2px 8px;
   background: rgba(147, 51, 234, 0.25);
   border-radius: 4px;
@@ -9050,7 +9051,8 @@ button:active:not(:disabled),
 
 .gram-auth-code-input {
   letter-spacing: 4px;
-  font-family: var(--font-mono, monospace);
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
   font-size: 15px;
   font-weight: 600;
   text-align: center;
@@ -9351,7 +9353,7 @@ button:active:not(:disabled),
   display: flex;
   align-items: center;
   gap: 9px;
-  font-family: "Geist Mono", monospace;
+  font-family: inherit;
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.16em;
@@ -9376,7 +9378,7 @@ button:active:not(:disabled),
   display: block;
   margin-bottom: 8px;
   color: rgba(216, 180, 254, 0.62);
-  font-family: "Geist Mono", monospace;
+  font-family: inherit;
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.18em;
