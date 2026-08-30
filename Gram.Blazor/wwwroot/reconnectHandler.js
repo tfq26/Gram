@@ -1,5 +1,5 @@
 // ============================================================================
-// Gram Reconnection Monitor (Minimal Centered Pane)
+// Gram Reconnection Monitor (Cardless Minimal Frosted Stage)
 // ============================================================================
 
 (function () {
@@ -60,7 +60,7 @@
                 if (modal && (modal.classList.contains("components-reconnect-show") || !modal.classList.contains("components-reconnect-failed"))) {
                     modal.classList.remove("components-reconnect-show");
                     modal.classList.add("components-reconnect-failed");
-                    window.__gramReportException("Reconnection Timeout", `Connection timed out after ${reconnectTimeoutSecs} seconds.`);
+                    window.__gramReportException("Connection Timeout", "Connection timed out. Please reload the page.");
                 }
             }
         }, 1000);
@@ -76,23 +76,9 @@
     function updateTimerDisplay() {
         const timerEl = document.getElementById("reconnect-countdown-text");
         if (timerEl) {
-            timerEl.textContent = `Timing out in ${secondsRemaining}s`;
+            timerEl.textContent = `Reconnecting in ${secondsRemaining}s`;
         }
     }
-
-    window.__gramCopyDiagnostics = function () {
-        const report = `[Gram Diagnostic] ${lastExceptionInfo.timestamp} | ${lastExceptionInfo.subsystem} (${navigator.onLine ? "online" : "offline"}): ${lastExceptionInfo.detail}`;
-
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(report).then(function () {
-                const btn = document.getElementById("reconnect-copy-btn");
-                if (btn) {
-                    btn.textContent = "Copied";
-                    setTimeout(() => btn.textContent = "Copy Diagnostics", 1500);
-                }
-            });
-        }
-    };
 
     function initObserver() {
         const modal = document.getElementById("components-reconnect-modal");
