@@ -8,13 +8,16 @@
     <div class="panel-section-header">
         <div class="panel-segment-control">
             <button type="button" class="panel-segment-btn @(activeTab == "tasks" ? "active" : "")" @onclick='() => SetTab("tasks")'>
-                <span>Tasks (@tasks.Count(t => t.Status != "done"))</span>
+                <span>Tasks</span>
+                <span class="panel-tab-counter">@tasks.Count(t => t.Status != "done")</span>
             </button>
             <button type="button" class="panel-segment-btn @(activeTab == "rules" ? "active" : "")" @onclick='() => SetTab("rules")'>
-                <span>Memory Rules (@rules.Count)</span>
+                <span>Memory</span>
+                <span class="panel-tab-counter">@rules.Count</span>
             </button>
             <button type="button" class="panel-segment-btn @(activeTab == "reminders" ? "active" : "")" @onclick='() => SetTab("reminders")'>
-                <span>Reminders (@reminders.Count)</span>
+                <span>Reminders</span>
+                <span class="panel-tab-counter">@reminders.Count</span>
             </button>
         </div>
     </div>
@@ -27,7 +30,7 @@
             <div class="task-quick-add-bar">
                 <input type="text" 
                        class="task-add-input" 
-                       placeholder="Add a new task..." 
+                       placeholder="Add task..." 
                        @bind="newTaskTitle" 
                        @bind:event="oninput"
                        @onkeydown="HandleTaskKeyDown" />
@@ -40,7 +43,7 @@
                 </select>
 
                 <button type="button" class="task-add-btn" @onclick="AddTaskAsync" disabled="@string.IsNullOrWhiteSpace(newTaskTitle)">
-                    <span>+ Add</span>
+                    <span>Add</span>
                 </button>
             </div>
 
@@ -48,9 +51,14 @@
             @if (tasks.Count == 0)
             {
                 <div class="panel-empty-state">
-                    <div class="empty-icon">✓</div>
-                    <div class="empty-title">All caught up!</div>
-                    <div class="empty-desc">No active tasks. Create one above or ask Gram in chat/voice to track tasks.</div>
+                    <div class="empty-icon-wrap">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="9 11 12 14 22 4"></polyline>
+                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                        </svg>
+                    </div>
+                    <div class="empty-title">No pending tasks</div>
+                    <div class="empty-desc">Create tasks above or mention action items during text or voice conversations.</div>
                 </div>
             }
             else
@@ -60,10 +68,10 @@
                     {
                         var isDone = task.Status == "done";
                         <div class="task-item-card @(isDone ? "is-completed" : "")">
-                            <button type="button" class="task-checkbox @(isDone ? "checked" : "")" @onclick="() => ToggleTaskStatusAsync(task)">
+                            <button type="button" class="task-checkbox @(isDone ? "checked" : "")" @onclick="() => ToggleTaskStatusAsync(task)" aria-label="Toggle task status">
                                 @if (isDone)
                                 {
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                         <polyline points="20 6 9 17 4 12"></polyline>
                                     </svg>
                                 }
@@ -79,13 +87,13 @@
                                     <span class="priority-pill priority-@task.Priority">@task.Priority</span>
                                     @if (task.DueDate.HasValue)
                                     {
-                                        <span class="task-due-date">Due: @task.DueDate.Value.ToString("MMM d, yyyy")</span>
+                                        <span class="task-due-date">Due @task.DueDate.Value.ToString("MMM d")</span>
                                     }
                                 </div>
                             </div>
 
-                            <button type="button" class="task-delete-btn" @onclick="() => DeleteTaskAsync(task.Id)" title="Delete task">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <button type="button" class="task-delete-btn" @onclick="() => DeleteTaskAsync(task.Id)" title="Delete task" aria-label="Delete task">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                                     <line x1="18" y1="6" x2="6" y2="18"></line>
                                     <line x1="6" y1="6" x2="18" y2="18"></line>
                                 </svg>
@@ -101,7 +109,7 @@
             <div class="task-quick-add-bar">
                 <input type="text" 
                        class="task-add-input" 
-                       placeholder="Teach Gram a rule or preference..." 
+                       placeholder="Teach Gram a preference or rule..." 
                        @bind="newRuleContent" 
                        @bind:event="oninput"
                        @onkeydown="HandleRuleKeyDown" />
@@ -109,12 +117,12 @@
                 <select class="task-priority-select" @bind="newRuleCategory">
                     <option value="preference">Preference</option>
                     <option value="instruction">Instruction</option>
-                    <option value="project_context">Project Fact</option>
+                    <option value="project_context">Project Context</option>
                     <option value="personal">Personal</option>
                 </select>
 
                 <button type="button" class="task-add-btn" @onclick="AddRuleAsync" disabled="@string.IsNullOrWhiteSpace(newRuleContent)">
-                    <span>+ Learn</span>
+                    <span>Save</span>
                 </button>
             </div>
 
@@ -122,9 +130,15 @@
             @if (rules.Count == 0)
             {
                 <div class="panel-empty-state">
-                    <div class="empty-icon">🧠</div>
-                    <div class="empty-title">No learned memory rules yet</div>
-                    <div class="empty-desc">Gram automatically learns your preferences during conversation, or you can add persistent rules above.</div>
+                    <div class="empty-icon-wrap">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M12 16v-4"></path>
+                            <path d="M12 8h.01"></path>
+                        </svg>
+                    </div>
+                    <div class="empty-title">No memory rules stored</div>
+                    <div class="empty-desc">Gram learns your preferences during conversation, or you can record persistent guidelines above.</div>
                 </div>
             }
             else
@@ -133,10 +147,13 @@
                     @foreach (var rule in rules)
                     {
                         <div class="rule-item-chip">
-                            <span class="rule-cat-badge">@rule.Category</span>
+                            <span class="rule-cat-badge">@rule.Category.Replace("_", " ")</span>
                             <span class="rule-content-text">@rule.RuleContent</span>
-                            <button type="button" class="rule-delete-btn" @onclick="() => DeleteRuleAsync(rule.Id)" title="Forget this rule">
-                                ✕
+                            <button type="button" class="rule-delete-btn" @onclick="() => DeleteRuleAsync(rule.Id)" title="Delete rule" aria-label="Delete rule">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
                             </button>
                         </div>
                     }
@@ -155,15 +172,15 @@
                        @onkeydown="HandleReminderKeyDown" />
 
                 <select class="task-priority-select" @bind="newReminderDelayMinutes">
-                    <option value="15">In 15 min</option>
-                    <option value="30">In 30 min</option>
-                    <option value="60">In 1 hour</option>
-                    <option value="180">In 3 hours</option>
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+                    <option value="60">1 hour</option>
+                    <option value="180">3 hours</option>
                     <option value="1440">Tomorrow</option>
                 </select>
 
                 <button type="button" class="task-add-btn" @onclick="AddReminderAsync" disabled="@string.IsNullOrWhiteSpace(newReminderTitle)">
-                    <span>+ Set</span>
+                    <span>Set</span>
                 </button>
             </div>
 
@@ -171,9 +188,14 @@
             @if (reminders.Count == 0)
             {
                 <div class="panel-empty-state">
-                    <div class="empty-icon">🔔</div>
-                    <div class="empty-title">No pending reminders</div>
-                    <div class="empty-desc">Set a reminder above or ask Gram during text/voice chat to remind you later.</div>
+                    <div class="empty-icon-wrap">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                        </svg>
+                    </div>
+                    <div class="empty-title">No upcoming reminders</div>
+                    <div class="empty-desc">Schedule reminders above or ask Gram conversationally to notify you later.</div>
                 </div>
             }
             else
@@ -182,13 +204,21 @@
                     @foreach (var rem in reminders)
                     {
                         <div class="reminder-item-card">
-                            <div class="reminder-icon-badge">⏰</div>
+                            <div class="reminder-icon-badge">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <polyline points="12 6 12 12 16 14"></polyline>
+                                </svg>
+                            </div>
                             <div class="reminder-content">
                                 <div class="reminder-title">@rem.Title</div>
-                                <div class="reminder-time">Scheduled: @rem.RemindAt.ToLocalTime().ToString("MMM d, h:mm tt")</div>
+                                <div class="reminder-time">@rem.RemindAt.ToLocalTime().ToString("MMM d, h:mm tt")</div>
                             </div>
-                            <button type="button" class="task-delete-btn" @onclick="() => DismissReminderAsync(rem.Id)" title="Dismiss reminder">
-                                ✕
+                            <button type="button" class="task-delete-btn" @onclick="() => DismissReminderAsync(rem.Id)" title="Dismiss reminder" aria-label="Dismiss reminder">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
                             </button>
                         </div>
                     }

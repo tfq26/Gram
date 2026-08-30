@@ -246,58 +246,76 @@
                         @if (voiceConversationActive || voiceState != VoiceState.Idle)
                         {
                         <div class="center-voice-overlay" aria-live="polite">
-                            <div class="voice-stage-hero">
+                            <div class="voice-stage-hero voice-state-@voiceState.ToString().ToLowerInvariant()">
                                 <div class="voice-mascot-pod">
-                                    <div class="voice-mascot-ambient-glow"></div>
-                                    <GramCharacter Size="168" State="@voiceCharacterState" AutoWaveOnLoad="false" Interactive="false" />
+                                    <GramCharacter Size="148" State="@voiceCharacterState" AutoWaveOnLoad="false" Interactive="false" />
                                 </div>
 
                                 <div class="voice-status-badge">
                                     @if (voiceState == VoiceState.UserSpeaking)
                                     {
-                                        <span class="voice-status-dot"></span>
-                                        <span>Listening to you...</span>
+                                        <span class="voice-status-dot listening"></span>
+                                        <span>Listening</span>
                                     }
                                     else if (voiceState == VoiceState.GramSpeaking)
                                     {
                                         <span class="voice-status-dot speaking"></span>
-                                        <span>Gram is speaking...</span>
+                                        <span>Speaking</span>
                                     }
                                     else if (isGenerating)
                                     {
                                         <span class="voice-status-dot thinking"></span>
-                                        <span>Gram is thinking...</span>
+                                        <span>Thinking</span>
                                     }
                                     else
                                     {
-                                        <span class="voice-status-dot"></span>
-                                        <span>Ready · Speak anytime</span>
+                                        <span class="voice-status-dot idle"></span>
+                                        <span>Ready</span>
                                     }
                                 </div>
                                 
                                 @if (!string.IsNullOrWhiteSpace(voiceLiveTranscript))
                                 {
                                     <div class="voice-transcript-stream">
-                                        "@voiceLiveTranscript"
+                                        @voiceLiveTranscript
                                     </div>
                                 }
                                 else if (!string.IsNullOrWhiteSpace(voiceLastResponse))
                                 {
                                     <div class="voice-transcript-stream">
-                                        "@voiceLastResponse"
+                                        @voiceLastResponse
                                     </div>
                                 }
 
                                 <div class="voice-control-dock">
-                                    <button type="button" class="voice-dock-btn @(isVoiceMicMuted ? "is-muted" : "")" @onclick="ToggleVoiceMicMute" title="Toggle microphone mute (Space)">
-                                        <span>@(isVoiceMicMuted ? "Unmute Mic" : "Mute Mic")</span>
+                                    <button type="button" class="voice-dock-btn @(isVoiceMicMuted ? "is-muted" : "")" @onclick="ToggleVoiceMicMute" title="Toggle microphone mute">
+                                        @if (isVoiceMicMuted)
+                                        {
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <line x1="1" y1="1" x2="23" y2="23"></line>
+                                                <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6"></path>
+                                                <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
+                                                <line x1="12" y1="19" x2="12" y2="23"></line>
+                                                <line x1="8" y1="23" x2="16" y2="23"></line>
+                                            </svg>
+                                            <span>Unmute</span>
+                                        }
+                                        else
+                                        {
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                                <line x1="12" y1="19" x2="12" y2="22"></line>
+                                            </svg>
+                                            <span>Mute</span>
+                                        }
                                     </button>
 
-                                    <button type="button" class="voice-dock-btn end-btn" @onclick="EndVoiceConversation" title="End voice conversation (Esc)">
-                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                                    <button type="button" class="voice-dock-btn end-btn" @onclick="EndVoiceConversation" title="End voice conversation">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
                                             <rect x="4" y="4" width="16" height="16" rx="2"></rect>
                                         </svg>
-                                        <span>End Session</span>
+                                        <span>End</span>
                                     </button>
                                 </div>
                             </div>
