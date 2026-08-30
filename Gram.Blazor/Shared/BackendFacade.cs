@@ -115,18 +115,28 @@ public sealed class BackendFacade : IConversationApi, IRunApi, IModelApi, ISearc
         {
             using var scope = _scopeFactory.CreateScope();
             var router = scope.ServiceProvider.GetRequiredService<IAgentWorkflowRouter>();
+            var presentationService = scope.ServiceProvider.GetRequiredService<PresentationGenerationService>();
             var run = _tracker.Get(runId)!;
             // The POST request may finish before this durable run does. Cancellation is
             // therefore owned by the run tracker, not by the HTTP request lifetime.
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_tracker.GetCancellationToken(runId));
             var workspace = string.IsNullOrWhiteSpace(request.WorkspacePath) ? Environment.CurrentDirectory : request.WorkspacePath!;
             var history = request.ContextMessages?.ToList() ?? conversation.Messages;
-            await foreach (var step in router.RunAsync(new AgentWorkflowRequest(run.ModelId, request.Text, history, workspace, request.SystemPrompt, RepositoryMap: request.RepositoryMap, AllowedToolNames: request.AllowedToolNames, IsPresentationMode: request.PresentationMode, ForcedWebSearchQuery: request.ForcedSearchQuery, CancellationToken: linked.Token, AllowLocalCapabilities: request.AllowLocalCapabilities)))
+            void ForwardPresentationUpdate(ContentProject project) => _tracker.EmitPayload(runId, "run.presentation", JsonSerializer.Serialize(project, BackendJson.Options));
+            presentationService.ProjectUpdated += ForwardPresentationUpdate;
+            try
             {
-                if (step.ContentDelta is { Length: > 0 } delta) _tracker.AppendOutput(runId, delta);
-                _tracker.Update(runId, AgentRunStatus.Executing, step.ToolCall is null ? "Generating response" : $"Using {step.ToolCall.ToolName}", toolName: step.ToolCall?.ToolName);
-                _tracker.EmitPayload(runId, "run.step", JsonSerializer.Serialize(new { step.ContentDelta, step.ThinkingDelta, step.ToolCall, step.ErrorMessage, step.IsComplete }, BackendJson.Options));
-                if (step.ErrorMessage is not null) _tracker.Complete(runId, AgentRunStatus.Failed, step.ErrorMessage);
+                await foreach (var step in router.RunAsync(new AgentWorkflowRequest(run.ModelId, request.Text, history, workspace, request.SystemPrompt, RepositoryMap: request.RepositoryMap, AllowedToolNames: request.AllowedToolNames, IsPresentationMode: request.PresentationMode, ForcedWebSearchQuery: request.ForcedSearchQuery, CancellationToken: linked.Token, AllowLocalCapabilities: request.AllowLocalCapabilities)))
+                {
+                    if (step.ContentDelta is { Length: > 0 } delta) _tracker.AppendOutput(runId, delta);
+                    _tracker.Update(runId, AgentRunStatus.Executing, step.ToolCall is null ? "Generating response" : $"Using {step.ToolCall.ToolName}", toolName: step.ToolCall?.ToolName);
+                    _tracker.EmitPayload(runId, "run.step", JsonSerializer.Serialize(new { step.ContentDelta, step.ThinkingDelta, step.ToolCall, step.ErrorMessage, step.IsComplete }, BackendJson.Options));
+                    if (step.ErrorMessage is not null) _tracker.Complete(runId, AgentRunStatus.Failed, step.ErrorMessage);
+                }
+            }
+            finally
+            {
+                presentationService.ProjectUpdated -= ForwardPresentationUpdate;
             }
             _tracker.Complete(runId);
             using var saveScope = _scopeFactory.CreateScope();

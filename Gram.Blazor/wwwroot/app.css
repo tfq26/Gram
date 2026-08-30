@@ -10286,20 +10286,7 @@ button:active:not(:disabled),
   display: flex;
 }
 
-.reconnect-indicator-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
 
-.reconnect-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #ef4444;
-  flex-shrink: 0;
-}
 
 .reconnect-title {
   margin: 0;

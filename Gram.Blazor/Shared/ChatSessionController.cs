@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Gram.Blazor.Shared;
 
-public sealed record ChatRunUpdate(RunSummary? Run, string? ContentDelta, ToolCallInfo? ToolCall, string? ErrorMessage);
+public sealed record ChatRunUpdate(RunSummary? Run, string? ContentDelta, ToolCallInfo? ToolCall, string? ErrorMessage, ContentProject? PresentationProject = null);
 public sealed record ChatRunResult(RunSummary? Run, string Output, string? ErrorMessage, bool Cancelled);
 
 /// Owns the transport and lifecycle of a chat run. UI components receive normalized
@@ -30,6 +30,12 @@ public sealed class ChatSessionController
                 foreach (var item in _runs.GetEvents(run.Id, lastSequence))
                 {
                     lastSequence = item.Sequence;
+                    if (item.EventType == "run.presentation")
+                    {
+                        var project = JsonSerializer.Deserialize<ContentProject>(item.Payload, BackendJson.Options);
+                        if (project is not null) await onUpdate(new ChatRunUpdate(run, null, null, null, project));
+                        continue;
+                    }
                     if (item.EventType != "run.step") continue;
                     var step = JsonSerializer.Deserialize<AgentStepUpdate>(item.Payload, BackendJson.Options);
                     if (step is null) continue;

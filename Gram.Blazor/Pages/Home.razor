@@ -2649,6 +2649,11 @@
                 contextResult.Messages, contextResult.SystemPrompt, contextResult.RepositoryMap), async update =>
                 {
                     if (update.Run is not null) currentRun = AgentRunTracker.Get(update.Run.Id);
+                    if (update.PresentationProject is not null)
+                    {
+                        activePresentationProject = update.PresentationProject;
+                        isPresentationCardDismissed = false;
+                    }
                     if (!string.IsNullOrEmpty(update.ContentDelta)) assistantMsg.Text += update.ContentDelta;
                     if (!string.IsNullOrWhiteSpace(update.ErrorMessage)) assistantMsg.ErrorDetail = update.ErrorMessage;
                     if (update.ToolCall is not null)
