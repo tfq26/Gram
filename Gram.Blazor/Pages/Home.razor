@@ -2696,9 +2696,25 @@
             additionalSystemPrompt: voiceConversationActive ? GramSystemPrompt.VoiceConversationPrompt : null,
             mentionedContext: mentionResolution.Context);
 
+        var streamBuffer = new SmoothStreamBuffer(
+            async chunk =>
+            {
+                await InvokeAsync(() =>
+                {
+                    assistantMsg.Text += chunk;
+                    StateHasChanged();
+                });
+            },
+            () =>
+            {
+                _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
+                return Task.CompletedTask;
+            });
+
         try
         {
             assistantMsg.ToolCalls = new List<ToolCallInfo>();
+            streamBuffer.Start(token);
             var result = await ChatSessionController.ExecuteAsync(Active.Id, new SendMessageRequest(
                 promptText, effectiveModelId, workspacePath,
                 isPresentationMode || mentionResolution.IsPresentationRequested,
@@ -2711,17 +2727,22 @@
                         activePresentationProject = update.PresentationProject;
                         isPresentationCardDismissed = false;
                     }
-                    if (!string.IsNullOrEmpty(update.ContentDelta)) assistantMsg.Text += update.ContentDelta;
+                    if (!string.IsNullOrEmpty(update.ContentDelta))
+                    {
+                        streamBuffer.Enqueue(update.ContentDelta);
+                    }
                     if (!string.IsNullOrWhiteSpace(update.ErrorMessage)) assistantMsg.ErrorDetail = update.ErrorMessage;
                     if (update.ToolCall is not null)
                     {
                         var existing = assistantMsg.ToolCalls.FirstOrDefault(t => t.Id == update.ToolCall.Id);
                         if (existing is not null) { existing.Result = update.ToolCall.Result; existing.IsError = update.ToolCall.IsError; }
                         else assistantMsg.ToolCalls.Add(update.ToolCall);
+                        await InvokeAsync(StateHasChanged);
+                        _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
                     }
-                    await InvokeAsync(StateHasChanged);
-                    _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
                 }, token);
+
+            await streamBuffer.FlushAndCompleteAsync();
             if (result.Run is not null) currentRun = AgentRunTracker.Get(result.Run.Id);
             if (!string.IsNullOrWhiteSpace(result.ErrorMessage) && !result.Cancelled) assistantMsg.ErrorDetail = result.ErrorMessage;
             if (result.Cancelled && string.IsNullOrWhiteSpace(assistantMsg.Text) && assistantMsg.ToolCalls.Count == 0)
@@ -2729,6 +2750,7 @@
         }
         catch (OperationCanceledException)
         {
+            streamBuffer.Cancel();
             if (currentRun != null) await BackendRunApi.CancelAsync(currentRun.Id, "Generation cancelled.");
             if (string.IsNullOrWhiteSpace(assistantMsg.Text) && (assistantMsg.ToolCalls == null || assistantMsg.ToolCalls.Count == 0))
             {

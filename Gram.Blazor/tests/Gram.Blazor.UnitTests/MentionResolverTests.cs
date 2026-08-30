@@ -178,6 +178,25 @@ public sealed class MentionResolverTests : IDisposable
         Assert.Equal("Overview", loaded[0].Sections[0].Title);
     }
 
+    [Fact]
+    public async Task SmoothStreamBuffer_EmitsAllCharactersSmoothly()
+    {
+        var output = new System.Text.StringBuilder();
+        var buffer = new SmoothStreamBuffer(
+            chunk =>
+            {
+                output.Append(chunk);
+                return Task.CompletedTask;
+            },
+            () => Task.CompletedTask);
+
+        buffer.Start();
+        buffer.Enqueue("Hello world from smooth stream!");
+        await buffer.FlushAndCompleteAsync();
+
+        Assert.Equal("Hello world from smooth stream!", output.ToString());
+    }
+
     private sealed class FakeSubagentEngine : ISubagentEngine
     {
         #pragma warning disable CS0067

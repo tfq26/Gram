@@ -10170,28 +10170,15 @@ button:active:not(:disabled),
   transform: scale(0.985);
 }
 
-/* 2. Streaming Typewriter Pulse Cursor */
+/* 2. Streaming Typewriter Cursor */
 .streaming-cursor-pulse {
   display: inline-block;
-  width: 7px;
-  height: 16px;
-  margin-left: 4px;
-  vertical-align: -2px;
-  background: var(--accent, #6366f1);
-  border-radius: 2px;
-  box-shadow: 0 0 10px color-mix(in srgb, var(--accent, #6366f1) 80%, transparent);
-  animation: streamingCursorPulse 0.85s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes streamingCursorPulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scaleY(1);
-  }
-  50% {
-    opacity: 0.15;
-    transform: scaleY(0.65);
-  }
+  width: 2px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: -1.5px;
+  background: var(--text-muted, #a1a1aa);
+  border-radius: 1px;
 }
 
 /* 4. Tool Accordion Rotation & Card Spring */

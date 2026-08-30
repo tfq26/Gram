@@ -311,8 +311,23 @@
         var workspacePath = Environment.CurrentDirectory;
         var contextResult = await ContextBuilder.AssembleContextAsync(Conversation, workspacePath: workspacePath, relevanceQuery: userPrompt);
 
+        var streamBuffer = new SmoothStreamBuffer(
+            async chunk =>
+            {
+                await InvokeAsync(() =>
+                {
+                    assistantMsg.Text += chunk;
+                    StateHasChanged();
+                });
+            },
+            async () =>
+            {
+                await InvokeAsync(StateHasChanged);
+            });
+
         try
         {
+            streamBuffer.Start(cts.Token);
             await foreach (var step in AgentOrchestrator.RunAgentLoopAsync(
                 activeModelId, 
                 contextResult.Messages, 
@@ -328,7 +343,7 @@
                 }
                 if (!string.IsNullOrEmpty(step.ContentDelta))
                 {
-                    assistantMsg.Text += step.ContentDelta;
+                    streamBuffer.Enqueue(step.ContentDelta);
                 }
                 if (step.ToolCall != null)
                 {
@@ -342,9 +357,11 @@
                     {
                         assistantMsg.ToolCalls.Add(step.ToolCall);
                     }
+                    await InvokeAsync(StateHasChanged);
                 }
-                StateHasChanged();
             }
+
+            await streamBuffer.FlushAndCompleteAsync();
 
             // If cross-agent dialogue is running, trigger next turn
             if (isDialogueActive && !string.IsNullOrWhiteSpace(assistantMsg.Text))
