@@ -163,21 +163,18 @@
 
     private async Task HandleSingleDeleteClick(string id)
     {
-        if (selectedIds.Contains(id) && selectedIds.Count > 1)
-        {
-            await HandleBulkDelete();
-        }
-        else
-        {
-            await OnDeleteConversation.InvokeAsync(id);
-        }
+        selectedIds.Remove(id);
+        await OnDeleteConversation.InvokeAsync(id);
     }
 
     private async Task HandleBulkDelete()
     {
         if (selectedIds.Count > 0)
         {
-            await OnDeleteMultiple.InvokeAsync(selectedIds.ToList());
+            var ids = selectedIds.ToList();
+            selectedIds.Clear();
+            anchorIndex = -1;
+            await OnDeleteMultiple.InvokeAsync(ids);
         }
     }
 
