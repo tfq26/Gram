@@ -33,11 +33,6 @@
         }
     });
 
-    window.addEventListener("unhandledrejection", function (event) {
-        const reason = event.reason ? (event.reason.message || String(event.reason)) : "Session interrupted";
-        window.__gramReportException("SignalR Circuit", reason);
-    });
-
     function updateDiagnosticsUI() {
         const detailEl = document.getElementById("reconnect-diag-detail");
         if (detailEl && lastExceptionInfo.detail) {
@@ -57,7 +52,7 @@
             if (secondsRemaining <= 0) {
                 stopCountdown();
                 const modal = document.getElementById("components-reconnect-modal");
-                if (modal && (modal.classList.contains("components-reconnect-show") || !modal.classList.contains("components-reconnect-failed"))) {
+                if (modal && modal.classList.contains("components-reconnect-show")) {
                     modal.classList.remove("components-reconnect-show");
                     modal.classList.add("components-reconnect-failed");
                     window.__gramReportException("Connection Timeout", "Connection timed out. Please reload the page.");
@@ -84,16 +79,30 @@
         const modal = document.getElementById("components-reconnect-modal");
         if (!modal) return;
 
+        // Ensure initially hidden with no pointer blocking
+        if (!modal.classList.contains("components-reconnect-show") && 
+            !modal.classList.contains("components-reconnect-failed") && 
+            !modal.classList.contains("components-reconnect-rejected")) {
+            modal.style.display = "none";
+            modal.style.pointerEvents = "none";
+        }
+
         const observer = new MutationObserver(function (mutations) {
             for (const mutation of mutations) {
                 if (mutation.type === "attributes" && mutation.attributeName === "class") {
                     if (modal.classList.contains("components-reconnect-show")) {
+                        modal.style.display = "flex";
+                        modal.style.pointerEvents = "auto";
                         startCountdown();
                         updateDiagnosticsUI();
                     } else if (modal.classList.contains("components-reconnect-failed") || modal.classList.contains("components-reconnect-rejected")) {
+                        modal.style.display = "flex";
+                        modal.style.pointerEvents = "auto";
                         stopCountdown();
                         updateDiagnosticsUI();
                     } else {
+                        modal.style.display = "none";
+                        modal.style.pointerEvents = "none";
                         stopCountdown();
                     }
                 }

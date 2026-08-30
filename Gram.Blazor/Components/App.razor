@@ -10,13 +10,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&family=Geist:wght@100..900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="shadcn.css" />
-    <link rel="stylesheet" href="app.css?v=20260828n" />
+    <link rel="stylesheet" href="app.css?v=20260830a" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
     <link rel="icon" type="image/svg+xml" href="icons/gram-logo.svg" />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body>
-    <div id="components-reconnect-modal" class="components-reconnect-modal" role="dialog" aria-modal="true">
+    <Routes @rendermode="InteractiveServer" />
+    <div id="components-reconnect-modal" class="components-reconnect-modal" role="dialog" aria-modal="true" style="display: none; pointer-events: none;">
         <div class="reconnect-pane-content">
             <div class="reconnect-state-show">
                 <h3 class="reconnect-title">Reconnecting to Gram</h3>
@@ -33,7 +34,6 @@
             </div>
         </div>
     </div>
-    <Routes @rendermode="InteractiveServer" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11.4.0/dist/mermaid.min.js"></script>
@@ -43,7 +43,7 @@
     <script src="loginArtwork.js?v=20260828l"></script>
     <script src="gramVisuals.js"></script>
     <script src="gramCharacter.js?v=20260828m"></script>
-    <script src="reconnectHandler.js?v=20260828a"></script>
+    <script src="reconnectHandler.js?v=20260830a"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>

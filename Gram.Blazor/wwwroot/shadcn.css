@@ -98,11 +98,18 @@
   transition: all 0.15s ease;
   cursor: pointer;
   border: 1px solid transparent;
-  outline: none;
+  outline: none !important;
+  box-shadow: none !important;
   font-family: inherit;
   user-select: none;
   text-decoration: none;
   gap: 8px;
+}
+
+.shadcn-btn:focus,
+.shadcn-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .shadcn-btn:disabled {

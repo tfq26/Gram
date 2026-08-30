@@ -7061,12 +7061,26 @@ button, input, select, textarea {
   -webkit-font-smoothing: antialiased;
 }
 
+*, *::before, *::after {
+  outline: none;
+}
+
 button:focus,
 button:focus-visible,
+button:active,
 a:focus,
-a:focus-visible {
-  outline: none;
-  box-shadow: none;
+a:focus-visible,
+a:active,
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible,
+[tabindex]:focus,
+[tabindex]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 button:not(:disabled),
@@ -10320,28 +10334,47 @@ button:active:not(:disabled),
 }
 
 /* 2. Minimal Cardless Frosted Reconnection Stage */
+#components-reconnect-modal,
 .components-reconnect-modal {
   position: fixed;
   inset: 0;
   z-index: 100000;
-  display: flex;
+  display: none !important;
+  pointer-events: none !important;
   align-items: center;
   justify-content: center;
   opacity: 0;
   visibility: hidden;
-  pointer-events: none;
   background: rgba(9, 9, 11, 0.65);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   transition: opacity 160ms ease, visibility 160ms ease;
 }
 
-.components-reconnect-modal.components-reconnect-show,
-.components-reconnect-modal.components-reconnect-failed,
-.components-reconnect-modal.components-reconnect-rejected {
+#components-reconnect-modal.components-reconnect-show,
+.components-reconnect-modal.components-reconnect-show {
+  display: flex !important;
   opacity: 1;
   visibility: visible;
-  pointer-events: auto;
+  pointer-events: auto !important;
+}
+
+#components-reconnect-modal.components-reconnect-failed,
+.components-reconnect-modal.components-reconnect-failed,
+#components-reconnect-modal.components-reconnect-rejected,
+.components-reconnect-modal.components-reconnect-rejected {
+  display: flex !important;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto !important;
+}
+
+#components-reconnect-modal.components-reconnect-hide,
+.components-reconnect-modal.components-reconnect-hide {
+  display: none !important;
+  pointer-events: none !important;
+  opacity: 0;
+  visibility: hidden;
 }
 
 .reconnect-pane-content {
