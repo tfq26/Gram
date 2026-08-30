@@ -10227,12 +10227,12 @@ button:active:not(:disabled),
   to { opacity: 1; transform: scale(1); }
 }
 
-/* 2. Professional Frosted Reconnection HUD with Diagnostics */
+/* 2. Minimal Top-Floating Reconnection HUD */
 .components-reconnect-modal {
   position: fixed;
-  top: 16px;
+  top: 12px;
   left: 50%;
-  transform: translateX(-50%) translateY(-12px);
+  transform: translateX(-50%) translateY(-10px);
   z-index: 100000;
   display: flex;
   align-items: center;
@@ -10240,8 +10240,8 @@ button:active:not(:disabled),
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 180ms ease, transform 180ms ease, visibility 180ms ease;
-  max-width: 480px;
+  transition: opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
+  max-width: 380px;
   width: calc(100% - 24px);
 }
 
@@ -10258,20 +10258,20 @@ button:active:not(:disabled),
   display: flex;
   flex-direction: column;
   width: 100%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: rgba(18, 18, 22, 0.88);
-  backdrop-filter: blur(18px) saturate(180%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(239, 68, 68, 0.15);
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(15, 15, 18, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 .reconnect-hud-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
 }
 
@@ -10279,7 +10279,7 @@ button:active:not(:disabled),
 .reconnect-state-failed {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -10297,47 +10297,25 @@ button:active:not(:disabled),
   display: inline-flex;
 }
 
-.reconnect-pulse-dot {
-  width: 9px;
-  height: 9px;
+.reconnect-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #ef4444;
-  box-shadow: 0 0 8px #ef4444;
-  animation: reconnectDotBlink 1s infinite ease-in-out;
   flex-shrink: 0;
 }
 
-@keyframes reconnectDotBlink {
-  0%, 100% { opacity: 0.35; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1.15); }
-}
-
-.reconnect-alert-icon {
-  flex-shrink: 0;
-}
-
-.reconnect-title-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.reconnect-text-alert {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #f87171;
+.reconnect-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #ef4444;
   letter-spacing: -0.01em;
-  white-space: nowrap;
 }
 
-.reconnect-meta-text {
-  font-size: 11px;
-  font-weight: 450;
-  color: #fca5a5;
-  opacity: 0.85;
-  white-space: nowrap;
+.reconnect-timer {
+  font-size: 10.5px;
+  color: var(--text-muted, #71717a);
+  font-variant-numeric: tabular-nums;
 }
 
 .reconnect-actions {
@@ -10347,160 +10325,102 @@ button:active:not(:disabled),
   flex-shrink: 0;
 }
 
-.reconnect-btn-toggle {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #e4e4e7;
+.reconnect-btn-subtle {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #71717a);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 100ms ease;
+}
+
+.reconnect-btn-subtle:hover {
+  color: var(--text-primary, #ffffff);
+}
+
+.reconnect-btn-action {
+  padding: 2px 8px;
+  border-radius: 5px;
   font-size: 11px;
   font-weight: 500;
-  padding: 4px 8px;
-  border-radius: 6px;
+  color: #ffffff;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
   cursor: pointer;
-  white-space: nowrap;
   transition: background-color 100ms ease;
 }
 
-.reconnect-btn-toggle:hover {
-  background: rgba(255, 255, 255, 0.14);
+.reconnect-btn-action:hover {
+  background: rgba(239, 68, 68, 0.35);
 }
 
-.reconnect-btn-reload {
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #ffffff;
-  background: #ef4444;
-  border: 1px solid #f87171;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: opacity 100ms ease, transform 100ms ease;
-}
-
-.reconnect-btn-reload:hover {
-  opacity: 0.92;
-}
-
-.reconnect-btn-reload:active {
-  transform: scale(0.96);
-}
-
-/* Reconnection Diagnostics Drawer */
 .reconnect-details-drawer {
   max-height: 0;
   opacity: 0;
   overflow: hidden;
-  transition: max-height 240ms ease, opacity 200ms ease, margin-top 200ms ease;
+  transition: max-height 180ms ease, opacity 140ms ease;
 }
 
 .reconnect-details-drawer.is-expanded {
-  max-height: 380px;
+  max-height: 160px;
   opacity: 1;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
-.reconnect-diag-grid {
+.reconnect-diag-body {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 
-.reconnect-diag-row {
+.reconnect-diag-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
-}
-
-.reconnect-diag-row.column {
-  flex-direction: column;
-  align-items: flex-start;
   gap: 4px;
+  font-size: 10px;
+  color: var(--text-muted, #71717a);
 }
 
-.reconnect-diag-label {
-  color: var(--text-muted, #a1a1aa);
-  font-weight: 450;
+.reconnect-diag-sep {
+  opacity: 0.4;
 }
 
-.reconnect-diag-value {
+.reconnect-diag-code {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1.35;
   color: #e4e4e7;
-  font-weight: 500;
-  text-align: right;
-}
-
-.reconnect-diag-value.highlight {
-  color: #f87171;
-  font-family: var(--font-mono, monospace);
-  font-size: 10.5px;
-}
-
-.reconnect-diag-pre {
-  width: 100%;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  font-family: var(--font-mono, monospace);
-  font-size: 10.5px;
-  line-height: 1.4;
-  color: #fca5a5;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
   word-break: break-word;
-  max-height: 72px;
+  max-height: 48px;
   overflow-y: auto;
 }
 
-.reconnect-recovery-steps {
-  margin-top: 8px;
-  padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.reconnect-steps-title {
-  font-size: 10.5px;
-  font-weight: 600;
-  color: #e4e4e7;
-  display: block;
-  margin-bottom: 3px;
-}
-
-.reconnect-steps-list {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 10px;
-  color: var(--text-muted, #a1a1aa);
-  line-height: 1.45;
-}
-
-.reconnect-steps-list strong {
-  color: #ffffff;
-}
-
-.reconnect-drawer-footer {
+.reconnect-diag-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 8px;
 }
 
 .reconnect-btn-copy {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: var(--text-muted, #a1a1aa);
-  font-size: 10.5px;
-  padding: 3px 8px;
-  border-radius: 5px;
+  border: none;
+  color: var(--text-muted, #71717a);
+  font-size: 10px;
   cursor: pointer;
-  transition: color 100ms ease, background-color 100ms ease;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: color 100ms ease;
 }
 
 .reconnect-btn-copy:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #ffffff);
 }
 
 /* ==========================================================================

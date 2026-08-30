@@ -1,5 +1,5 @@
 // ============================================================================
-// Gram Reconnection & Diagnostic Health Monitor
+// Gram Minimal Reconnection Monitor
 // ============================================================================
 
 (function () {
@@ -8,42 +8,35 @@
     let secondsRemaining = reconnectTimeoutSecs;
     let isDetailsExpanded = false;
     let lastExceptionInfo = {
-        subsystem: "SignalR Realtime Circuit",
-        detail: "Real-time interactive session disconnected from server.",
-        timestamp: new Date().toLocaleTimeString(),
+        subsystem: "SignalR Circuit",
+        detail: "Real-time session disconnected from server.",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         online: navigator.onLine
     };
 
-    // Global exception / diagnostic report hook
     window.__gramReportException = function (subsystem, detail) {
         lastExceptionInfo = {
-            subsystem: subsystem || "Application Core",
+            subsystem: subsystem || "SignalR Circuit",
             detail: typeof detail === "string" ? detail : (detail?.message || JSON.stringify(detail)),
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             online: navigator.onLine
         };
         updateDiagnosticsUI();
     };
 
-    // Listen to browser network changes
     window.addEventListener("offline", function () {
-        window.__gramReportException("Network Gateway", "Browser detected that device is offline (no active internet connection).");
+        window.__gramReportException("Network Gateway", "Device is offline.");
     });
 
     window.addEventListener("online", function () {
         if (lastExceptionInfo.subsystem === "Network Gateway") {
-            window.__gramReportException("Network Gateway", "Internet connection restored. Attempting to re-establish session...");
+            window.__gramReportException("Network Gateway", "Network restored. Reconnecting...");
         }
     });
 
-    // Capture global unhandled exceptions
     window.addEventListener("unhandledrejection", function (event) {
-        const reason = event.reason ? (event.reason.message || String(event.reason)) : "Unknown rejection";
-        if (reason.toLowerCase().includes("blazor") || reason.toLowerCase().includes("circuit") || reason.toLowerCase().includes("websocket")) {
-            window.__gramReportException("SignalR Realtime Circuit", reason);
-        } else if (reason.toLowerCase().includes("fetch") || reason.toLowerCase().includes("api")) {
-            window.__gramReportException("Backend API Server", reason);
-        }
+        const reason = event.reason ? (event.reason.message || String(event.reason)) : "Session interrupted";
+        window.__gramReportException("SignalR Circuit", reason);
     });
 
     function updateDiagnosticsUI() {
@@ -55,7 +48,7 @@
         if (subEl) subEl.textContent = lastExceptionInfo.subsystem;
         if (detailEl) detailEl.textContent = lastExceptionInfo.detail;
         if (timeEl) timeEl.textContent = lastExceptionInfo.timestamp;
-        if (netEl) netEl.textContent = navigator.onLine ? "Online (Connected)" : "Offline (No Internet)";
+        if (netEl) netEl.textContent = navigator.onLine ? "Online" : "Offline";
     }
 
     function startCountdown() {
@@ -73,7 +66,7 @@
                 if (modal && (modal.classList.contains("components-reconnect-show") || !modal.classList.contains("components-reconnect-failed"))) {
                     modal.classList.remove("components-reconnect-show");
                     modal.classList.add("components-reconnect-failed");
-                    window.__gramReportException("Reconnection Timeout", `Session failed to reconnect within ${reconnectTimeoutSecs} seconds.`);
+                    window.__gramReportException("Reconnection Timeout", `Failed to reconnect within ${reconnectTimeoutSecs}s.`);
                 }
             }
         }, 1000);
@@ -89,7 +82,7 @@
     function updateTimerDisplay() {
         const timerEl = document.getElementById("reconnect-countdown-text");
         if (timerEl) {
-            timerEl.textContent = `(${secondsRemaining}s timeout)`;
+            timerEl.textContent = `${secondsRemaining}s`;
         }
     }
 
@@ -101,29 +94,23 @@
         isDetailsExpanded = !isDetailsExpanded;
         if (isDetailsExpanded) {
             detailsPanel.classList.add("is-expanded");
-            toggleBtn.innerHTML = `Hide diagnostics ▲`;
+            toggleBtn.textContent = "Hide";
             updateDiagnosticsUI();
         } else {
             detailsPanel.classList.remove("is-expanded");
-            toggleBtn.innerHTML = `View diagnostics ▼`;
+            toggleBtn.textContent = "Details";
         }
     };
 
     window.__gramCopyDiagnostics = function () {
-        const report = `[Gram Connection Diagnostic Report]
-Timestamp: ${lastExceptionInfo.timestamp}
-Subsystem: ${lastExceptionInfo.subsystem}
-Network State: ${navigator.onLine ? "Online" : "Offline"}
-Detail: ${lastExceptionInfo.detail}
-User-Agent: ${navigator.userAgent}`;
+        const report = `[Gram Diagnostic] ${lastExceptionInfo.timestamp} | ${lastExceptionInfo.subsystem} (${navigator.onLine ? "online" : "offline"}): ${lastExceptionInfo.detail}`;
 
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(report).then(function () {
                 const btn = document.getElementById("reconnect-copy-btn");
                 if (btn) {
-                    const originalText = btn.textContent;
-                    btn.textContent = "Copied!";
-                    setTimeout(() => btn.textContent = originalText, 2000);
+                    btn.textContent = "Copied";
+                    setTimeout(() => btn.textContent = "Copy", 1500);
                 }
             });
         }
