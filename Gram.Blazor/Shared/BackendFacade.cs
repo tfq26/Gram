@@ -25,7 +25,14 @@ public sealed class BackendFacade : IConversationApi, IRunApi, IModelApi, ISearc
         using var scope = _scopeFactory.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<ConversationService>();
         await service.InitializeAsync();
-        return service.Conversations.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase)) is { } conversation ? ToDetail(conversation) : null;
+        var conversation = service.Conversations.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+        if (conversation is null && id.Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
+            conversation = new Conversation("default", "New chat", DateTimeOffset.UtcNow);
+            service.Conversations.Insert(0, conversation);
+            await service.SaveConversationAsync(conversation);
+        }
+        return conversation is null ? null : ToDetail(conversation);
     }
 
     public async Task<ConversationDetail> CreateAsync(CreateConversationRequest request, CancellationToken cancellationToken = default)
@@ -45,11 +52,23 @@ public sealed class BackendFacade : IConversationApi, IRunApi, IModelApi, ISearc
         var service = scope.ServiceProvider.GetRequiredService<ConversationService>();
         await service.InitializeAsync();
         var conversation = service.Conversations.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
-        if (conversation is null) return null;
-        if (request.Version != conversation.Version) throw new ConversationVersionConflictException(conversation.Version);
-        if (request.Title is not null) conversation.Title = request.Title.Trim();
-        if (request.ModelId is not null) conversation.ModelId = request.ModelId;
-        if (request.Messages is not null) conversation.Messages = request.Messages.ToList();
+        if (conversation is null)
+        {
+            conversation = new Conversation(id, string.IsNullOrWhiteSpace(request.Title) ? "New chat" : request.Title.Trim(), DateTimeOffset.UtcNow)
+            {
+                ModelId = request.ModelId,
+                Messages = request.Messages?.ToList() ?? new List<Message>()
+            };
+            service.Conversations.Insert(0, conversation);
+        }
+        else
+        {
+            if (request.Version > 0 && request.Version != conversation.Version) 
+                throw new ConversationVersionConflictException(conversation.Version);
+            if (request.Title is not null) conversation.Title = request.Title.Trim();
+            if (request.ModelId is not null) conversation.ModelId = request.ModelId;
+            if (request.Messages is not null) conversation.Messages = request.Messages.ToList();
+        }
         conversation.Updated = DateTimeOffset.UtcNow;
         await service.SaveConversationAsync(conversation);
         return ToDetail(conversation);
@@ -71,8 +90,16 @@ public sealed class BackendFacade : IConversationApi, IRunApi, IModelApi, ISearc
         using var scope = _scopeFactory.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<ConversationService>();
         await service.InitializeAsync();
-        var conversation = service.Conversations.FirstOrDefault(x => x.Id.Equals(conversationId, StringComparison.OrdinalIgnoreCase))
-            ?? throw new KeyNotFoundException("Conversation was not found.");
+        var conversation = service.Conversations.FirstOrDefault(x => x.Id.Equals(conversationId, StringComparison.OrdinalIgnoreCase));
+        if (conversation is null)
+        {
+            conversation = new Conversation(conversationId, "New chat", DateTimeOffset.UtcNow)
+            {
+                ModelId = request.ModelId
+            };
+            service.Conversations.Insert(0, conversation);
+        }
+
         var modelId = request.ModelId ?? conversation.ModelId ?? _models.Models.FirstOrDefault(x => x.IsFavorite)?.Id ?? _models.Models.FirstOrDefault()?.Id ?? "gram-q-plus";
         conversation.ModelId = modelId;
         if (conversation.Messages.LastOrDefault(x => x.Role.Equals("user", StringComparison.OrdinalIgnoreCase))?.Text != request.Text)
