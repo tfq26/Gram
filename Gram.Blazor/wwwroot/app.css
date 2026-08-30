@@ -2198,7 +2198,7 @@ html, body {
 }
 
 .progress-segment.generating {
-  background: var(--accent, #6366f1);
+  background: #eab308;
   animation: segmentPulse 1.4s ease-in-out infinite;
 }
 
@@ -2234,9 +2234,9 @@ html, body {
 }
 
 .presentation-slide-item.generating {
-  border-color: rgba(99, 102, 241, 0.4);
-  color: var(--text-primary);
-  background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(234, 179, 8, 0.45);
+  color: #fef08a;
+  background: rgba(234, 179, 8, 0.12);
 }
 
 .presentation-slide-item.queued {
@@ -2256,7 +2256,7 @@ html, body {
 }
 
 .presentation-slide-item.generating .slide-item-dot {
-  background: var(--accent, #6366f1);
+  background: #eab308;
 }
 
 .slide-item-num {

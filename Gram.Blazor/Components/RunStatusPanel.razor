@@ -25,7 +25,10 @@
                 <div class="agent-run-events">
                     @foreach (var runEvent in Tracker.GetEvents(Run.Id, 5).AsEnumerable().Reverse())
                     {
-                        <div><span>@runEvent.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span> @runEvent.Message</div>
+                        var displayMsg = !string.IsNullOrWhiteSpace(runEvent.ToolName)
+                            ? $"Using {ToolNameHelper.GetDisplayName(runEvent.ToolName)}"
+                            : runEvent.Message;
+                        <div><span>@runEvent.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span> @displayMsg</div>
                     }
                 </div>
             </div>

@@ -430,47 +430,51 @@ else
     {
         var name = ToolCall.ToolName.ToLowerInvariant();
         var args = ParsedArguments;
+        var displayName = ToolNameHelper.GetDisplayName(ToolCall.ToolName);
 
         if (name.Contains("run_command") || name.Contains("bash") || name.Contains("exec") || name.Contains("shell") || name.Contains("cmd"))
         {
             var cmd = args.GetValueOrDefault("CommandLine") ?? args.GetValueOrDefault("command") ?? args.GetValueOrDefault("cmd") ?? "";
-            return ("Run Command", cmd, "command");
+            return (displayName, cmd, "command");
         }
 
         if (name.Contains("read_file") || name.Contains("view_file") || name.Contains("get_file"))
         {
             var path = args.GetValueOrDefault("AbsolutePath") ?? args.GetValueOrDefault("TargetFile") ?? args.GetValueOrDefault("path") ?? args.GetValueOrDefault("filePath") ?? "";
-            return ("Read File", GetCleanPath(path), "file-read");
+            return (displayName, GetCleanPath(path), "file-read");
         }
 
         if (name.Contains("write_to_file") || name.Contains("replace_file_content") || name.Contains("edit_file") || name.Contains("write_file"))
         {
             var path = args.GetValueOrDefault("TargetFile") ?? args.GetValueOrDefault("AbsolutePath") ?? args.GetValueOrDefault("path") ?? args.GetValueOrDefault("filePath") ?? "";
-            return (name.Contains("replace") || name.Contains("edit") ? "Edit File" : "Create File", GetCleanPath(path), "file-write");
+            return (displayName, GetCleanPath(path), "file-write");
         }
 
-        if (name.Contains("grep") || name.Contains("find_by_name") || name.Contains("search_files") || name.Contains("list_dir"))
+        if (name.Contains("grep") || name.Contains("find_by_name") || name.Contains("search_files") || name.Contains("list_dir") || name.Contains("list_directory"))
         {
             var q = args.GetValueOrDefault("Query") ?? args.GetValueOrDefault("Pattern") ?? args.GetValueOrDefault("query") ?? args.GetValueOrDefault("pattern") ?? "";
-            return ("Search Codebase", !string.IsNullOrWhiteSpace(q) ? $"\"{q}\"" : "Files", "search");
+            return (displayName, !string.IsNullOrWhiteSpace(q) ? $"\"{q}\"" : "Files", "search");
         }
 
         if (name.StartsWith("git_") || name.Contains("git-gram"))
         {
-            var act = name.Replace("git_", "").Replace("-", " ");
-            return ($"Git {Capitalize(act)}", args.GetValueOrDefault("branch") ?? args.GetValueOrDefault("commit") ?? "", "git");
+            return (displayName, args.GetValueOrDefault("branch") ?? args.GetValueOrDefault("commit") ?? args.GetValueOrDefault("message") ?? "", "git");
         }
 
-        if (name.Contains("create_presentation") || name.Contains("presentation"))
+        if (name.Contains("presentation"))
         {
             var title = args.GetValueOrDefault("title") ?? args.GetValueOrDefault("Title") ?? args.GetValueOrDefault("topic") ?? args.GetValueOrDefault("theme") ?? "";
-            return ("Create Presentation", title, "presentation");
+            return (displayName, title, "presentation");
         }
 
-        // Generic tool formatting
-        var formattedName = CapitalizeWords(ToolCall.ToolName.Replace("_", " ").Replace("-", " "));
+        if (name.Contains("sandbox") || name.Contains("grambox"))
+        {
+            var target = args.GetValueOrDefault("command") ?? args.GetValueOrDefault("taskName") ?? args.GetValueOrDefault("sandboxId") ?? "";
+            return (displayName, target, "command");
+        }
+
         var firstArg = args.Values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v) && v.Length < 60) ?? "";
-        return (formattedName, firstArg, "custom");
+        return (displayName, firstArg, "custom");
     }
 
     private string GetCleanPath(string raw)

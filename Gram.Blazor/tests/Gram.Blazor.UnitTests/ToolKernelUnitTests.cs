@@ -260,4 +260,24 @@ public sealed class ToolKernelUnitTests
                 Directory.Delete(Path, recursive: true);
         }
     }
+
+    [Theory]
+    [InlineData("view_file", "Read File")]
+    [InlineData("write_to_file", "Create File")]
+    [InlineData("edit_file", "Edit File")]
+    [InlineData("replace_file_content", "Edit File")]
+    [InlineData("run_command", "Run Command")]
+    [InlineData("search_web", "Search Web")]
+    [InlineData("fetch_web_content", "Read Web Page")]
+    [InlineData("create_presentation_project", "Create Presentation")]
+    [InlineData("revise_presentation_section", "Revise Slide")]
+    [InlineData("spawn_subagent", "Launch Subagent")]
+    [InlineData("grambox_create_sandbox", "Create Sandbox")]
+    [InlineData("grambox_exec", "Run in Sandbox")]
+    [InlineData("custom_mcp_tool", "Custom Mcp Tool")]
+    public void ToolNameHelperReturnsFriendlyDisplayNames(string rawName, string expectedDisplay)
+    {
+        var result = ToolNameHelper.GetDisplayName(rawName);
+        Assert.Equal(expectedDisplay, result);
+    }
 }

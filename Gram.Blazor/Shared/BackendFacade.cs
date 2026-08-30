@@ -129,7 +129,7 @@ public sealed class BackendFacade : IConversationApi, IRunApi, IModelApi, ISearc
                 await foreach (var step in router.RunAsync(new AgentWorkflowRequest(run.ModelId, request.Text, history, workspace, request.SystemPrompt, RepositoryMap: request.RepositoryMap, AllowedToolNames: request.AllowedToolNames, IsPresentationMode: request.PresentationMode, ForcedWebSearchQuery: request.ForcedSearchQuery, CancellationToken: linked.Token, AllowLocalCapabilities: request.AllowLocalCapabilities)))
                 {
                     if (step.ContentDelta is { Length: > 0 } delta) _tracker.AppendOutput(runId, delta);
-                    _tracker.Update(runId, AgentRunStatus.Executing, step.ToolCall is null ? "Generating response" : $"Using {step.ToolCall.ToolName}", toolName: step.ToolCall?.ToolName);
+                    _tracker.Update(runId, AgentRunStatus.Executing, step.ToolCall is null ? "Generating response" : $"Using {ToolNameHelper.GetDisplayName(step.ToolCall.ToolName)}", toolName: step.ToolCall?.ToolName);
                     _tracker.EmitPayload(runId, "run.step", JsonSerializer.Serialize(new { step.ContentDelta, step.ThinkingDelta, step.ToolCall, step.ErrorMessage, step.IsComplete }, BackendJson.Options));
                     if (step.ErrorMessage is not null) _tracker.Complete(runId, AgentRunStatus.Failed, step.ErrorMessage);
                 }
