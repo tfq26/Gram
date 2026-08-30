@@ -1,0 +1,22 @@
+<svg width="@Size" height="@Size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="@StrokeWidth" stroke-linecap="round" stroke-linejoin="round" aria-hidden="@(!Decorative ? "false" : "true")" focusable="false">
+    @switch (Name)
+    {
+        case "file": <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></>; break;
+        case "folder": <><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></>; break;
+        case "git-branch": <><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="12" r="2" /><path d="M6 7v10M8 5h4a6 6 0 0 1 6 6" /></>; break;
+        case "git-compare": <><circle cx="6" cy="6" r="3" /><circle cx="18" cy="18" r="3" /><path d="M6 9v6a3 3 0 0 0 3 3h6M18 15V9a3 3 0 0 0-3-3H9" /></>; break;
+        case "globe": <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></>; break;
+        case "wrench": <><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6.6 6.6a2.1 2.1 0 0 0 3 3l6.6-6.6a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.8-.7-.7-2.8z" /></>; break;
+        case "book-open": <><path d="M2 4.5A2.5 2.5 0 0 1 4.5 2H11v19H4.5A2.5 2.5 0 0 0 2 23z" /><path d="M22 4.5A2.5 2.5 0 0 0 19.5 2H13v19h6.5A2.5 2.5 0 0 1 22 23z" /></>; break;
+        case "package": <><path d="m16.5 9.4-9-5.19M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><path d="M3.3 7 12 12l8.7-5M12 22V12" /></>; break;
+        case "presentation": <><path d="M2 3h20M12 3v18M5 3v5h14V3M7 21h10" /><rect x="5" y="8" width="14" height="8" rx="1" /></>; break;
+        default: <circle cx="12" cy="12" r="9" />; break;
+    }
+</svg>
+
+@code {
+    [Parameter] public string Name { get; set; } = "circle";
+    [Parameter] public int Size { get; set; } = 16;
+    [Parameter] public double StrokeWidth { get; set; } = 1.8;
+    [Parameter] public bool Decorative { get; set; } = true;
+}

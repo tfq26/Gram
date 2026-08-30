@@ -211,7 +211,11 @@
                         <div class="presentation-deck-workspace-view">
                             <div class="deck-workspace-topbar">
                                 <div class="deck-workspace-title-block">
-                                    <span class="deck-workspace-icon">📽️</span>
+                                    <svg class="deck-workspace-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                        <line x1="8" y1="21" x2="16" y2="21"></line>
+                                        <line x1="12" y1="17" x2="12" y2="21"></line>
+                                    </svg>
                                     <span class="deck-workspace-title">@(TabService.ActiveTab.Title ?? "Presentation Deck")</span>
                                 </div>
                                 <div class="deck-workspace-actions">
@@ -352,15 +356,11 @@
                             <div class="presentation-builder-card" role="status" aria-live="polite">
                                 <div class="presentation-builder-header">
                                     <div class="builder-header-left">
-                                        <div class="builder-mascot-wrapper">
-                                            <GramCharacter Size="48" State="@PresentationMascotState" Interactive="false" AutoWaveOnLoad="false" Class="presentation-builder-mascot" />
-                                        </div>
                                         <div class="builder-meta-block">
-                                            <div class="builder-eyebrow-row">
-                                                <span class="builder-badge">Interactive Deck Builder</span>
-                                                <span class="builder-percent-chip">@PresentationProgressPercent% Complete</span>
+                                            <div class="builder-title-row">
+                                                <h4 class="builder-deck-title">@activePresentationProject!.Title</h4>
+                                                <span class="builder-percent-chip">@PresentationProgressPercent%</span>
                                             </div>
-                                            <h3 class="builder-deck-title">@activePresentationProject!.Title</h3>
                                             <p class="builder-activity-desc">@GetPresentationCurrentActivityText(activePresentationProject)</p>
                                         </div>
                                     </div>
@@ -369,66 +369,39 @@
                                         @if (activePresentationProject.Status == ContentProjectStatus.Assembled && !string.IsNullOrWhiteSpace(activePresentationProject.FinalArtifactPath))
                                         {
                                             <button type="button" class="btn-builder-view-deck" @onclick="() => OpenPresentationDeckTab(activePresentationProject)">
-                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                                     <polygon points="5 3 19 12 5 21 5 3"></polygon>
                                                 </svg>
                                                 <span>Present Deck</span>
                                             </button>
                                         }
                                         <button type="button" class="btn-builder-dismiss" @onclick="() => isPresentationCardDismissed = true" title="Dismiss builder banner">
-                                            ✕
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                                            </svg>
                                         </button>
                                     </div>
                                 </div>
 
-                                <div class="presentation-slide-cards-grid">
+                                <div class="presentation-progress-track">
                                     @foreach (var sec in activePresentationProject.Sections.OrderBy(s => s.Order))
                                     {
                                         var isReady = sec.Status == ContentSectionStatus.Ready;
                                         var isGen = sec.Status == ContentSectionStatus.Generating;
-                                        <div class="presentation-slide-card @(isReady ? "ready" : (isGen ? "generating" : "queued"))">
-                                            <div class="slide-card-header">
-                                                <span class="slide-card-num">Slide @sec.Order.ToString("D2")</span>
-                                                <div class="slide-card-status-indicator">
-                                                    @if (isReady)
-                                                    {
-                                                        <div class="slide-status-check" title="Slide complete">
-                                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                                                                <polyline points="20 6 9 17 4 12"></polyline>
-                                                            </svg>
-                                                        </div>
-                                                    }
-                                                    else if (isGen)
-                                                    {
-                                                        <div class="slide-status-spinner" title="Drafting content & visuals...">
-                                                            <svg class="spinner-ring" viewBox="0 0 24 24" width="14" height="14">
-                                                                <circle class="spinner-track" cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5"></circle>
-                                                                <circle class="spinner-arc" cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></circle>
-                                                            </svg>
-                                                        </div>
-                                                    }
-                                                    else
-                                                    {
-                                                        <div class="slide-status-queued" title="Queued">
-                                                            <span class="queued-dot"></span>
-                                                        </div>
-                                                    }
-                                                </div>
-                                            </div>
+                                        <div class="progress-segment @(isReady ? "ready" : (isGen ? "generating" : "queued"))" title="Slide @sec.Order: @sec.Title"></div>
+                                    }
+                                </div>
 
-                                            <div class="slide-card-body">
-                                                <span class="slide-card-title" title="@sec.Title">@sec.Title</span>
-                                                @if (!string.IsNullOrWhiteSpace(sec.NarrativeJob))
-                                                {
-                                                    <span class="slide-card-job" title="@sec.NarrativeJob">@sec.NarrativeJob</span>
-                                                }
-                                            </div>
-
-                                            <div class="slide-card-footer">
-                                                <span class="slide-card-state-label">
-                                                    @(isReady ? "Ready" : (isGen ? "Drafting..." : "Waiting"))
-                                                </span>
-                                            </div>
+                                <div class="presentation-slides-row">
+                                    @foreach (var sec in activePresentationProject.Sections.OrderBy(s => s.Order))
+                                    {
+                                        var isReady = sec.Status == ContentSectionStatus.Ready;
+                                        var isGen = sec.Status == ContentSectionStatus.Generating;
+                                        <div class="presentation-slide-item @(isReady ? "ready" : (isGen ? "generating" : "queued"))">
+                                            <span class="slide-item-dot"></span>
+                                            <span class="slide-item-num">@sec.Order</span>
+                                            <span class="slide-item-title" title="@sec.Title">@sec.Title</span>
                                         </div>
                                     }
                                 </div>
