@@ -263,6 +263,14 @@ else
                             <path d="M18 9a9 9 0 0 1-9 9"></path>
                         </svg>
                     }
+                    else if (targetKind == "presentation")
+                    {
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                        </svg>
+                    }
                     else
                     {
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -451,6 +459,12 @@ else
         {
             var act = name.Replace("git_", "").Replace("-", " ");
             return ($"Git {Capitalize(act)}", args.GetValueOrDefault("branch") ?? args.GetValueOrDefault("commit") ?? "", "git");
+        }
+
+        if (name.Contains("create_presentation") || name.Contains("presentation"))
+        {
+            var title = args.GetValueOrDefault("title") ?? args.GetValueOrDefault("Title") ?? args.GetValueOrDefault("topic") ?? args.GetValueOrDefault("theme") ?? "";
+            return ("Create Presentation", title, "presentation");
         }
 
         // Generic tool formatting
