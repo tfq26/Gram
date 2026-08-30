@@ -478,67 +478,35 @@
             <div class="composer-box">
                 <MentionPicker IsOpen="showMentionPopup" Items="filteredMentions.Select(item => new MentionPickerItem(item.Id, item.Kind, item.Title, item.Description, item.Category, item.Target)).ToList()" SelectedIndex="selectedMentionIndex" Select="SelectMentionFromPicker" />
 
-                <InputFile id="imageFileInput" OnChange="HandleImageSelected" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="display: none;" multiple />
-                <InputFile id="docFileInput" OnChange="HandleDocFileSelected" accept=".cs,.razor,.ts,.js,.py,.json,.md,.txt,.html,.css,.sql,.yml,.yaml,.xml,.csv,.pdf,.sh,.go,.rs,.cpp,.c,.h" style="display: none;" multiple />
-
                 <div class="composer-inner">
-                    <div class="composer-actions-left" style="position: relative;">
-                        <button type="button" 
-                                class="btn-composer-icon attach-trigger @(isAttachMenuOpen ? "open" : "")" 
-                                @onclick="ToggleAttachMenu" 
-                                title="Attach"
-                                aria-label="Attach"
-                                aria-expanded="@isAttachMenuOpen">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="plus-icon @(isAttachMenuOpen ? "rotated" : "")">
-                                <line x1="12" y1="5" x2="12" y2="19"></line>
-                                <line x1="5" y1="12" x2="19" y2="12"></line>
-                            </svg>
-                        </button>
+                    <AttachmentPicker IsOpen="isAttachMenuOpen" Toggle="ToggleAttachMenu" Close="CloseAttachMenu" ImageSelected="HandleImageSelected" DocumentSelected="HandleDocFileSelected" />
 
-                        @if (isAttachMenuOpen)
-                        {
-                            <div class="attach-backdrop" @onclick="CloseAttachMenu"></div>
-                            <div class="attach-popover" @onclick:stopPropagation="true">
-                                <label for="imageFileInput" class="attach-popover-item" @onclick="CloseAttachMenu">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="attach-item-icon">
-                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                                        <polyline points="21 15 16 10 5 21"></polyline>
-                                    </svg>
-                                    <span>Upload image</span>
-                                </label>
 
-                                <label for="docFileInput" class="attach-popover-item" @onclick="CloseAttachMenu">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="attach-item-icon">
-                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                        <polyline points="14 2 14 8 20 8"></polyline>
-                                        <line x1="16" y1="13" x2="8" y2="13"></line>
-                                        <line x1="16" y1="17" x2="8" y2="17"></line>
-                                    </svg>
-                                    <span>Upload file</span>
-                                </label>
-                            </div>
-                        }
-                    </div>
-
-                    <textarea @ref="textareaRef"
-                              id="composerTextarea"
-                              class="composer-textarea"
-                              value="@draft"
-                              @oninput="OnInputChanged"
-                              @onkeydown="HandleKeyDown"
-                              @onkeydown:preventDefault="preventEnter"
-                              placeholder="@(voiceState == VoiceState.UserSpeaking ? "Listening..." : "Message Gram · type @ to add context")"
-                              rows="1"></textarea>
+                    <ComposerTextInput Draft="draft" InputChanged="OnInputChanged" KeyDown="HandleKeyDown"
+                                       PreventEnter="preventEnter"
+                                       Placeholder="@(voiceState == VoiceState.UserSpeaking ? "Listening..." : "Message Gram · type @ to add context")"
+                                       ReferenceChanged="SetComposerReference" />
 
                     <div class="composer-actions-right">
-                        <VoiceControls VoiceState="voiceState.ToString()" IsDeviceMenuOpen="isAudioDeviceMenuOpen" DevicesLoaded="audioDevicesLoaded"
-                                       InputDevices="AudioInputDevices.ToList()" OutputDevices="AudioOutputDevices.ToList()"
-                                       SelectedInputId="selectedAudioInputDeviceId" SelectedOutputId="selectedAudioOutputDeviceId"
-                                       InputLabel="SelectedAudioInputLabel" OutputLabel="SelectedAudioOutputLabel"
-                                       DeviceSummary="AudioDeviceSummaryTitle" DeviceLabel="AudioDeviceLabel" ShortName="ShortAudioDeviceName"
-                                       ToggleVoice="ToggleVoice" ToggleDeviceMenu="ToggleAudioDeviceMenu" CloseDeviceMenu="CloseAudioDeviceMenu"
-                                       SelectInput="SelectAudioInputDevice" SelectOutput="SelectAudioOutputDevice" />
+                        <button type="button" 
+                                class="btn-composer-action btn-voice-toggle @(voiceState != VoiceState.Idle ? "recording" : "")" 
+                                @onclick="ToggleVoice" 
+                                title="@(voiceState != VoiceState.Idle ? "Stop Voice (Esc)" : "Start Voice Conversation")">
+                            @if (voiceState != VoiceState.Idle)
+                            {
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                    <rect x="5" y="5" width="14" height="14" rx="2" />
+                                </svg>
+                            }
+                            else
+                            {
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                    <line x1="12" y1="19" x2="12" y2="22"></line>
+                                </svg>
+                            }
+                        </button>
 
                         @if (TabService.IsSplitView && SecondaryConversation != null)
                         {
@@ -749,6 +717,26 @@
                             </div>
                         </div>
                     }
+
+                    <!-- Audio Devices Configuration -->
+                    <div class="sheet-field">
+                        <label class="sheet-label">Microphone & Audio</label>
+                        <div class="sheet-audio-devices" style="display: flex; flex-direction: column; gap: 8px;">
+                            <DeviceSection Title="Microphone Input"
+                                           EmptyText="No input microphones detected"
+                                           Devices="AudioInputDevices.ToList()"
+                                           SelectedId="@selectedAudioInputDeviceId"
+                                           Label='device => AudioDeviceLabel(device, "microphone")'
+                                           Select="SelectAudioInputDevice" />
+
+                            <DeviceSection Title="Speaker Output"
+                                           EmptyText="No output speakers detected"
+                                           Devices="AudioOutputDevices.ToList()"
+                                           SelectedId="@selectedAudioOutputDeviceId"
+                                           Label='device => AudioDeviceLabel(device, "speaker")'
+                                           Select="SelectAudioOutputDevice" />
+                        </div>
+                    </div>
 
                     <!-- Sleek Session Usage Row -->
                     <div class="sheet-usage-row">
@@ -1031,8 +1019,6 @@
     private bool showRunDetails;
     private bool isContextMenuOpen = false;
     private bool isModelMenuOpen = false;
-    private bool isAudioDeviceMenuOpen = false;
-    private bool audioDevicesLoaded = false;
     private List<AudioDeviceInfo> audioDevices = new();
     private string selectedAudioInputDeviceId = "";
     private string selectedAudioOutputDeviceId = "";
@@ -2212,27 +2198,11 @@
         }
     }
 
-    private async Task ToggleAudioDeviceMenu()
-    {
-        if (!isAudioDeviceMenuOpen)
-        {
-            await RefreshAudioDevicesAsync();
-        }
-
-        isAudioDeviceMenuOpen = !isAudioDeviceMenuOpen;
-    }
-
-    private void CloseAudioDeviceMenu()
-    {
-        isAudioDeviceMenuOpen = false;
-    }
-
     private async Task RefreshAudioDevicesAsync()
     {
         try
         {
             audioDevices = await JSRuntime.InvokeAsync<List<AudioDeviceInfo>>("gramAudio.getAudioDevices") ?? new();
-            audioDevicesLoaded = true;
 
             if (string.IsNullOrWhiteSpace(selectedAudioInputDeviceId) || !AudioInputDevices.Any(d => d.DeviceId == selectedAudioInputDeviceId))
             {
@@ -2253,7 +2223,6 @@
     private async Task SelectAudioInputDevice(string deviceId)
     {
         selectedAudioInputDeviceId = deviceId;
-        isAudioDeviceMenuOpen = false;
 
         if (voiceState != VoiceState.Idle)
         {
@@ -2273,7 +2242,6 @@
     private async Task SelectAudioOutputDevice(string deviceId)
     {
         selectedAudioOutputDeviceId = deviceId;
-        isAudioDeviceMenuOpen = false;
 
         try
         {

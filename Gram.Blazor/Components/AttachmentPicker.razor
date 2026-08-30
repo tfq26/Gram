@@ -1,0 +1,27 @@
+@using Microsoft.AspNetCore.Components.Forms
+
+<div class="composer-actions-left" style="position: relative;">
+    <InputFile id="@ImageInputId" OnChange="ImageSelected" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="display: none;" multiple />
+    <InputFile id="@DocumentInputId" OnChange="DocumentSelected" accept=".cs,.razor,.ts,.js,.py,.json,.md,.txt,.html,.css,.sql,.yml,.yaml,.xml,.csv,.pdf,.sh,.go,.rs,.cpp,.c,.h" style="display: none;" multiple />
+    <button type="button" class="btn-composer-icon attach-trigger @(IsOpen ? "open" : "")" @onclick="Toggle" title="Attach" aria-label="Attach" aria-expanded="@IsOpen">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="plus-icon @(IsOpen ? "rotated" : "")"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    </button>
+    @if (IsOpen)
+    {
+        <div class="attach-backdrop" @onclick="Close"></div>
+        <div class="attach-popover" @onclick:stopPropagation="true">
+            <label for="@ImageInputId" class="attach-popover-item" @onclick="Close"><span class="attach-item-icon">▧</span><span>Upload image</span></label>
+            <label for="@DocumentInputId" class="attach-popover-item" @onclick="Close"><span class="attach-item-icon">▤</span><span>Upload file</span></label>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public string ImageInputId { get; set; } = "imageFileInput";
+    [Parameter] public string DocumentInputId { get; set; } = "docFileInput";
+    [Parameter] public EventCallback Toggle { get; set; }
+    [Parameter] public EventCallback Close { get; set; }
+    [Parameter] public EventCallback<InputFileChangeEventArgs> ImageSelected { get; set; }
+    [Parameter] public EventCallback<InputFileChangeEventArgs> DocumentSelected { get; set; }
+}

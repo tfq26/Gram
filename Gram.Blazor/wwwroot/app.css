@@ -4640,6 +4640,46 @@ body.tab-drag-in-progress {
   }
 }
 
+.btn-voice-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.06)) 90%, transparent);
+  color: var(--text-muted, #a1a1aa);
+  border: 1px solid color-mix(in srgb, var(--border-color, rgba(255, 255, 255, 0.1)) 80%, transparent);
+  cursor: pointer;
+  transition: all 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.btn-voice-toggle:hover {
+  color: var(--text-primary, #ffffff);
+  background: color-mix(in srgb, var(--accent, #6366f1) 20%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 40%, transparent);
+  transform: scale(1.05);
+}
+
+.btn-voice-toggle:active {
+  transform: scale(0.92);
+}
+
+.btn-voice-toggle.recording {
+  background: #ef4444;
+  color: #ffffff;
+  border-color: #ef4444;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+  animation: voiceMicPulse 1.4s infinite alternate;
+}
+
+@keyframes voiceMicPulse {
+  0% { transform: scale(1); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+  100% { transform: scale(1.08); box-shadow: 0 0 16px rgba(239, 68, 68, 0.8); }
+}
+
 .btn-composer-send {
   display: inline-flex;
   align-items: center;
