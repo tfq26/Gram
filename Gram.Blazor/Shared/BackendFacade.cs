@@ -182,8 +182,12 @@ public sealed class BackendFacade : IConversationApi, IRunApi, IModelApi, ISearc
     {
         using var scope = _scopeFactory.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<ConversationService>();
+        var storage = scope.ServiceProvider.GetRequiredService<SessionStorageService>();
         await service.InitializeAsync();
-        return service.Conversations.FirstOrDefault(x => x.Id == conversationId)?.Artifacts.FirstOrDefault(x => x.Id == artifactId);
+        var artifact = service.Conversations.FirstOrDefault(x => x.Id == conversationId)?.Artifacts.FirstOrDefault(x => x.Id == artifactId);
+        if (artifact is not null && string.IsNullOrEmpty(artifact.Content))
+            artifact.Content = await storage.ReadArtifactTextAsync(conversationId, artifact.FileName) ?? "";
+        return artifact;
     }
     public LocalAgentStatus GetStatus() => new(false, null, [new SandboxCapability("local-agent", false, "No local agent is paired.")]);
 

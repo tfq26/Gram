@@ -1,0 +1,40 @@
+@namespace Gram.Blazor.Components.ShadCn
+
+<div class="shadcn-skeleton @VariantClass @Class" style="@ComputedStyle" @attributes="AdditionalAttributes">
+    @if (ChildContent != null)
+    {
+        @ChildContent
+    }
+</div>
+
+@code {
+    [Parameter] public string? Width { get; set; }
+    [Parameter] public string? Height { get; set; }
+    [Parameter] public string? BorderRadius { get; set; }
+    [Parameter] public string Variant { get; set; } = "default"; // "default", "circle", "card", "text"
+    [Parameter] public string Class { get; set; } = "";
+    [Parameter] public string Style { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string VariantClass => Variant switch
+    {
+        "circle" => "shadcn-skeleton-circle",
+        "card" => "shadcn-skeleton-card",
+        "text" => "shadcn-skeleton-text",
+        _ => ""
+    };
+
+    private string ComputedStyle
+    {
+        get
+        {
+            var styles = new List<string>();
+            if (!string.IsNullOrWhiteSpace(Width)) styles.Add($"width: {Width}");
+            if (!string.IsNullOrWhiteSpace(Height)) styles.Add($"height: {Height}");
+            if (!string.IsNullOrWhiteSpace(BorderRadius)) styles.Add($"border-radius: {BorderRadius}");
+            if (!string.IsNullOrWhiteSpace(Style)) styles.Add(Style);
+            return string.Join("; ", styles);
+        }
+    }
+}

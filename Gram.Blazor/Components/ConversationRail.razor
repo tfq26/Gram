@@ -1,0 +1,53 @@
+@using Gram.Blazor.Shared
+
+<section class="conversation-rail" aria-label="Conversations">
+    <button class="btn-new-chat" type="button" @onclick="OnNewConversation">
+        + New chat
+    </button>
+
+    @if (IsLoading && Conversations.Count == 0)
+    {
+        <ConversationListSkeleton Count="5" />
+    }
+    else
+    {
+        <div class="conversation-list" role="list">
+            @foreach (var chat in Conversations)
+            {
+                <div class="conversation-item @(chat.Id == ActiveId ? "active" : "")"
+                     role="listitem"
+                     tabindex="0"
+                     aria-current="@(chat.Id == ActiveId ? "page" : null)"
+                     @onclick="() => OnSelectConversation.InvokeAsync(chat.Id)"
+                     @onkeydown="e => HandleConversationKeyDown(e, chat.Id)"
+                     @oncontextmenu="e => OnContextMenu.InvokeAsync(new ConversationContextMenu(e, chat))"
+                     @oncontextmenu:preventDefault="true">
+                    <div class="conv-meta">
+                        <span class="conv-title">@chat.Title</span>
+                        <span class="conv-time">@chat.Updated.ToLocalTime().ToString("MMM d")</span>
+                    </div>
+                    @if (Conversations.Count > 1)
+                    {
+                        <button class="conv-delete" type="button" title="Delete" aria-label="Delete @chat.Title"
+                                @onclick:stopPropagation="true" @onclick="() => OnDeleteConversation.InvokeAsync(chat.Id)">✕</button>
+                    }
+                </div>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<Conversation> Conversations { get; set; } = [];
+    [Parameter] public string ActiveId { get; set; } = "";
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnNewConversation { get; set; }
+    [Parameter] public EventCallback<string> OnSelectConversation { get; set; }
+    [Parameter] public EventCallback<string> OnDeleteConversation { get; set; }
+    [Parameter] public EventCallback<ConversationContextMenu> OnContextMenu { get; set; }
+
+    public sealed record ConversationContextMenu(MouseEventArgs Event, Conversation Conversation);
+
+    private Task HandleConversationKeyDown(KeyboardEventArgs args, string id) =>
+        args.Key is "Enter" or " " ? OnSelectConversation.InvokeAsync(id) : Task.CompletedTask;
+}

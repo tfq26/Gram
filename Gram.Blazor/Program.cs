@@ -117,6 +117,7 @@ builder.Services.AddScoped<Gram.Blazor.Shared.ISonnerService, Gram.Blazor.Shared
 builder.Services.AddScoped<Gram.Blazor.Shared.GitGramService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.BackendFacade>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IConversationApi>(sp => sp.GetRequiredService<Gram.Blazor.Shared.BackendFacade>());
+builder.Services.AddScoped<Gram.Blazor.Shared.ChatSessionController>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IRunApi>(sp => sp.GetRequiredService<Gram.Blazor.Shared.BackendFacade>());
 builder.Services.AddScoped<Gram.Blazor.Shared.IModelApi>(sp => sp.GetRequiredService<Gram.Blazor.Shared.BackendFacade>());
 builder.Services.AddScoped<Gram.Blazor.Shared.ISearchApi>(sp => sp.GetRequiredService<Gram.Blazor.Shared.BackendFacade>());

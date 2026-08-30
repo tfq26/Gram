@@ -1,0 +1,39 @@
+@namespace Gram.Blazor.Components
+@using Gram.Blazor.Components.ShadCn
+
+<div class="message-history-skeleton" aria-busy="true" aria-label="Loading chat history">
+    <!-- User message skeleton (Right aligned) -->
+    <div class="msg-skeleton-row msg-skeleton-user">
+        <div class="msg-skeleton-bubble msg-skeleton-bubble-user">
+            <Skeleton Width="180px" Height="15px" BorderRadius="6px" />
+        </div>
+    </div>
+
+    <!-- Assistant message skeleton (Left aligned) -->
+    <div class="msg-skeleton-row msg-skeleton-assistant">
+        <div class="msg-skeleton-avatar">
+            <Skeleton Variant="circle" Width="28px" Height="28px" />
+        </div>
+        <div class="msg-skeleton-bubble msg-skeleton-bubble-assistant">
+            <!-- Header bar -->
+            <div class="msg-skeleton-header">
+                <Skeleton Width="90px" Height="12px" BorderRadius="4px" />
+                <Skeleton Width="50px" Height="12px" BorderRadius="4px" />
+            </div>
+            <!-- Body text lines -->
+            <div class="msg-skeleton-lines">
+                <Skeleton Width="92%" Height="14px" BorderRadius="4px" />
+                <Skeleton Width="98%" Height="14px" BorderRadius="4px" />
+                <Skeleton Width="78%" Height="14px" BorderRadius="4px" />
+                <Skeleton Width="85%" Height="14px" BorderRadius="4px" />
+            </div>
+            <!-- Card / tool placeholder -->
+            <div class="msg-skeleton-card">
+                <Skeleton Width="100%" Height="48px" BorderRadius="8px" />
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+}

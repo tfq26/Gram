@@ -19,6 +19,7 @@
 @inject Gram.Blazor.Shared.IAgentRunTracker AgentRunTracker
 @inject Gram.Blazor.Shared.IRunApi BackendRunApi
 @inject Gram.Blazor.Shared.IConversationApi BackendConversationApi
+@inject Gram.Blazor.Shared.ChatSessionController ChatSessionController
 @inject NavigationManager NavManager
 @inject Gram.Blazor.Shared.WorkspaceTabService TabService
 @inject Gram.Blazor.Shared.IAuthService AuthService
@@ -51,28 +52,12 @@
                 }
             </div>
 
-            <button class="btn-new-chat" @onclick="NewConversation">
-                + New chat
-            </button>
-
-            <div class="conversation-list">
-                @foreach (var chat in conversations)
-                {
-                    <div class="conversation-item @(chat.Id == activeId ? "active" : "")" 
-                         @onclick="() => SelectConversation(chat.Id)"
-                         @oncontextmenu="e => OnChatContextMenu(e, chat)"
-                         @oncontextmenu:preventDefault="true">
-                        <div class="conv-meta">
-                            <span class="conv-title">@chat.Title</span>
-                            <span class="conv-time">@chat.Updated.ToLocalTime().ToString("MMM d")</span>
-                        </div>
-                        @if (conversations.Count > 1)
-                        {
-                            <button class="conv-delete" title="Delete" @onclick:stopPropagation="true" @onclick="() => DeleteConversation(chat.Id)">✕</button>
-                        }
-                    </div>
-                }
-            </div>
+            <ConversationRail Conversations="conversations" ActiveId="activeId"
+                              IsLoading="isLoadingConversations"
+                              OnNewConversation="NewConversation"
+                              OnSelectConversation="SelectConversation"
+                              OnDeleteConversation="DeleteConversation"
+                              OnContextMenu="OnConversationContextMenu" />
 
             <!-- Sidebar User Profile Footer -->
             <div class="rail-user-footer" style="padding: 10px 12px; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; margin-top: auto; position: relative;">
@@ -317,35 +302,8 @@
                     }
 
                     <div class="messages-container @(voiceConversationActive ? "voice-conversation-hidden" : "")" id="messagesContainer">
-                        @if (currentRun != null && isGenerating)
-                        {
-                            <button type="button" class="agent-run-status" @onclick="() => showRunDetails = !showRunDetails" aria-expanded="@showRunDetails">
-                                <span class="agent-run-dot"></span>
-                                <span>@currentRun.StatusText</span>
-                                @if (currentRun.ToolCalls > 0)
-                                {
-                                    <span class="agent-run-detail">@currentRun.ToolCalls tool@(currentRun.ToolCalls == 1 ? "" : "s")</span>
-                                }
-                                <span class="agent-run-chevron">@(showRunDetails ? "⌃" : "⌄")</span>
-                            </button>
-                            @if (showRunDetails && currentRun != null)
-                            {
-                                <div class="agent-run-inspector">
-                                    <div class="agent-run-inspector-head"><span>Run details</span><span class="agent-run-id">@currentRun.Id</span></div>
-                                    <div class="agent-run-metrics">
-                                        <span><b>Model</b> @currentRun.ModelId</span>
-                                        <span><b>Iteration</b> @currentRun.Iteration</span>
-                                        <span><b>Tools</b> @currentRun.ToolCalls</span>
-                                    </div>
-                                    <div class="agent-run-events">
-                                        @foreach (var runEvent in AgentRunTracker.GetEvents(currentRun.Id, 5).AsEnumerable().Reverse())
-                                        {
-                                            <div><span>@runEvent.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span> @runEvent.Message</div>
-                                        }
-                                    </div>
-                                </div>
-                            }
-                        }
+                        <RunStatusPanel Run="currentRun" IsGenerating="isGenerating" Tracker="AgentRunTracker"
+                                        ShowDetails="showRunDetails" ShowDetailsChanged="OnRunDetailsChanged" />
                         @if (PresentationProgressVisible)
                         {
                             <div class="presentation-builder-card" role="status" aria-live="polite">
@@ -434,161 +392,16 @@
                             </div>
                         }
 
-                        @if (Active.Messages.Count == 0)
-                        {
-                            <div class="harness-empty-state @(voiceState != VoiceState.Idle ? "voice-fade-out" : "")">
-                                <GramCharacter Size="108" State="@(isGenerating ? "thinking" : "idle")" AutoWaveOnLoad="true" Class="empty-state-character" />
-                                <h2>How can I help?</h2>
-                                <p>Type a message or tap the microphone to speak.</p>
-                            </div>
-                        }
-                        else
-                        {
-                @foreach (var message in Active.Messages)
-                {
-                    @if (message.Role == "user")
-                    {
-                        <div class="message-entry user">
-                            <div class="user-message-row">
-                                <div class="message-body user-body">
-                                    @if (message.Mentions.Count > 0)
-                                    {
-                                        <div class="message-context-list">
-                                            @foreach (var mention in message.Mentions)
-                                            {
-                                                <span class="message-context-item">@MentionIcon(mention.Kind)<span>@mention.Label</span></span>
-                                            }
-                                        </div>
-                                    }
-                                    <div class="user-message-text">@message.Text</div>
-                                    <button type="button" class="btn-msg-edit" @onclick="() => EditUserPrompt(message)" title="Edit prompt">
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="message-entry assistant">
-                            <div class="message-header">
-                                <ModelIcon ModelId="@activeModelId" Size="14" />
-                                <span>Gram</span>
-                            </div>
-                            <div class="message-body assistant-body">
-                                @if (message.ToolCalls != null && message.ToolCalls.Count > 0)
-                                {
-                                    <div class="message-tool-calls" style="margin-bottom: 8px;">
-                                        @foreach (var tool in message.ToolCalls)
-                                        {
-                                            <ToolCallCard ToolCall="@tool" />
-                                        }
-                                    </div>
-                                }
-
-                                @if (string.IsNullOrEmpty(message.Text) && isGenerating && message == Active.Messages.LastOrDefault())
-                                {
-                                    @if (message.ToolCalls == null || message.ToolCalls.Count == 0)
-                                    {
-                                        <div class="assistant-thinking-indicator">
-                                            <GramCharacter Size="30" State="thinking" Interactive="false" AutoWaveOnLoad="false" Class="assistant-thinking-character" />
-                                            <div class="thought-bubble" role="status" aria-label="Gram is formulating a response">
-                                                <span class="thought-bubble-dot"></span>
-                                                <span class="thought-bubble-dot"></span>
-                                                <span class="thought-bubble-dot"></span>
-                                            </div>
-                                        </div>
-                                    }
-                                }
-                                else
-                                {
-                                    var stoppedInfo = ParseStoppedMessage(message.Text);
-                                    @if (!string.IsNullOrWhiteSpace(stoppedInfo.MainText))
-                                    {
-                                        <MarkdownView Content="@stoppedInfo.MainText" />
-                                    }
-                                    @if (stoppedInfo.HasStoppedNotice)
-                                    {
-                                        <div class="generation-stopped-pill">
-                                            <span class="stopped-indicator-dot"></span>
-                                            <span class="stopped-indicator-label">Generation stopped</span>
-                                            @if (!string.IsNullOrWhiteSpace(stoppedInfo.StoppedDetail))
-                                            {
-                                                <span class="stopped-indicator-sep">·</span>
-                                                <span class="stopped-indicator-detail">@stoppedInfo.StoppedDetail</span>
-                                            }
-                                        </div>
-                                    }
-                                }
-
-                            @if (!string.IsNullOrEmpty(message.ErrorDetail))
-                            {
-                                var msgKey = message.Timestamp.Ticks.ToString();
-                                var isExpanded = expandedErrorIds.Contains(msgKey);
-                                <div class="message-error-box">
-                                    <div class="error-header">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                            <circle cx="12" cy="12" r="10"></circle>
-                                            <line x1="12" y1="8" x2="12" y2="12"></line>
-                                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                                        </svg>
-                                        <span>An error occurred while generating this response.</span>
-                                    </div>
-                                    <button type="button" class="error-details-toggle" @onclick="() => ToggleErrorDetails(msgKey)">
-                                        @(isExpanded ? "Hide full error details ▲" : "View full error details ▼")
-                                    </button>
-                                    @if (isExpanded)
-                                    {
-                                        <pre class="error-details-pre">@message.ErrorDetail</pre>
-                                    }
-                                </div>
-                            }
-                        </div>
-                        @if (message.Role == "assistant" && (!string.IsNullOrEmpty(message.Text) || !string.IsNullOrEmpty(message.ErrorDetail)) && !(isGenerating && message == Active.Messages.LastOrDefault()))
-                        {
-                            <div class="message-actions">
-                                <button type="button" class="btn-msg-action @(copiedMessageId == message.Timestamp.Ticks.ToString() ? "copied" : "")" 
-                                        @onclick="() => CopyResponseText(message)" 
-                                        title="Copy response">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                    </svg>
-                                    <span>@(copiedMessageId == message.Timestamp.Ticks.ToString() ? "Copied" : "Copy")</span>
-                                </button>
-
-                                <button type="button" class="btn-msg-action @(speakingMessageId == message.Timestamp.Ticks.ToString() ? "active" : "")" 
-                                        @onclick="() => ToggleReadAloud(message)" 
-                                        title="@(speakingMessageId == message.Timestamp.Ticks.ToString() ? "Stop speaking" : "Read aloud")">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                                    </svg>
-                                    <span>@(speakingMessageId == message.Timestamp.Ticks.ToString() ? "Stop" : "Read aloud")</span>
-                                </button>
-
-                                <button type="button" class="btn-msg-action" 
-                                        @onclick="() => RetryResponseAsync(message)" 
-                                        disabled="@isGenerating" 
-                                        title="Retry response">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <polyline points="23 4 23 10 17 10"></polyline>
-                                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                                    </svg>
-                                    <span>Retry</span>
-                                </button>
-                            </div>
-                        }
-                    </div>
-                }
-            }
-        }
+        <MessageList Messages="Active.Messages" ActiveModelId="activeModelId" IsGenerating="isGenerating"
+                     IsLoading="isLoadingChatHistory"
+                     ExpandedErrors="expandedErrorIds" CopiedMessageId="copiedMessageId" SpeakingMessageId="speakingMessageId"
+                     EditMessage="EditUserPrompt" ToggleError="ToggleErrorDetails" CopyMessage="CopyResponseText"
+                     ReadAloud="ToggleReadAloud" RetryMessage="RetryResponseAsync" />
         </div>
         
 
-        @if (pendingMentions.Count > 0)
+        <ComposerContextTray Mentions="pendingMentions" Remove="RemoveMention" />
+        @*
         {
             <div class="mention-context-tray" aria-label="Selected context">
                 @foreach (var mention in pendingMentions)
@@ -602,9 +415,11 @@
                     </span>
                 }
             </div>
-        }
+        }*@
 
         <div class="composer-wrapper @(pendingMentions.Count > 0 ? "has-context-mentions" : "")">
+            <AttachmentTray FileNames="attachedFiles" Attachments="Active.Attachments" Remove="RemoveFile" />
+            @*
             @if (attachedFiles.Count > 0)
             {
                 <div class="attachment-tray">
@@ -633,7 +448,7 @@
                         </div>
                     }
                 </div>
-            }
+            }*@
 
             <div class="composer-box">
                 <!-- Context Mentions Popup -->
@@ -1099,9 +914,12 @@
                                     <Badge Variant="outline" Style="font-size: 10px;">@selectedArtifact.Language</Badge>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 6px;">
-                                    <Button Variant="default" Size="sm" OnClick="() => ApplyArtifact(selectedArtifact)">
-                                        Apply to Workspace
-                                    </Button>
+                                    @if (WebCodingEnabled)
+                                    {
+                                        <Button Variant="default" Size="sm" OnClick="() => ApplyArtifact(selectedArtifact)">
+                                            Apply to Workspace
+                                        </Button>
+                                    }
                                     <Button Variant="secondary" Size="sm" OnClick="() => selectedArtifact = null">Back</Button>
                                 </div>
                             </div>
@@ -1141,9 +959,12 @@
                                             </div>
                                             <div style="display: flex; align-items: center; gap: 6px;">
                                                 <span class="mention-badge">@art.Language</span>
-                                                <Button Variant="outline" Size="sm" OnClick:stopPropagation="true" OnClick="() => ApplyArtifact(art)">
-                                                    Apply
-                                                </Button>
+                                                @if (WebCodingEnabled)
+                                                {
+                                                    <Button Variant="outline" Size="sm" OnClick:stopPropagation="true" OnClick="() => ApplyArtifact(art)">
+                                                        Apply
+                                                    </Button>
+                                                }
                                             </div>
                                         </div>
                                     }
@@ -1358,6 +1179,8 @@
         }
     }
     private string activeId = "default";
+    private bool isLoadingConversations = true;
+    private bool isLoadingChatHistory = false;
     private string draft = "";
     private readonly List<string> attachedFiles = new();
     private VoiceState voiceState = VoiceState.Idle;
@@ -1530,8 +1353,10 @@
         StateHasChanged();
     }
 
-    private void ViewArtifact(ArtifactInfo art)
+    private async Task ViewArtifact(ArtifactInfo art)
     {
+        if (string.IsNullOrEmpty(art.Content))
+            art.Content = await SessionStorage.ReadArtifactTextAsync(Active.Id, art.FileName) ?? "";
         selectedArtifact = art;
         OpenSidecar(SidecarTab.Artifact);
     }
@@ -1908,8 +1733,13 @@
         GramBox.OnStatusChanged += OnGramBoxStatusChanged;
         PresentationGeneration.ProjectUpdated += OnPresentationProjectUpdated;
         QuotaTracker.OnNotification += OnQuotaNotification;
-            AuthService.OnAuthStateChanged += OnAuthChanged;
-            autoSendVoice = SettingsService.GetSetting("autoSendVoice", "true") == "true";
+        AuthService.OnAuthStateChanged += OnAuthChanged;
+        autoSendVoice = SettingsService.GetSetting("autoSendVoice", "true") == "true";
+
+        if (conversations.Count > 0)
+        {
+            isLoadingConversations = false;
+        }
 
         if (TabService.ActiveTab?.Type == WorkspaceTabType.Chat && !string.IsNullOrWhiteSpace(TabService.ActiveTab.ChatId))
         {
@@ -1924,6 +1754,19 @@
         var fav = ModelService.Models.FirstOrDefault(m => m.IsFavorite);
         activeModelId = fav?.Id ?? ModelService.Models.FirstOrDefault()?.Id ?? "";
         ChatStateService.ActiveChatTitle = Active.Title;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ConversationService.InitializeAsync();
+        isLoadingConversations = false;
+        if (conversations.Count > 0 && (activeId == "default" || !conversations.Any(c => c.Id == activeId)))
+        {
+            activeId = conversations[0].Id;
+            TabService.OpenChatTab(activeId, conversations[0].Title);
+            ChatStateService.ActiveChatTitle = conversations[0].Title;
+        }
+        StateHasChanged();
     }
 
     private void HandleNewChatRequested()
@@ -2192,6 +2035,11 @@
         var chat = conversations.FirstOrDefault(c => c.Id == id);
         if (chat is not null)
         {
+            if (chat.Messages.Count == 0)
+            {
+                isLoadingChatHistory = true;
+                StateHasChanged();
+            }
             try
             {
                 var remote = await BackendConversationApi.GetAsync(id);
@@ -2207,6 +2055,10 @@
             catch (Exception ex)
             {
                 Console.WriteLine($"[Home] Could not refresh conversation {id}: {ex.Message}");
+            }
+            finally
+            {
+                isLoadingChatHistory = false;
             }
         }
         TabService.OpenChatTab(id, chat?.Title ?? "New chat");
@@ -2233,6 +2085,8 @@
         }
         catch { }
     }
+
+    private void SetComposerReference(ElementReference reference) => textareaRef = reference;
 
     private async Task DeleteConversation(string id)
     {
@@ -2270,12 +2124,18 @@
         SonnerService.Success("Chat cleared", "Conversation history has been reset.");
     }
 
-    private void OnChatContextMenu(MouseEventArgs e, Conversation chat)
+    private void OnConversationContextMenu(ConversationRail.ConversationContextMenu context)
     {
-        contextMenuTarget = chat;
-        contextMenuX = Math.Min(e.ClientX, 230);
-        contextMenuY = Math.Min(e.ClientY, 560);
+        contextMenuTarget = context.Conversation;
+        contextMenuX = Math.Min(context.Event.ClientX, 230);
+        contextMenuY = Math.Min(context.Event.ClientY, 560);
         isContextMenuOpen = true;
+    }
+
+    private Task OnRunDetailsChanged(bool expanded)
+    {
+        showRunDetails = expanded;
+        return InvokeAsync(StateHasChanged);
     }
 
     private void RenameFromContextMenu(Conversation? chat)
@@ -2948,42 +2808,28 @@
         try
         {
             assistantMsg.ToolCalls = new List<ToolCallInfo>();
-            var runSummary = await BackendRunApi.StartAsync(Active.Id, new SendMessageRequest(
+            var result = await ChatSessionController.ExecuteAsync(Active.Id, new SendMessageRequest(
                 promptText, effectiveModelId, workspacePath,
                 isPresentationMode || mentionResolution.IsPresentationRequested,
                 mentionResolution.ForcedWebSearchQuery,
-                contextResult.Messages, contextResult.SystemPrompt, contextResult.RepositoryMap), token);
-            currentRun = AgentRunTracker.Get(runSummary.Id);
-            long lastSequence = 0;
-            while (!token.IsCancellationRequested)
-            {
-                foreach (var runEvent in BackendRunApi.GetEvents(runSummary.Id, lastSequence))
+                contextResult.Messages, contextResult.SystemPrompt, contextResult.RepositoryMap), async update =>
                 {
-                    lastSequence = runEvent.Sequence;
-                    if (runEvent.EventType != "run.step") continue;
-                    using var eventJson = System.Text.Json.JsonDocument.Parse(runEvent.Payload);
-                    var root = eventJson.RootElement;
-                    if (root.TryGetProperty("contentDelta", out var delta) && delta.ValueKind == System.Text.Json.JsonValueKind.String)
-                        assistantMsg.Text += delta.GetString();
-                    if (root.TryGetProperty("errorMessage", out var error) && error.ValueKind == System.Text.Json.JsonValueKind.String)
-                        assistantMsg.ErrorDetail = error.GetString();
-                    if (root.TryGetProperty("toolCall", out var toolCall) && toolCall.ValueKind == System.Text.Json.JsonValueKind.Object)
+                    if (update.Run is not null) currentRun = AgentRunTracker.Get(update.Run.Id);
+                    if (!string.IsNullOrEmpty(update.ContentDelta)) assistantMsg.Text += update.ContentDelta;
+                    if (!string.IsNullOrWhiteSpace(update.ErrorMessage)) assistantMsg.ErrorDetail = update.ErrorMessage;
+                    if (update.ToolCall is not null)
                     {
-                        var parsedTool = System.Text.Json.JsonSerializer.Deserialize<ToolCallInfo>(toolCall.GetRawText(), BackendJson.Options);
-                        if (parsedTool is not null)
-                        {
-                            var existing = assistantMsg.ToolCalls.FirstOrDefault(t => t.Id == parsedTool.Id);
-                            if (existing is not null) { existing.Result = parsedTool.Result; existing.IsError = parsedTool.IsError; }
-                            else assistantMsg.ToolCalls.Add(parsedTool);
-                        }
+                        var existing = assistantMsg.ToolCalls.FirstOrDefault(t => t.Id == update.ToolCall.Id);
+                        if (existing is not null) { existing.Result = update.ToolCall.Result; existing.IsError = update.ToolCall.IsError; }
+                        else assistantMsg.ToolCalls.Add(update.ToolCall);
                     }
-                }
-                currentRun = AgentRunTracker.Get(runSummary.Id);
-                StateHasChanged();
-                _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
-                if (currentRun?.CompletedAt is not null) break;
-                await Task.Delay(100, token);
-            }
+                    await InvokeAsync(StateHasChanged);
+                    _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
+                }, token);
+            if (result.Run is not null) currentRun = AgentRunTracker.Get(result.Run.Id);
+            if (!string.IsNullOrWhiteSpace(result.ErrorMessage) && !result.Cancelled) assistantMsg.ErrorDetail = result.ErrorMessage;
+            if (result.Cancelled && string.IsNullOrWhiteSpace(assistantMsg.Text) && assistantMsg.ToolCalls.Count == 0)
+                assistantMsg.Text = "[Generation stopped]";
         }
         catch (OperationCanceledException)
         {
