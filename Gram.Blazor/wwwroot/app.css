@@ -2068,6 +2068,12 @@ html, body {
   flex-direction: column;
   gap: 10px;
   animation: presentationBuilderEnter 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.presentation-builder-card.has-error {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.03);
 }
 
 .presentation-builder-header {
@@ -2120,6 +2126,10 @@ html, body {
   flex-shrink: 0;
 }
 
+.builder-percent-chip.failed {
+  color: #ef4444;
+}
+
 .builder-activity-desc {
   font-size: 12px;
   color: var(--text-muted);
@@ -2128,6 +2138,10 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: inherit;
+}
+
+.builder-activity-desc.failed {
+  color: #fca5a5;
 }
 
 .builder-header-right {
@@ -2158,6 +2172,28 @@ html, body {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+.btn-builder-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm, 6px);
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-family: inherit;
+}
+
+.btn-builder-retry:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ffffff;
+}
+
 .btn-builder-dismiss {
   width: 24px;
   height: 24px;
@@ -2175,6 +2211,29 @@ html, body {
 .btn-builder-dismiss:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.builder-error-alert {
+  display: flex;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm, 6px);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.builder-error-message {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: #fca5a5;
+  font-weight: 450;
+}
+
+.builder-error-message svg {
+  flex-shrink: 0;
+  color: #ef4444;
 }
 
 /* Minimal Segmented Progress Track */
@@ -2200,6 +2259,10 @@ html, body {
 .progress-segment.generating {
   background: #eab308;
   animation: segmentPulse 1.4s ease-in-out infinite;
+}
+
+.progress-segment.failed {
+  background: #ef4444;
 }
 
 @keyframes segmentPulse {
@@ -2239,6 +2302,12 @@ html, body {
   background: rgba(234, 179, 8, 0.12);
 }
 
+.presentation-slide-item.failed {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.08);
+}
+
 .presentation-slide-item.queued {
   opacity: 0.6;
 }
@@ -2257,6 +2326,10 @@ html, body {
 
 .presentation-slide-item.generating .slide-item-dot {
   background: #eab308;
+}
+
+.presentation-slide-item.failed .slide-item-dot {
+  background: #ef4444;
 }
 
 .slide-item-num {

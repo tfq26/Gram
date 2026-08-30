@@ -353,15 +353,15 @@
                                         ShowDetails="showRunDetails" ShowDetailsChanged="OnRunDetailsChanged" />
                         @if (PresentationProgressVisible)
                         {
-                            <div class="presentation-builder-card" role="status" aria-live="polite">
+                            <div class="presentation-builder-card @(IsPresentationFailed ? "has-error" : "")" role="status" aria-live="polite">
                                 <div class="presentation-builder-header">
                                     <div class="builder-header-left">
                                         <div class="builder-meta-block">
                                             <div class="builder-title-row">
                                                 <h4 class="builder-deck-title">@activePresentationProject!.Title</h4>
-                                                <span class="builder-percent-chip">@PresentationProgressPercent%</span>
+                                                <span class="builder-percent-chip @(IsPresentationFailed ? "failed" : "")">@PresentationProgressPercent%</span>
                                             </div>
-                                            <p class="builder-activity-desc">@GetPresentationCurrentActivityText(activePresentationProject)</p>
+                                            <p class="builder-activity-desc @(IsPresentationFailed ? "failed" : "")">@GetPresentationCurrentActivityText(activePresentationProject)</p>
                                         </div>
                                     </div>
 
@@ -375,6 +375,16 @@
                                                 <span>Present Deck</span>
                                             </button>
                                         }
+                                        else if (IsPresentationFailed)
+                                        {
+                                            <button type="button" class="btn-builder-retry" @onclick="() => RetryPresentationGeneration(activePresentationProject)">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="1 4 1 10 7 10"></polyline>
+                                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                </svg>
+                                                <span>Retry</span>
+                                            </button>
+                                        }
                                         <button type="button" class="btn-builder-dismiss" @onclick="() => isPresentationCardDismissed = true" title="Dismiss builder banner">
                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                 <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -384,27 +394,46 @@
                                     </div>
                                 </div>
 
-                                <div class="presentation-progress-track">
-                                    @foreach (var sec in activePresentationProject.Sections.OrderBy(s => s.Order))
-                                    {
-                                        var isReady = sec.Status == ContentSectionStatus.Ready;
-                                        var isGen = sec.Status == ContentSectionStatus.Generating;
-                                        <div class="progress-segment @(isReady ? "ready" : (isGen ? "generating" : "queued"))" title="Slide @sec.Order: @sec.Title"></div>
-                                    }
-                                </div>
-
-                                <div class="presentation-slides-row">
-                                    @foreach (var sec in activePresentationProject.Sections.OrderBy(s => s.Order))
-                                    {
-                                        var isReady = sec.Status == ContentSectionStatus.Ready;
-                                        var isGen = sec.Status == ContentSectionStatus.Generating;
-                                        <div class="presentation-slide-item @(isReady ? "ready" : (isGen ? "generating" : "queued"))">
-                                            <span class="slide-item-dot"></span>
-                                            <span class="slide-item-num">@sec.Order</span>
-                                            <span class="slide-item-title" title="@sec.Title">@sec.Title</span>
+                                @if (IsPresentationFailed)
+                                {
+                                    <div class="builder-error-alert">
+                                        <div class="builder-error-message">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <circle cx="12" cy="12" r="10"></circle>
+                                                <line x1="12" y1="8" x2="12" y2="12"></line>
+                                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                                            </svg>
+                                            <span>Presentation generation stopped or encountered an error. You can click Retry or send a modified prompt.</span>
                                         </div>
-                                    }
-                                </div>
+                                    </div>
+                                }
+
+                                @if (activePresentationProject.Sections.Count > 0)
+                                {
+                                    <div class="presentation-progress-track">
+                                        @foreach (var sec in activePresentationProject.Sections.OrderBy(s => s.Order))
+                                        {
+                                            var isReady = sec.Status == ContentSectionStatus.Ready;
+                                            var isFailed = sec.Status == ContentSectionStatus.Failed || (IsPresentationFailed && !isReady);
+                                            var isGen = sec.Status == ContentSectionStatus.Generating && !IsPresentationFailed;
+                                            <div class="progress-segment @(isReady ? "ready" : (isFailed ? "failed" : (isGen ? "generating" : "queued")))" title="Slide @sec.Order: @sec.Title (@sec.Status)"></div>
+                                        }
+                                    </div>
+
+                                    <div class="presentation-slides-row">
+                                        @foreach (var sec in activePresentationProject.Sections.OrderBy(s => s.Order))
+                                        {
+                                            var isReady = sec.Status == ContentSectionStatus.Ready;
+                                            var isFailed = sec.Status == ContentSectionStatus.Failed || (IsPresentationFailed && !isReady);
+                                            var isGen = sec.Status == ContentSectionStatus.Generating && !IsPresentationFailed;
+                                            <div class="presentation-slide-item @(isReady ? "ready" : (isFailed ? "failed" : (isGen ? "generating" : "queued")))">
+                                                <span class="slide-item-dot"></span>
+                                                <span class="slide-item-num">@sec.Order</span>
+                                                <span class="slide-item-title" title="@sec.Title">@sec.Title</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
                             </div>
                         }
 
@@ -1030,12 +1059,19 @@
     private int PresentationProgressPercent => activePresentationProject?.Sections.Count > 0
         ? Math.Clamp((int)Math.Round(PresentationReadySections * 100d / activePresentationProject.Sections.Count), 0, 100)
         : 0;
+    private bool IsPresentationFailed => activePresentationProject != null && (
+        activePresentationProject.Status == ContentProjectStatus.Failed ||
+        activePresentationProject.Sections.Any(s => s.Status == ContentSectionStatus.Failed) ||
+        (!isGenerating && activePresentationProject.Status != ContentProjectStatus.Assembled && PresentationReadySections < activePresentationProject.Sections.Count && activePresentationProject.Sections.Count > 0) ||
+        (!isGenerating && activePresentationProject.Status == ContentProjectStatus.Planning && activePresentationProject.Sections.Count == 0)
+    );
     private string PresentationMascotState => activePresentationProject?.Status switch
     {
         ContentProjectStatus.Assembled => "complete",
         ContentProjectStatus.ReadyForAssembly => "reviewing",
         ContentProjectStatus.NeedsRevision => "reviewing",
         ContentProjectStatus.Failed => "idle",
+        _ when IsPresentationFailed => "idle",
         _ when PresentationReadySections > 0 => "designing",
         _ => "researching"
     };
@@ -1047,13 +1083,22 @@
         {
             return $"All {project.Sections.Count} slides have been drafted, styled, and compiled into an interactive deck.";
         }
+        if (IsPresentationFailed)
+        {
+            var failedSection = project.Sections.FirstOrDefault(s => s.Status == ContentSectionStatus.Failed);
+            if (failedSection != null)
+            {
+                return $"Encountered an issue generating Slide {failedSection.Order}: \"{failedSection.Title}\".";
+            }
+            if (project.Sections.Count == 0)
+            {
+                return "Generation stopped before slides could be drafted. Please try again with a refined prompt.";
+            }
+            return $"Generation interrupted with {PresentationReadySections} of {project.Sections.Count} slides completed.";
+        }
         if (project.Status == ContentProjectStatus.ReadyForAssembly)
         {
             return "Reviewing slide balance, typography, and compiling interactive HTML deck...";
-        }
-        if (project.Status == ContentProjectStatus.Failed)
-        {
-            return "Generation encountered an issue. You can retry with a revised prompt.";
         }
         
         var activeGenSection = project.Sections.FirstOrDefault(s => s.Status == ContentSectionStatus.Generating);
@@ -1070,6 +1115,13 @@
         }
 
         return "Analyzing narrative brief, gathering background data, and planning slide structure...";
+    }
+
+    private async Task RetryPresentationGeneration(ContentProject? project)
+    {
+        if (project == null || isGenerating) return;
+        draft = $"Please retry and complete the presentation deck: \"{project.Title}\". Ensure all remaining slides are drafted and the final interactive HTML deck is assembled.";
+        await Send();
     }
 
     private (string Text, string CssClass, int? Percent) GetModelQuotaDisplay(GramModel model)
@@ -2678,7 +2730,12 @@
                 Timestamp = assistantMsg.Timestamp
             });
 
-        await SaveConversationThroughApiAsync(Active);
+            if (IsPresentationFailed && activePresentationProject != null)
+            {
+                SonnerService.Error("Presentation generation stopped or encountered an error before all slides were completed.");
+            }
+
+            await SaveConversationThroughApiAsync(Active);
             StateHasChanged();
             _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
         }
