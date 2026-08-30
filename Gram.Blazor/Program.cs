@@ -44,6 +44,7 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.StorageService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.SandboxAuditService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.SandboxBenchmarkService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IAgentRunTracker, Gram.Blazor.Shared.AgentRunTracker>();
+builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, Gram.Blazor.Shared.GramCircuitHandler>();
 
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL") 
     ?? Environment.GetEnvironmentVariable("POSTGRES_CONNECTION_STRING");

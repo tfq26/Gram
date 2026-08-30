@@ -18,21 +18,61 @@
 <body>
     <div id="components-reconnect-modal" class="components-reconnect-modal" role="status" aria-live="polite">
         <div class="reconnect-hud-banner">
-            <div class="reconnect-state-show">
-                <svg class="reconnect-spinner" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                    <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
-                    <path d="M12 2a10 10 0 0 1 10 10" />
-                </svg>
-                <span class="reconnect-text">Reconnecting...</span>
+            <div class="reconnect-hud-header">
+                <div class="reconnect-state-show">
+                    <span class="reconnect-pulse-dot"></span>
+                    <div class="reconnect-title-group">
+                        <span class="reconnect-text-alert">Reconnecting to Gram</span>
+                        <span id="reconnect-countdown-text" class="reconnect-meta-text">(18s timeout)</span>
+                    </div>
+                </div>
+                <div class="reconnect-state-failed">
+                    <svg class="reconnect-alert-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <div class="reconnect-title-group">
+                        <span class="reconnect-text-alert">Connection Lost</span>
+                        <span class="reconnect-meta-text">Session timed out</span>
+                    </div>
+                </div>
+                <div class="reconnect-actions">
+                    <button type="button" id="reconnect-toggle-btn" class="reconnect-btn-toggle" onclick="window.__gramToggleReconnectDetails()">View diagnostics ▼</button>
+                    <button type="button" class="reconnect-btn-reload" onclick="location.reload()">Reload</button>
+                </div>
             </div>
-            <div class="reconnect-state-failed">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <line x1="12" y1="8" x2="12" y2="12"></line>
-                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                </svg>
-                <span class="reconnect-text">Disconnected</span>
-                <button type="button" class="reconnect-btn-reload" onclick="location.reload()">Reload</button>
+
+            <div id="reconnect-details-drawer" class="reconnect-details-drawer">
+                <div class="reconnect-diag-grid">
+                    <div class="reconnect-diag-row">
+                        <span class="reconnect-diag-label">Target Subsystem:</span>
+                        <span id="reconnect-diag-subsystem" class="reconnect-diag-value highlight">SignalR Realtime Circuit</span>
+                    </div>
+                    <div class="reconnect-diag-row">
+                        <span class="reconnect-diag-label">Network State:</span>
+                        <span id="reconnect-diag-net" class="reconnect-diag-value">Online (Checking connection)</span>
+                    </div>
+                    <div class="reconnect-diag-row">
+                        <span class="reconnect-diag-label">Last Error Timestamp:</span>
+                        <span id="reconnect-diag-time" class="reconnect-diag-value">--:--:--</span>
+                    </div>
+                    <div class="reconnect-diag-row column">
+                        <span class="reconnect-diag-label">Diagnostic Exception:</span>
+                        <div id="reconnect-diag-detail" class="reconnect-diag-pre">Server connection dropped. Attempting to re-establish WebSocket session...</div>
+                    </div>
+                </div>
+                <div class="reconnect-recovery-steps">
+                    <span class="reconnect-steps-title">Recommended Actions:</span>
+                    <ol class="reconnect-steps-list">
+                        <li>Click <strong>Reload</strong> above to establish a fresh session.</li>
+                        <li>Check if your network or VPN disconnected.</li>
+                        <li>Verify that the backend server is running and accessible.</li>
+                    </ol>
+                </div>
+                <div class="reconnect-drawer-footer">
+                    <button type="button" id="reconnect-copy-btn" class="reconnect-btn-copy" onclick="window.__gramCopyDiagnostics()">Copy Diagnostic Report</button>
+                </div>
             </div>
         </div>
     </div>
@@ -46,6 +86,7 @@
     <script src="loginArtwork.js?v=20260828l"></script>
     <script src="gramVisuals.js"></script>
     <script src="gramCharacter.js?v=20260828m"></script>
+    <script src="reconnectHandler.js?v=20260828a"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>
