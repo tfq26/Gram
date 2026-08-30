@@ -494,7 +494,7 @@
             }*@
 
             <div class="composer-box">
-                <MentionPicker IsOpen="showMentionPopup" Items="filteredMentions.Select(item => new MentionPickerItem(item.Id, item.Kind, item.Title, item.Description, item.Category, item.Target)).ToList()" SelectedIndex="selectedMentionIndex" Select="SelectMentionFromPicker" />
+                <MentionSuggestionPopover IsOpen="showMentionPopup" Items="filteredMentions.Select(item => new MentionPickerItem(item.Id, item.Kind, item.Title, item.Description, item.Category, item.Target)).ToList()" SelectedIndex="selectedMentionIndex" Select="SelectMentionFromPicker" />
 
                 <div class="composer-inner">
                     <AttachmentPicker IsOpen="isAttachMenuOpen" Toggle="ToggleAttachMenu" Close="CloseAttachMenu" ImageSelected="HandleImageSelected" DocumentSelected="HandleDocFileSelected" />
@@ -502,7 +502,7 @@
 
                     <ComposerTextInput Draft="draft" InputChanged="OnInputChanged" KeyDown="HandleKeyDown"
                                        PreventEnter="preventEnter"
-                                       Placeholder="@(voiceState == VoiceState.UserSpeaking ? "Listening..." : "Message Gram · type @ to add context")"
+                                       Placeholder="@(voiceState == VoiceState.UserSpeaking ? "Listening..." : "Message Gram · type @ to mention")"
                                        ReferenceChanged="SetComposerReference" />
 
                     <div class="composer-actions-right">
@@ -1592,6 +1592,7 @@
         var fav = ModelService.Models.FirstOrDefault(m => m.IsFavorite);
         activeModelId = fav?.Id ?? ModelService.Models.FirstOrDefault()?.Id ?? "";
         ChatStateService.ActiveChatTitle = Active.Title;
+        draft = "";
     }
 
     protected override async Task OnInitializedAsync()
@@ -1604,6 +1605,7 @@
             TabService.OpenChatTab(activeId, conversations[0].Title);
             ChatStateService.ActiveChatTitle = conversations[0].Title;
         }
+        draft = "";
         StateHasChanged();
     }
 

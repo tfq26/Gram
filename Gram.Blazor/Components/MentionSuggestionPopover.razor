@@ -1,0 +1,43 @@
+@using Gram.Blazor.Shared
+
+@if (IsOpen)
+{
+    <div class="mention-suggestion-popover" role="listbox" aria-label="Mention suggestions" @onclick:stopPropagation="true">
+        @if (Items.Count == 0)
+        {
+            <div class="mention-suggestion-empty">No matches</div>
+        }
+        else
+        {
+            <div class="mention-suggestion-list">
+                @foreach (var group in Items.GroupBy(item => item.Category))
+                {
+                    <div class="mention-suggestion-group">@group.Key</div>
+                    @foreach (var item in group)
+                    {
+                        var index = Items.ToList().IndexOf(item);
+                        <button type="button" class="mention-suggestion-item @(index == SelectedIndex ? "selected" : "")" role="option" aria-selected="@(index == SelectedIndex)" @onmousedown:preventDefault="true" @onclick="() => Select.InvokeAsync(item)">
+                            <span class="mention-suggestion-icon" aria-hidden="true">@IconFor(item.Kind)</span>
+                            <span class="mention-suggestion-title">@item.Title</span>
+                        </button>
+                    }
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter, EditorRequired] public IReadOnlyList<MentionPickerItem> Items { get; set; } = [];
+    [Parameter] public int SelectedIndex { get; set; }
+    [Parameter] public EventCallback<MentionPickerItem> Select { get; set; }
+
+    private static string IconFor(MentionKind kind) => kind switch
+    {
+        MentionKind.File => "▧", MentionKind.Folder => "□", MentionKind.GitDiff => "±",
+        MentionKind.GitBranch => "⑂", MentionKind.Web => "◎", MentionKind.Toolbox => "⚙",
+        MentionKind.Docs => "▤", MentionKind.Artifact => "◆", MentionKind.Presentation => "▣",
+        _ => "•"
+    };
+}

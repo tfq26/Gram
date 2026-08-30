@@ -551,8 +551,12 @@ window.gramAudio = {
         if (!el || el._composerInitialized) return;
         el._composerInitialized = true;
 
+        if (el.value && el.value.trim().toLowerCase() === 'draft') {
+            el.value = '';
+        }
+
         el.addEventListener('keydown', function (e) {
-            const mentionPopup = document.querySelector('.mention-popup');
+            const mentionPopup = document.querySelector('.mention-suggestion-popover');
             if (mentionPopup && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
                 e.preventDefault();
                 e.stopImmediatePropagation();

@@ -587,8 +587,17 @@ public sealed class PresentationGenerationService : IDisposable
             if (!File.Exists(_logPath)) return;
             foreach (var line in File.ReadLines(_logPath).TakeLast(250))
             {
-                var entry = JsonSerializer.Deserialize<PresentationGenerationLogEntry>(line);
-                if (entry is not null) _logs.Enqueue(entry);
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    var entry = JsonSerializer.Deserialize<PresentationGenerationLogEntry>(line);
+                    if (entry is not null) _logs.Enqueue(entry);
+                }
+                catch (JsonException)
+                {
+                    // A line may be incomplete if the process was interrupted during
+                    // an append. Ignore that record and retain the valid history.
+                }
             }
         }
         catch (Exception ex)
