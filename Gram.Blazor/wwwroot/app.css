@@ -10043,3 +10043,140 @@ button:active:not(:disabled),
   gap: 4px;
 }
 
+/* ==========================================================================
+   Modern Micro-Animations & Tactile Spring Feedback
+   ========================================================================== */
+
+/* 1. Spring-Physics Button Active Scaling */
+.btn-send,
+.btn-new-chat,
+.btn-msg-action,
+.btn-msg-edit,
+.btn-builder-view-deck,
+.btn-builder-dismiss,
+.user-pill,
+.tab-pill,
+.model-selector-pill,
+.shadcn-btn,
+.mention-context-chip,
+.conversation-item {
+  transition: transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              background-color 150ms ease,
+              border-color 150ms ease,
+              box-shadow 150ms ease,
+              color 150ms ease;
+  will-change: transform;
+}
+
+.btn-send:active,
+.btn-new-chat:active,
+.btn-builder-view-deck:active,
+.shadcn-btn:active {
+  transform: scale(0.95);
+}
+
+.btn-msg-action:active,
+.btn-msg-edit:active,
+.conv-delete:active {
+  transform: scale(0.90);
+}
+
+.tab-pill:active,
+.model-selector-pill:active,
+.mention-context-chip:active {
+  transform: scale(0.97);
+}
+
+.conversation-item:active {
+  transform: scale(0.985);
+}
+
+/* 2. Streaming Typewriter Pulse Cursor */
+.streaming-cursor-pulse {
+  display: inline-block;
+  width: 7px;
+  height: 16px;
+  margin-left: 4px;
+  vertical-align: -2px;
+  background: var(--accent, #6366f1);
+  border-radius: 2px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent, #6366f1) 80%, transparent);
+  animation: streamingCursorPulse 0.85s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes streamingCursorPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 0.15;
+    transform: scaleY(0.65);
+  }
+}
+
+/* 3. Thinking Accordion Pulse Glow */
+.assistant-thinking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.03)) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #6366f1) 25%, transparent);
+  animation: thinkingIndicatorGlow 2s ease-in-out infinite alternate;
+}
+
+@keyframes thinkingIndicatorGlow {
+  0% {
+    box-shadow: 0 0 0 rgba(99, 102, 241, 0);
+    border-color: color-mix(in srgb, var(--accent, #6366f1) 20%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent, #6366f1) 20%, transparent);
+    border-color: color-mix(in srgb, var(--accent, #6366f1) 50%, transparent);
+  }
+}
+
+/* 4. Tool Accordion Rotation & Card Spring */
+.tool-call-card {
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 180ms ease,
+              box-shadow 180ms ease;
+}
+
+.tool-call-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.tool-call-chevron {
+  transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.tool-call-card.expanded .tool-call-chevron {
+  transform: rotate(90deg);
+}
+
+/* 5. Sonner Toast Notification Elevation & Physics */
+.shadcn-toast {
+  animation: toastSpringIn 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms ease;
+}
+
+.shadcn-toast:hover {
+  transform: translateY(-2px) scale(1.01);
+}
+
+@keyframes toastSpringIn {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+

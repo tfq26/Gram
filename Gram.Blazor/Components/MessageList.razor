@@ -54,10 +54,16 @@
                         {
                             <div class="assistant-thinking-indicator"><GramCharacter Size="30" State="thinking" Interactive="false" AutoWaveOnLoad="false" Class="assistant-thinking-character" /><div class="thought-bubble" role="status" aria-label="Gram is formulating a response"><span class="thought-bubble-dot"></span><span class="thought-bubble-dot"></span><span class="thought-bubble-dot"></span></div></div>
                         }
-                        else if (!isLastGenerating)
+                        else if (!string.IsNullOrEmpty(message.Text))
                         {
                             var stoppedInfo = ParseStoppedMessage(message.Text);
-                            @if (!string.IsNullOrWhiteSpace(stoppedInfo.MainText)) { <MarkdownView Content="@stoppedInfo.MainText" /> }
+                            @if (!string.IsNullOrWhiteSpace(stoppedInfo.MainText)) { 
+                                <MarkdownView Content="@stoppedInfo.MainText" /> 
+                                @if (isLastGenerating)
+                                {
+                                    <span class="streaming-cursor-pulse" aria-hidden="true"></span>
+                                }
+                            }
                             @if (stoppedInfo.HasStoppedNotice) { <div class="generation-stopped-pill"><span class="stopped-indicator-dot"></span><span class="stopped-indicator-label">Generation stopped</span><span class="stopped-indicator-sep">·</span><span class="stopped-indicator-detail">@stoppedInfo.StoppedDetail</span></div> }
                         }
                         @if (!string.IsNullOrEmpty(message.ErrorDetail))
