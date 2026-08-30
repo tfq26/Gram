@@ -16,6 +16,29 @@
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body>
+    <div id="components-reconnect-modal" class="components-reconnect-modal">
+        <div class="reconnect-hud-backdrop"></div>
+        <div class="reconnect-hud-card">
+            <div class="reconnect-hud-icon-wrapper">
+                <svg class="reconnect-spinner" viewBox="0 0 24 24" width="28" height="28">
+                    <circle class="reconnect-spinner-track" cx="12" cy="12" r="10" fill="none" stroke-width="2.5" />
+                    <circle class="reconnect-spinner-head" cx="12" cy="12" r="10" fill="none" stroke-width="2.5" />
+                </svg>
+                <div class="reconnect-pulse-core"></div>
+            </div>
+            <div class="reconnect-hud-content">
+                <div class="reconnect-state-show">
+                    <h4 class="reconnect-hud-title">Reconnecting to Gram</h4>
+                    <p class="reconnect-hud-subtitle">Restoring real-time session...</p>
+                </div>
+                <div class="reconnect-state-failed">
+                    <h4 class="reconnect-hud-title">Connection Lost</h4>
+                    <p class="reconnect-hud-subtitle">Could not reach the server. Please reload.</p>
+                    <button type="button" class="reconnect-btn-reload" onclick="location.reload()">Reload</button>
+                </div>
+            </div>
+        </div>
+    </div>
     <Routes @rendermode="InteractiveServer" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
