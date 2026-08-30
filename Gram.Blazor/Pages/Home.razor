@@ -417,7 +417,7 @@
                             </div>
                         }
 
-        <MessageList Messages="Active.Messages" ActiveModelId="activeModelId" IsGenerating="isGenerating"
+        <MessageList Messages="Active.Messages" ActiveModelId="@(string.IsNullOrWhiteSpace(Active.ModelId) ? (string.IsNullOrWhiteSpace(activeModelId) ? "gram-q" : activeModelId) : Active.ModelId)" IsGenerating="isGenerating"
                      IsLoading="isLoadingChatHistory"
                      ExpandedErrors="expandedErrorIds" CopiedMessageId="copiedMessageId" SpeakingMessageId="speakingMessageId"
                      EditMessage="EditUserPrompt" ToggleError="ToggleErrorDetails" CopyMessage="CopyResponseText"

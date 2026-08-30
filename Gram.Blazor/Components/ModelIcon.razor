@@ -10,51 +10,56 @@
     {
         get
         {
-            var key = "";
-            if (!string.IsNullOrWhiteSpace(Vendor))
-            {
-                key = Vendor.Trim().ToLowerInvariant();
-            }
-            else if (!string.IsNullOrWhiteSpace(ModelId))
-            {
-                key = ModelId.Trim().ToLowerInvariant();
-            }
+            var modelKey = (ModelId ?? "").Trim().ToLowerInvariant();
+            var vendorKey = (Vendor ?? "").Trim().ToLowerInvariant();
 
-            if (key.StartsWith("gram") || key == "gram-q" || key == "gram-q-plus")
+            // 1. Gram flagship models (Gram Q, Gram Q+) and any Gram model ALWAYS display the Gram logo
+            if (modelKey.StartsWith("gram") || modelKey.Contains("gram-q") || modelKey.Contains("gram-q-plus") || 
+                vendorKey.StartsWith("gram") || (string.IsNullOrWhiteSpace(modelKey) && string.IsNullOrWhiteSpace(vendorKey)))
             {
                 return "icons/gram-logo.svg";
             }
-            if (key.Contains("google") || key.Contains("gemini"))
+
+            // 2. Specific AI Provider / Vendor / Model matchers
+            var combinedKey = $"{vendorKey} {modelKey}";
+
+            if (combinedKey.Contains("google") || combinedKey.Contains("gemini"))
             {
                 return "logo/gemini.svg";
             }
-            if (key.Contains("groq") || key.Contains("meta") || key.Contains("llama"))
+            if (combinedKey.Contains("groq") || combinedKey.Contains("meta") || combinedKey.Contains("llama"))
             {
                 return "logo/meta-12361.svg";
             }
-            if (key.Contains("anthropic") || key.Contains("claude"))
+            if (combinedKey.Contains("anthropic") || combinedKey.Contains("claude"))
             {
                 return "logo/anthropic.svg";
             }
-            if (key.Contains("openai") || key.Contains("gpt-") || key.Contains("o1") || key.Contains("o3") || key.Contains("chatgpt"))
+            if (combinedKey.Contains("openai") || combinedKey.Contains("gpt-") || combinedKey.Contains("o1") || combinedKey.Contains("o3") || combinedKey.Contains("chatgpt"))
             {
                 return "logo/openai-light.svg";
             }
-            if (key.Contains("deepseek"))
+            if (combinedKey.Contains("deepseek"))
             {
                 return "logo/Deepseek-logo-icon.svg.webp";
             }
-            if (key.Contains("cloudflare"))
+            if (combinedKey.Contains("cloudflare"))
             {
                 return "logo/Cloudflare.svg";
             }
-            if (key.Contains("x-ai") || key.Contains("xai") || key.Contains("grok"))
+            if (combinedKey.Contains("x-ai") || combinedKey.Contains("xai") || combinedKey.Contains("grok"))
             {
                 return "logo/XAI_Logo.svg.webp";
             }
 
-            // Use openrouter icon for models that don't fit into a specific model provider
-            return "logo/openrouter-color.svg";
+            // 3. OpenRouter explicit provider
+            if (vendorKey.Contains("openrouter") || modelKey.Contains("openrouter"))
+            {
+                return "logo/openrouter-color.svg";
+            }
+
+            // Default fallback is the Gram logo
+            return "icons/gram-logo.svg";
         }
     }
 
@@ -62,9 +67,14 @@
     {
         get
         {
+            if (!string.IsNullOrWhiteSpace(ModelId))
+            {
+                var m = ModelId.ToLowerInvariant();
+                if (m.StartsWith("gram") || m.Contains("gram-q")) return "Gram";
+                return ModelId;
+            }
             if (!string.IsNullOrWhiteSpace(Vendor)) return Vendor;
-            if (!string.IsNullOrWhiteSpace(ModelId)) return ModelId;
-            return "AI Model";
+            return "Gram";
         }
     }
 }
