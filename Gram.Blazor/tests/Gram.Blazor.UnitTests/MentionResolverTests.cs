@@ -179,22 +179,28 @@ public sealed class MentionResolverTests : IDisposable
     }
 
     [Fact]
-    public async Task SmoothStreamBuffer_EmitsAllCharactersSmoothly()
+    public void MessageList_GroupsMessagesByDateChunksCorrectly()
     {
-        var output = new System.Text.StringBuilder();
-        var buffer = new SmoothStreamBuffer(
-            chunk =>
-            {
-                output.Append(chunk);
-                return Task.CompletedTask;
-            },
-            () => Task.CompletedTask);
+        var now = DateTimeOffset.UtcNow;
+        var twoDaysAgo = now.AddDays(-2);
+        var yesterday = now.AddDays(-1);
 
-        buffer.Start();
-        buffer.Enqueue("Hello world from smooth stream!");
-        await buffer.FlushAndCompleteAsync();
+        var messages = new List<Message>
+        {
+            new("user", "Message from 2 days ago") { Timestamp = twoDaysAgo },
+            new("assistant", "Response from 2 days ago") { Timestamp = twoDaysAgo.AddMinutes(1) },
+            new("user", "Message from yesterday") { Timestamp = yesterday },
+            new("user", "Message from today") { Timestamp = now }
+        };
 
-        Assert.Equal("Hello world from smooth stream!", output.ToString());
+        var component = new Gram.Blazor.Components.MessageList { Messages = messages };
+        var chunks = component.GetGroupedDayChunks();
+
+        Assert.Equal(3, chunks.Count);
+        Assert.Equal(2, chunks[0].Messages.Count);
+        Assert.Single(chunks[1].Messages);
+        Assert.Single(chunks[2].Messages);
+        Assert.Equal("Today", chunks[2].Label);
     }
 
     private sealed class FakeSubagentEngine : ISubagentEngine

@@ -15,90 +15,122 @@
     }
     else
     {
-        @foreach (var message in Messages)
+        var allChunks = GetGroupedDayChunks();
+        var visibleChunks = allChunks.TakeLast(loadedDayCount).ToList();
+        var hasPriorChunks = allChunks.Count > loadedDayCount;
+        var priorChunkIndex = allChunks.Count - loadedDayCount - 1;
+        var priorChunkLabel = hasPriorChunks && priorChunkIndex >= 0 ? allChunks[priorChunkIndex].Label : "";
+
+        @if (hasPriorChunks)
         {
-            @if (message.Role.Equals("user", StringComparison.OrdinalIgnoreCase))
+            <div class="load-prior-day-container">
+                <button type="button" class="btn-load-prior-day" @onclick="LoadPriorDay" title="Load messages from previous day">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                    <span>Load earlier messages (@priorChunkLabel)</span>
+                </button>
+            </div>
+        }
+
+        @foreach (var dayChunk in visibleChunks)
+        {
+            <div class="date-divider">
+                <span class="date-divider-line"></span>
+                <span class="date-divider-text">@dayChunk.Label</span>
+                <span class="date-divider-line"></span>
+            </div>
+
+            @foreach (var message in dayChunk.Messages)
             {
-                <div class="message-entry user">
-                    <div class="user-message-row">
-                        <div class="message-body user-body">
-                            @if (message.Mentions.Count > 0)
+                @if (message.Role.Equals("user", StringComparison.OrdinalIgnoreCase))
+                {
+                    <div class="message-entry user">
+                        <div class="user-message-row">
+                            <div class="message-body user-body">
+                                @if (message.Mentions.Count > 0)
+                                {
+                                    <div class="message-context-list">
+                                        @foreach (var mention in message.Mentions)
+                                        { <span class="message-context-item">@MentionIcon(mention.Kind)<span>@mention.Label</span></span> }
+                                    </div>
+                                }
+                                <div class="user-message-text">@message.Text</div>
+                                <span class="user-message-timestamp" title="@FormatFullDateTime(message.Timestamp)">@FormatMessageTime(message.Timestamp)</span>
+                                <button type="button" class="btn-msg-edit" @onclick="() => EditMessage.InvokeAsync(message)" title="Edit prompt" aria-label="Edit prompt">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    var isLastGenerating = IsGenerating && message == Messages.LastOrDefault();
+                    var messageKey = message.Timestamp.Ticks.ToString();
+                    var priorUserPrompt = Messages.TakeWhile(candidate => candidate != message).LastOrDefault(candidate => candidate.Role.Equals("user", StringComparison.OrdinalIgnoreCase))?.Text;
+                    var hideTools = IsPresentationMode || PresentationGenerationService.IsPresentationRequest(priorUserPrompt);
+                    <div class="message-entry assistant">
+                        <div class="message-header">
+                            <ModelIcon ModelId="@ActiveModelId" Size="14" />
+                            <span>Gram</span>
+                            <span class="message-timestamp" title="@FormatFullDateTime(message.Timestamp)">@FormatMessageTime(message.Timestamp)</span>
+                        </div>
+                        <div class="message-body assistant-body">
+                            @if (!hideTools && message.ToolCalls is { Count: > 0 } && message.ToolCalls.Any(tool => !IsPresentationTool(tool.ToolName)))
                             {
-                                <div class="message-context-list">
-                                    @foreach (var mention in message.Mentions)
-                                    { <span class="message-context-item">@MentionIcon(mention.Kind)<span>@mention.Label</span></span> }
+                                <div class="message-tool-calls">
+                                    @foreach (var tool in message.ToolCalls.Where(tool => !IsPresentationTool(tool.ToolName))) { <ToolCallCard ToolCall="@tool" /> }
                                 </div>
                             }
-                            <div class="user-message-text">@message.Text</div>
-                            <button type="button" class="btn-msg-edit" @onclick="() => EditMessage.InvokeAsync(message)" title="Edit prompt" aria-label="Edit prompt">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            }
-            else
-            {
-                var isLastGenerating = IsGenerating && message == Messages.LastOrDefault();
-                var messageKey = message.Timestamp.Ticks.ToString();
-                var priorUserPrompt = Messages.TakeWhile(candidate => candidate != message).LastOrDefault(candidate => candidate.Role.Equals("user", StringComparison.OrdinalIgnoreCase))?.Text;
-                var hideTools = IsPresentationMode || PresentationGenerationService.IsPresentationRequest(priorUserPrompt);
-                <div class="message-entry assistant">
-                    <div class="message-header"><ModelIcon ModelId="@ActiveModelId" Size="14" /><span>Gram</span></div>
-                    <div class="message-body assistant-body">
-                        @if (!hideTools && message.ToolCalls is { Count: > 0 } && message.ToolCalls.Any(tool => !IsPresentationTool(tool.ToolName)))
-                        {
-                            <div class="message-tool-calls">
-                                @foreach (var tool in message.ToolCalls.Where(tool => !IsPresentationTool(tool.ToolName))) { <ToolCallCard ToolCall="@tool" /> }
-                            </div>
-                        }
-                        @if (string.IsNullOrEmpty(message.Text) && isLastGenerating && (message.ToolCalls is null || message.ToolCalls.Count == 0))
-                        {
-                            <div class="assistant-thinking-indicator" role="status">
-                                <span>Thinking...</span>
-                            </div>
-                        }
-                        else if (!string.IsNullOrEmpty(message.Text))
-                        {
-                            var stoppedInfo = ParseStoppedMessage(message.Text);
-                            @if (!string.IsNullOrWhiteSpace(stoppedInfo.MainText)) { 
-                                <MarkdownView Content="@stoppedInfo.MainText" /> 
-                                @if (isLastGenerating)
-                                {
-                                    <span class="streaming-cursor-pulse" aria-hidden="true"></span>
+                            @if (string.IsNullOrEmpty(message.Text) && isLastGenerating && (message.ToolCalls is null || message.ToolCalls.Count == 0))
+                            {
+                                <div class="assistant-thinking-indicator" role="status">
+                                    <span>Thinking...</span>
+                                </div>
+                            }
+                            else if (!string.IsNullOrEmpty(message.Text))
+                            {
+                                var stoppedInfo = ParseStoppedMessage(message.Text);
+                                @if (!string.IsNullOrWhiteSpace(stoppedInfo.MainText)) { 
+                                    <MarkdownView Content="@stoppedInfo.MainText" /> 
+                                    @if (isLastGenerating)
+                                    {
+                                        <span class="streaming-cursor-pulse" aria-hidden="true"></span>
+                                    }
+                                }
+                                @if (stoppedInfo.HasStoppedNotice) { 
+                                    <div class="generation-stopped-note">
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                            <rect x="5" y="5" width="14" height="14" rx="2" />
+                                        </svg>
+                                        <span class="stopped-note-text">Generation stopped</span>
+                                        @if (!string.IsNullOrWhiteSpace(stoppedInfo.StoppedDetail) && stoppedInfo.StoppedDetail != "Generation stopped")
+                                        {
+                                            <span class="stopped-note-detail">(@stoppedInfo.StoppedDetail)</span>
+                                        }
+                                    </div> 
                                 }
                             }
-                            @if (stoppedInfo.HasStoppedNotice) { 
-                                <div class="generation-stopped-note">
-                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                                        <rect x="5" y="5" width="14" height="14" rx="2" />
-                                    </svg>
-                                    <span class="stopped-note-text">Generation stopped</span>
-                                    @if (!string.IsNullOrWhiteSpace(stoppedInfo.StoppedDetail) && stoppedInfo.StoppedDetail != "Generation stopped")
-                                    {
-                                        <span class="stopped-note-detail">(@stoppedInfo.StoppedDetail)</span>
-                                    }
-                                </div> 
+                            @if (!string.IsNullOrEmpty(message.ErrorDetail))
+                            {
+                                <div class="message-error-box">
+                                    <div class="error-header"><span>An error occurred while generating this response.</span></div>
+                                    <button type="button" class="error-details-toggle" @onclick="() => ToggleError.InvokeAsync(messageKey)">@(ExpandedErrors.Contains(messageKey) ? "Hide full error details ▲" : "View full error details ▼")</button>
+                                    @if (ExpandedErrors.Contains(messageKey)) { <pre class="error-details-pre">@message.ErrorDetail</pre> }
+                                </div>
                             }
-                        }
-                        @if (!string.IsNullOrEmpty(message.ErrorDetail))
+                        </div>
+                        @if ((!string.IsNullOrEmpty(message.Text) || !string.IsNullOrEmpty(message.ErrorDetail)) && !isLastGenerating)
                         {
-                            <div class="message-error-box">
-                                <div class="error-header"><span>An error occurred while generating this response.</span></div>
-                                <button type="button" class="error-details-toggle" @onclick="() => ToggleError.InvokeAsync(messageKey)">@(ExpandedErrors.Contains(messageKey) ? "Hide full error details ▲" : "View full error details ▼")</button>
-                                @if (ExpandedErrors.Contains(messageKey)) { <pre class="error-details-pre">@message.ErrorDetail</pre> }
+                            <div class="message-actions">
+                                <button type="button" class="btn-msg-action @(CopiedMessageId == messageKey ? "copied" : "")" @onclick="() => CopyMessage.InvokeAsync(message)" title="Copy response">@(CopiedMessageId == messageKey ? "Copied" : "Copy")</button>
+                                <button type="button" class="btn-msg-action @(SpeakingMessageId == messageKey ? "active" : "")" @onclick="() => ReadAloud.InvokeAsync(message)" title="Read aloud">@(SpeakingMessageId == messageKey ? "Stop" : "Read aloud")</button>
+                                <button type="button" class="btn-msg-action" @onclick="() => RetryMessage.InvokeAsync(message)" disabled="@IsGenerating" title="Retry response">Retry</button>
                             </div>
                         }
                     </div>
-                    @if ((!string.IsNullOrEmpty(message.Text) || !string.IsNullOrEmpty(message.ErrorDetail)) && !isLastGenerating)
-                    {
-                        <div class="message-actions">
-                            <button type="button" class="btn-msg-action @(CopiedMessageId == messageKey ? "copied" : "")" @onclick="() => CopyMessage.InvokeAsync(message)" title="Copy response">@(CopiedMessageId == messageKey ? "Copied" : "Copy")</button>
-                            <button type="button" class="btn-msg-action @(SpeakingMessageId == messageKey ? "active" : "")" @onclick="() => ReadAloud.InvokeAsync(message)" title="Read aloud">@(SpeakingMessageId == messageKey ? "Stop" : "Read aloud")</button>
-                            <button type="button" class="btn-msg-action" @onclick="() => RetryMessage.InvokeAsync(message)" disabled="@IsGenerating" title="Retry response">Retry</button>
-                        </div>
-                    }
-                </div>
+                }
             }
         }
     }
@@ -118,6 +150,70 @@
     [Parameter] public EventCallback<Message> CopyMessage { get; set; }
     [Parameter] public EventCallback<Message> ReadAloud { get; set; }
     [Parameter] public EventCallback<Message> RetryMessage { get; set; }
+
+    public sealed record DayMessageChunk(DateTime Date, string Label, List<Message> Messages);
+
+    private int loadedDayCount = 1;
+    private string lastFirstMessageKey = "";
+
+    protected override void OnParametersSet()
+    {
+        var firstMessageKey = Messages.Count > 0 ? (Messages[0].Timestamp.Ticks.ToString() + Messages[0].Text) : "";
+        if (firstMessageKey != lastFirstMessageKey)
+        {
+            lastFirstMessageKey = firstMessageKey;
+            loadedDayCount = 1;
+        }
+    }
+
+    private void LoadPriorDay()
+    {
+        loadedDayCount++;
+    }
+
+    public List<DayMessageChunk> GetGroupedDayChunks()
+    {
+        var groups = new List<DayMessageChunk>();
+        if (Messages == null || Messages.Count == 0) return groups;
+
+        var currentDay = DateTime.MinValue;
+        List<Message>? currentList = null;
+
+        foreach (var msg in Messages)
+        {
+            var timestamp = msg.Timestamp == default ? DateTimeOffset.UtcNow : msg.Timestamp;
+            var localDate = timestamp.ToLocalTime().Date;
+            if (localDate != currentDay || currentList == null)
+            {
+                currentDay = localDate;
+                currentList = new List<Message>();
+                groups.Add(new DayMessageChunk(currentDay, FormatDayLabel(currentDay), currentList));
+            }
+            currentList.Add(msg);
+        }
+        return groups;
+    }
+
+    private static string FormatMessageTime(DateTimeOffset timestamp)
+    {
+        if (timestamp == default) return "";
+        return timestamp.ToLocalTime().ToString("h:mm tt");
+    }
+
+    private static string FormatFullDateTime(DateTimeOffset timestamp)
+    {
+        if (timestamp == default) return "";
+        return timestamp.ToLocalTime().ToString("MMMM d, yyyy · h:mm:ss tt");
+    }
+
+    private static string FormatDayLabel(DateTime date)
+    {
+        var localToday = DateTime.Today;
+        if (date == localToday) return "Today";
+        if (date == localToday.AddDays(-1)) return "Yesterday";
+        if (date.Year == localToday.Year) return date.ToString("dddd, MMMM d");
+        return date.ToString("dddd, MMMM d, yyyy");
+    }
 
     private static MarkupString MentionIcon(MentionKind kind) => new(kind switch
     {
@@ -139,3 +235,4 @@
     private static bool IsPresentationTool(string? name) => name is not null && name.StartsWith("presentation", StringComparison.OrdinalIgnoreCase)
         || name is "create_presentation_project" or "revise_presentation_section" or "get_presentation_status" or "get_presentation_logs" or "assemble_presentation_html";
 }
+

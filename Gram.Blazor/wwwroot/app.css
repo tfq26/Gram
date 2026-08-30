@@ -2520,6 +2520,61 @@ html, body {
   margin-bottom: 6px;
 }
 
+/* Minimal Date Divider & Day Chunking */
+.date-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 24px 0 16px;
+  width: 100%;
+}
+
+.date-divider-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.date-divider-text {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted, #71717a);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  user-select: none;
+}
+
+/* Load Prior Day Button */
+.load-prior-day-container {
+  display: flex;
+  justify-content: center;
+  margin: 12px 0 18px;
+}
+
+.btn-load-prior-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted, #71717a);
+  background: var(--bg-panel-subtle, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-radius: 20px;
+  cursor: pointer;
+  outline: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.btn-load-prior-day:hover {
+  background: var(--bg-panel, rgba(255, 255, 255, 0.06));
+  color: var(--text-primary, #ffffff);
+  border-color: var(--border-color-hover, rgba(255, 255, 255, 0.16));
+}
+
 .user-message-row {
   display: flex;
   align-items: flex-end;
@@ -2546,6 +2601,26 @@ html, body {
   letter-spacing: 0.04em;
   color: var(--text-primary);
   margin-bottom: 6px;
+}
+
+.message-header .message-timestamp {
+  font-size: 10.5px;
+  color: var(--text-muted, #71717a);
+  font-weight: 400;
+  margin-left: auto;
+  user-select: none;
+  opacity: 0.75;
+}
+
+.user-message-timestamp {
+  font-size: 10px;
+  color: var(--text-muted, #71717a);
+  align-self: flex-end;
+  margin-left: 6px;
+  margin-top: 2px;
+  user-select: none;
+  opacity: 0.65;
+  white-space: nowrap;
 }
 
 .message-body {
