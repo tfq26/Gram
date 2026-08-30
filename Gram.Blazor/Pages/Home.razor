@@ -56,8 +56,8 @@
                               IsLoading="isLoadingConversations"
                               OnNewConversation="NewConversation"
                               OnSelectConversation="SelectConversation"
-                              OnDeleteConversation="PromptDeleteSingle"
-                              OnDeleteMultiple="PromptDeleteMultiple"
+                              OnDeleteConversation="DeleteConversation"
+                              OnDeleteMultiple="DeleteMultipleConversations"
                               OnContextMenu="OnConversationContextMenu" />
 
             <!-- Sidebar User Profile Footer -->
@@ -970,11 +970,6 @@
         <ChildContent>Delete</ChildContent>
     </ContextMenuItem>
 </ContextMenu>
-
-<DeleteConversationDialog IsOpen="@isDeleteDialogOpen"
-                          TargetConversations="@deleteDialogTargets"
-                          OnCancel="CancelDelete"
-                          OnConfirm="ConfirmDeleteAsync" />
 
 @code {
     private enum VoiceState { Idle, UserSpeaking, GramSpeaking }
@@ -1988,38 +1983,16 @@
 
     private void SetComposerReference(ElementReference reference) => textareaRef = reference;
 
-    private bool isDeleteDialogOpen = false;
-    private List<Conversation> deleteDialogTargets = [];
-
-    private void PromptDeleteSingle(string id)
+    private async Task DeleteConversation(string id)
     {
         if (conversations.Count <= 1) return;
-        var target = conversations.FirstOrDefault(c => c.Id == id);
-        if (target == null) return;
-        deleteDialogTargets = [target];
-        isDeleteDialogOpen = true;
+        await ExecuteBulkDeleteAsync([id]);
     }
 
-    private void PromptDeleteMultiple(List<string> ids)
+    private async Task DeleteMultipleConversations(List<string> ids)
     {
         if (ids == null || ids.Count == 0) return;
-        deleteDialogTargets = conversations.Where(c => ids.Contains(c.Id)).ToList();
-        if (deleteDialogTargets.Count == 0) return;
-        isDeleteDialogOpen = true;
-    }
-
-    private void CancelDelete()
-    {
-        isDeleteDialogOpen = false;
-        deleteDialogTargets.Clear();
-    }
-
-    private async Task ConfirmDeleteAsync()
-    {
-        isDeleteDialogOpen = false;
-        var targetIds = deleteDialogTargets.Select(c => c.Id).ToList();
-        deleteDialogTargets.Clear();
-        await ExecuteBulkDeleteAsync(targetIds);
+        await ExecuteBulkDeleteAsync(ids);
     }
 
     private async Task ExecuteBulkDeleteAsync(List<string> targetIds)
@@ -2126,7 +2099,7 @@
     {
         isContextMenuOpen = false;
         if (chat == null) return;
-        PromptDeleteSingle(chat.Id);
+        _ = DeleteConversation(chat.Id);
     }
 
     private bool isAttachMenuOpen = false;
