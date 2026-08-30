@@ -4,7 +4,7 @@
 
 <div @ref="elementRef"
      id="@elementId"
-     class="gram-character-container @Class @(isWaving ? "state-wave" : "") @(isThinking ? "state-thinking" : "") @(isLookingDown ? "state-lookdown" : "") @(isResearching ? "state-researching" : "") @(isDesigning ? "state-designing" : "") @(isReviewing ? "state-reviewing" : "") @(isComplete ? "state-complete" : "") @(isLanding ? "state-landing is-jumping" : "") @(isTypingName ? "state-typing-name is-recognizing" : "") @(isTypingPassword ? "state-typing-password is-covering-eyes" : "")"
+     class="gram-character-container @Class @(isWaving ? "state-wave" : "") @(isThinking ? "state-thinking" : "") @(isLookingDown ? "state-lookdown" : "") @(isResearching ? "state-researching" : "") @(isDesigning ? "state-designing" : "") @(isReviewing ? "state-reviewing" : "") @(isComplete ? "state-complete" : "") @(isLanding ? "state-landing is-jumping" : "") @(isTypingName ? "state-typing-name is-recognizing" : "") @(isTypingPassword ? "state-typing-password is-covering-eyes" : "") @(isVoiceListening ? "state-voice-listening is-voice-listening" : "") @(isVoiceThinking ? "state-voice-thinking is-voice-thinking" : "") @(isVoiceSpeaking ? "state-voice-speaking is-voice-speaking" : "") @(isVoiceInterrupted ? "state-voice-interrupted is-voice-interrupted" : "")"
      style="width: @(Size)px; height: @(Size)px; display: inline-flex; align-items: center; justify-content: center; position: relative; @Style"
      @onclick="HandleClick">
     
@@ -60,6 +60,13 @@
                 <circle cx="64" cy="58" r="8" fill="none" stroke="#e9d5ff" stroke-width="1.2" />
                 <circle cx="64" cy="58" r="16" fill="none" stroke="#c084fc" stroke-width="0.8" opacity="0.6" />
                 <circle cx="64" cy="58" r="24" fill="none" stroke="#9333ea" stroke-width="0.5" opacity="0.3" />
+            </g>
+
+            <!-- Voice Soundwave Harmonic Aura Rings -->
+            <g class="gram-char-voice-aura" style="opacity: 0;">
+                <circle class="voice-wave-ring voice-wave-1" cx="64" cy="65" r="48" fill="none" stroke="rgba(192, 132, 252, 0.45)" stroke-width="1.2" />
+                <circle class="voice-wave-ring voice-wave-2" cx="64" cy="65" r="58" fill="none" stroke="rgba(99, 102, 241, 0.35)" stroke-width="1" stroke-dasharray="4 3" />
+                <circle class="voice-wave-ring voice-wave-3" cx="64" cy="65" r="68" fill="none" stroke="rgba(56, 189, 248, 0.25)" stroke-width="0.8" />
             </g>
 
             <!-- Holographic Watch Projection (for Check-Watch idle) -->
@@ -232,6 +239,10 @@
     private bool isLanding => State == "landing" || State == "excited" || State == "jump";
     private bool isTypingName => State == "typing_name" || State == "name" || State == "recognize";
     private bool isTypingPassword => State == "typing_password" || State == "password" || State == "peek_cover" || State == "shy";
+    private bool isVoiceListening => State == "voice_listening" || State == "listening";
+    private bool isVoiceThinking => State == "voice_thinking";
+    private bool isVoiceSpeaking => State == "voice_speaking" || State == "speaking";
+    private bool isVoiceInterrupted => State == "voice_interrupted" || State == "interrupted";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

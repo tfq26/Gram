@@ -15,12 +15,18 @@ public sealed class ContextBuilder
     private readonly SessionStorageService _sessionStorage;
     private readonly SettingsService _settingsService;
     private readonly RepositoryMapService _repositoryMapService;
+    private readonly ITaskAndMemoryService? _taskAndMemoryService;
 
-    public ContextBuilder(SessionStorageService sessionStorage, SettingsService settingsService, RepositoryMapService repositoryMapService)
+    public ContextBuilder(
+        SessionStorageService sessionStorage, 
+        SettingsService settingsService, 
+        RepositoryMapService repositoryMapService,
+        ITaskAndMemoryService? taskAndMemoryService = null)
     {
         _sessionStorage = sessionStorage;
         _settingsService = settingsService;
         _repositoryMapService = repositoryMapService;
+        _taskAndMemoryService = taskAndMemoryService;
     }
 
     public async Task<ContextAssemblyResult> AssembleContextAsync(
@@ -61,6 +67,17 @@ public sealed class ContextBuilder
             sbSystem.AppendLine("<user_custom_instructions>");
             sbSystem.AppendLine(userCustomInstructions.Trim());
             sbSystem.AppendLine("</user_custom_instructions>");
+        }
+
+        // 2b. Persistent Memory, Learned Rules & Active Tasks
+        if (_taskAndMemoryService != null)
+        {
+            var memoryContext = _taskAndMemoryService.GetSystemPromptMemoryContext();
+            if (!string.IsNullOrWhiteSpace(memoryContext))
+            {
+                sbSystem.AppendLine();
+                sbSystem.AppendLine(memoryContext.Trim());
+            }
         }
 
         // 3. Chat-specific Rules

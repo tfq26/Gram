@@ -172,6 +172,7 @@ public sealed class AttachmentInfo
 public enum SidecarTab
 {
     Settings,
+    Tasks,
     Artifact,
     GitDiff,
     GitGram,

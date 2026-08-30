@@ -1,0 +1,330 @@
+@namespace Gram.Blazor.Components
+@inject ITaskAndMemoryService TaskAndMemoryService
+@inject ISonnerService SonnerService
+@implements IDisposable
+
+<div class="tasks-memory-panel">
+    <!-- Header / Segment Navigation -->
+    <div class="panel-section-header">
+        <div class="panel-segment-control">
+            <button type="button" class="panel-segment-btn @(activeTab == "tasks" ? "active" : "")" @onclick='() => SetTab("tasks")'>
+                <span>Tasks (@tasks.Count(t => t.Status != "done"))</span>
+            </button>
+            <button type="button" class="panel-segment-btn @(activeTab == "rules" ? "active" : "")" @onclick='() => SetTab("rules")'>
+                <span>Memory Rules (@rules.Count)</span>
+            </button>
+            <button type="button" class="panel-segment-btn @(activeTab == "reminders" ? "active" : "")" @onclick='() => SetTab("reminders")'>
+                <span>Reminders (@reminders.Count)</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Panel Content Body -->
+    <div class="panel-content-body">
+        @if (activeTab == "tasks")
+        {
+            <!-- Quick Add Task Bar -->
+            <div class="task-quick-add-bar">
+                <input type="text" 
+                       class="task-add-input" 
+                       placeholder="Add a new task..." 
+                       @bind="newTaskTitle" 
+                       @bind:event="oninput"
+                       @onkeydown="HandleTaskKeyDown" />
+                
+                <select class="task-priority-select" @bind="newTaskPriority">
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                </select>
+
+                <button type="button" class="task-add-btn" @onclick="AddTaskAsync" disabled="@string.IsNullOrWhiteSpace(newTaskTitle)">
+                    <span>+ Add</span>
+                </button>
+            </div>
+
+            <!-- Task List -->
+            @if (tasks.Count == 0)
+            {
+                <div class="panel-empty-state">
+                    <div class="empty-icon">✓</div>
+                    <div class="empty-title">All caught up!</div>
+                    <div class="empty-desc">No active tasks. Create one above or ask Gram in chat/voice to track tasks.</div>
+                </div>
+            }
+            else
+            {
+                <div class="task-items-list">
+                    @foreach (var task in tasks)
+                    {
+                        var isDone = task.Status == "done";
+                        <div class="task-item-card @(isDone ? "is-completed" : "")">
+                            <button type="button" class="task-checkbox @(isDone ? "checked" : "")" @onclick="() => ToggleTaskStatusAsync(task)">
+                                @if (isDone)
+                                {
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                }
+                            </button>
+
+                            <div class="task-item-content">
+                                <div class="task-item-title">@task.Title</div>
+                                @if (!string.IsNullOrWhiteSpace(task.Description))
+                                {
+                                    <div class="task-item-desc">@task.Description</div>
+                                }
+                                <div class="task-item-meta">
+                                    <span class="priority-pill priority-@task.Priority">@task.Priority</span>
+                                    @if (task.DueDate.HasValue)
+                                    {
+                                        <span class="task-due-date">Due: @task.DueDate.Value.ToString("MMM d, yyyy")</span>
+                                    }
+                                </div>
+                            </div>
+
+                            <button type="button" class="task-delete-btn" @onclick="() => DeleteTaskAsync(task.Id)" title="Delete task">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        }
+        else if (activeTab == "rules")
+        {
+            <!-- Quick Add Rule -->
+            <div class="task-quick-add-bar">
+                <input type="text" 
+                       class="task-add-input" 
+                       placeholder="Teach Gram a rule or preference..." 
+                       @bind="newRuleContent" 
+                       @bind:event="oninput"
+                       @onkeydown="HandleRuleKeyDown" />
+
+                <select class="task-priority-select" @bind="newRuleCategory">
+                    <option value="preference">Preference</option>
+                    <option value="instruction">Instruction</option>
+                    <option value="project_context">Project Fact</option>
+                    <option value="personal">Personal</option>
+                </select>
+
+                <button type="button" class="task-add-btn" @onclick="AddRuleAsync" disabled="@string.IsNullOrWhiteSpace(newRuleContent)">
+                    <span>+ Learn</span>
+                </button>
+            </div>
+
+            <!-- Rules List -->
+            @if (rules.Count == 0)
+            {
+                <div class="panel-empty-state">
+                    <div class="empty-icon">🧠</div>
+                    <div class="empty-title">No learned memory rules yet</div>
+                    <div class="empty-desc">Gram automatically learns your preferences during conversation, or you can add persistent rules above.</div>
+                </div>
+            }
+            else
+            {
+                <div class="rules-items-list">
+                    @foreach (var rule in rules)
+                    {
+                        <div class="rule-item-chip">
+                            <span class="rule-cat-badge">@rule.Category</span>
+                            <span class="rule-content-text">@rule.RuleContent</span>
+                            <button type="button" class="rule-delete-btn" @onclick="() => DeleteRuleAsync(rule.Id)" title="Forget this rule">
+                                ✕
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        }
+        else if (activeTab == "reminders")
+        {
+            <!-- Quick Add Reminder -->
+            <div class="task-quick-add-bar">
+                <input type="text" 
+                       class="task-add-input" 
+                       placeholder="Remind me to..." 
+                       @bind="newReminderTitle" 
+                       @bind:event="oninput"
+                       @onkeydown="HandleReminderKeyDown" />
+
+                <select class="task-priority-select" @bind="newReminderDelayMinutes">
+                    <option value="15">In 15 min</option>
+                    <option value="30">In 30 min</option>
+                    <option value="60">In 1 hour</option>
+                    <option value="180">In 3 hours</option>
+                    <option value="1440">Tomorrow</option>
+                </select>
+
+                <button type="button" class="task-add-btn" @onclick="AddReminderAsync" disabled="@string.IsNullOrWhiteSpace(newReminderTitle)">
+                    <span>+ Set</span>
+                </button>
+            </div>
+
+            <!-- Reminders List -->
+            @if (reminders.Count == 0)
+            {
+                <div class="panel-empty-state">
+                    <div class="empty-icon">🔔</div>
+                    <div class="empty-title">No pending reminders</div>
+                    <div class="empty-desc">Set a reminder above or ask Gram during text/voice chat to remind you later.</div>
+                </div>
+            }
+            else
+            {
+                <div class="reminder-items-list">
+                    @foreach (var rem in reminders)
+                    {
+                        <div class="reminder-item-card">
+                            <div class="reminder-icon-badge">⏰</div>
+                            <div class="reminder-content">
+                                <div class="reminder-title">@rem.Title</div>
+                                <div class="reminder-time">Scheduled: @rem.RemindAt.ToLocalTime().ToString("MMM d, h:mm tt")</div>
+                            </div>
+                            <button type="button" class="task-delete-btn" @onclick="() => DismissReminderAsync(rem.Id)" title="Dismiss reminder">
+                                ✕
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private string activeTab = "tasks";
+
+    private List<GramTaskItem> tasks = new();
+    private List<GramMemoryRule> rules = new();
+    private List<GramReminder> reminders = new();
+
+    private string newTaskTitle = "";
+    private string newTaskPriority = "medium";
+
+    private string newRuleContent = "";
+    private string newRuleCategory = "preference";
+
+    private string newReminderTitle = "";
+    private string newReminderDelayMinutes = "30";
+
+    protected override async Task OnInitializedAsync()
+    {
+        TaskAndMemoryService.OnChanged += HandleDataChanged;
+        await LoadDataAsync();
+    }
+
+    private void SetTab(string tab)
+    {
+        activeTab = tab;
+    }
+
+    private async Task LoadDataAsync()
+    {
+        tasks = await TaskAndMemoryService.GetTasksAsync();
+        rules = await TaskAndMemoryService.GetActiveMemoryRulesAsync();
+        reminders = await TaskAndMemoryService.GetRemindersAsync();
+        StateHasChanged();
+    }
+
+    private void HandleDataChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadDataAsync();
+        });
+    }
+
+    private async Task HandleTaskKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(newTaskTitle))
+        {
+            await AddTaskAsync();
+        }
+    }
+
+    private async Task AddTaskAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newTaskTitle)) return;
+        var created = await TaskAndMemoryService.CreateTaskAsync(newTaskTitle, priority: newTaskPriority);
+        newTaskTitle = "";
+        SonnerService.Success("Task Created", created.Title);
+        await LoadDataAsync();
+    }
+
+    private async Task ToggleTaskStatusAsync(GramTaskItem task)
+    {
+        var nextStatus = task.Status == "done" ? "todo" : "done";
+        await TaskAndMemoryService.UpdateTaskStatusAsync(task.Id, nextStatus);
+        if (nextStatus == "done")
+        {
+            SonnerService.Success("Task Completed", task.Title);
+        }
+        await LoadDataAsync();
+    }
+
+    private async Task DeleteTaskAsync(string taskId)
+    {
+        await TaskAndMemoryService.DeleteTaskAsync(taskId);
+        await LoadDataAsync();
+    }
+
+    private async Task HandleRuleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(newRuleContent))
+        {
+            await AddRuleAsync();
+        }
+    }
+
+    private async Task AddRuleAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newRuleContent)) return;
+        var rule = await TaskAndMemoryService.AddMemoryRuleAsync(newRuleContent, newRuleCategory);
+        newRuleContent = "";
+        SonnerService.Success("Rule Remembered", $"Gram will retain this across conversations.");
+        await LoadDataAsync();
+    }
+
+    private async Task DeleteRuleAsync(string ruleId)
+    {
+        await TaskAndMemoryService.DeleteMemoryRuleAsync(ruleId);
+        await LoadDataAsync();
+    }
+
+    private async Task HandleReminderKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(newReminderTitle))
+        {
+            await AddReminderAsync();
+        }
+    }
+
+    private async Task AddReminderAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newReminderTitle)) return;
+        var mins = int.TryParse(newReminderDelayMinutes, out var m) ? m : 30;
+        var remindAt = DateTimeOffset.UtcNow.AddMinutes(mins);
+        var rem = await TaskAndMemoryService.CreateReminderAsync(newReminderTitle, remindAt);
+        newReminderTitle = "";
+        SonnerService.Success("Reminder Scheduled", $"For {rem.RemindAt.ToLocalTime():h:mm tt}");
+        await LoadDataAsync();
+    }
+
+    private async Task DismissReminderAsync(string reminderId)
+    {
+        await TaskAndMemoryService.DismissReminderAsync(reminderId);
+        await LoadDataAsync();
+    }
+
+    public void Dispose()
+    {
+        TaskAndMemoryService.OnChanged -= HandleDataChanged;
+    }
+}

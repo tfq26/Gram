@@ -55,6 +55,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
     private readonly ISubagentEngine? _subagentEngine;
     private readonly WebContentService _webContentService;
     private readonly PresentationGenerationService? _presentationService;
+    private readonly ITaskAndMemoryService? _taskAndMemoryService;
     private readonly HttpClient _httpClient;
 
     public AgentToolRegistry(
@@ -66,6 +67,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         IGramBoxService? gramBoxService = null,
         ISubagentEngine? subagentEngine = null,
         PresentationGenerationService? presentationService = null,
+        ITaskAndMemoryService? taskAndMemoryService = null,
         HttpClient? httpClient = null)
     {
         _gitService = gitService;
@@ -76,6 +78,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         _presentationService = presentationService;
         _gramBoxService = gramBoxService;
         _subagentEngine = subagentEngine;
+        _taskAndMemoryService = taskAndMemoryService;
         _httpClient = httpClient ?? new HttpClient();
     }
 
@@ -611,6 +614,64 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
             Name = "list_subagents",
             Description = "List all active, queued, and completed subagent tasks spawned in the current session.",
             Parameters = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }
+        });
+
+        // 8. Memory, Tasks & Reminders Tools
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "manage_tasks",
+            Description = "Create, list, update the status of, or delete actionable tasks on the user's checklist (both in text and voice).",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["action"] = new JsonObject { ["type"] = "string", ["description"] = "Action: 'create', 'list', 'update_status', or 'delete'." },
+                    ["title"] = new JsonObject { ["type"] = "string", ["description"] = "Title/summary of the task (for 'create')." },
+                    ["description"] = new JsonObject { ["type"] = "string", ["description"] = "Optional detailed notes." },
+                    ["status"] = new JsonObject { ["type"] = "string", ["description"] = "'todo', 'in_progress', or 'done' (for 'update_status')." },
+                    ["priority"] = new JsonObject { ["type"] = "string", ["description"] = "'low', 'medium', 'high', or 'urgent'." },
+                    ["dueDate"] = new JsonObject { ["type"] = "string", ["description"] = "Optional ISO date or deadline string." },
+                    ["taskId"] = new JsonObject { ["type"] = "string", ["description"] = "Task ID (for 'update_status' or 'delete')." }
+                },
+                ["required"] = new JsonArray { "action" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "remember_rule",
+            Description = "Permanently memorize a user rule, preference, instruction, or project fact that Gram will retain across all future conversations.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["action"] = new JsonObject { ["type"] = "string", ["description"] = "Action: 'add', 'list', or 'delete'." },
+                    ["ruleContent"] = new JsonObject { ["type"] = "string", ["description"] = "The rule or fact to remember." },
+                    ["category"] = new JsonObject { ["type"] = "string", ["description"] = "'preference', 'instruction', 'project_context', or 'personal'." },
+                    ["ruleId"] = new JsonObject { ["type"] = "string", ["description"] = "Rule ID (for 'delete')." }
+                },
+                ["required"] = new JsonArray { "action" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "set_reminder",
+            Description = "Schedule a reminder for the user at a specified time or relative delay.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["action"] = new JsonObject { ["type"] = "string", ["description"] = "Action: 'set', 'list', or 'dismiss'." },
+                    ["title"] = new JsonObject { ["type"] = "string", ["description"] = "What to remind the user about." },
+                    ["remindAt"] = new JsonObject { ["type"] = "string", ["description"] = "When to remind (e.g. 'in 30 minutes', 'tomorrow 9am', or ISO timestamp)." },
+                    ["reminderId"] = new JsonObject { ["type"] = "string", ["description"] = "Reminder ID (for 'dismiss')." }
+                },
+                ["required"] = new JsonArray { "action" }
+            }
         });
 
         return ToolSelectionPolicy.SelectForIntent(tools, intent);
@@ -1611,6 +1672,119 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         listSb.AppendLine($"- [{t.Status}] TaskId: {t.Id} | {t.SubagentName} ({t.Role}) | Sandbox: {(t.SandboxId != null ? t.SandboxId : "None")} | Modified: {t.ModifiedFiles.Count} files");
                     }
                     result.Output = listSb.ToString();
+                    break;
+                }
+
+                case "manage_tasks":
+                {
+                    if (_taskAndMemoryService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Task and Memory service is not available.";
+                        break;
+                    }
+                    var action = args?["action"]?.ToString()?.ToLowerInvariant() ?? "list";
+                    if (action == "create")
+                    {
+                        var title = args?["title"]?.ToString() ?? "";
+                        var desc = args?["description"]?.ToString();
+                        var priority = args?["priority"]?.ToString() ?? "medium";
+                        var dueDateStr = args?["dueDate"]?.ToString();
+                        DateTimeOffset? dueDate = DateTimeOffset.TryParse(dueDateStr, out var d) ? d : null;
+                        var task = await _taskAndMemoryService.CreateTaskAsync(title, desc, priority, dueDate);
+                        result.Output = JsonSerializer.Serialize(new { success = true, message = $"Task created: '{task.Title}'", task });
+                    }
+                    else if (action == "update_status")
+                    {
+                        var taskId = args?["taskId"]?.ToString() ?? "";
+                        var status = args?["status"]?.ToString() ?? "done";
+                        var ok = await _taskAndMemoryService.UpdateTaskStatusAsync(taskId, status);
+                        result.Output = JsonSerializer.Serialize(new { success = ok, message = ok ? $"Task {taskId} status updated to {status}" : $"Task {taskId} not found" });
+                    }
+                    else if (action == "delete")
+                    {
+                        var taskId = args?["taskId"]?.ToString() ?? "";
+                        var ok = await _taskAndMemoryService.DeleteTaskAsync(taskId);
+                        result.Output = JsonSerializer.Serialize(new { success = ok, message = ok ? $"Task {taskId} deleted" : $"Task {taskId} not found" });
+                    }
+                    else // list
+                    {
+                        var tasks = await _taskAndMemoryService.GetTasksAsync();
+                        result.Output = JsonSerializer.Serialize(new { count = tasks.Count, tasks });
+                    }
+                    break;
+                }
+
+                case "remember_rule":
+                {
+                    if (_taskAndMemoryService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Task and Memory service is not available.";
+                        break;
+                    }
+                    var action = args?["action"]?.ToString()?.ToLowerInvariant() ?? "add";
+                    if (action == "add")
+                    {
+                        var content = args?["ruleContent"]?.ToString() ?? "";
+                        var cat = args?["category"]?.ToString() ?? "preference";
+                        var rule = await _taskAndMemoryService.AddMemoryRuleAsync(content, cat);
+                        result.Output = JsonSerializer.Serialize(new { success = true, message = $"Remembered rule: '{rule.RuleContent}'", rule });
+                    }
+                    else if (action == "delete")
+                    {
+                        var ruleId = args?["ruleId"]?.ToString() ?? "";
+                        var ok = await _taskAndMemoryService.DeleteMemoryRuleAsync(ruleId);
+                        result.Output = JsonSerializer.Serialize(new { success = ok, message = ok ? $"Rule {ruleId} deleted" : $"Rule {ruleId} not found" });
+                    }
+                    else // list
+                    {
+                        var rules = await _taskAndMemoryService.GetActiveMemoryRulesAsync();
+                        result.Output = JsonSerializer.Serialize(new { count = rules.Count, rules });
+                    }
+                    break;
+                }
+
+                case "set_reminder":
+                {
+                    if (_taskAndMemoryService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Task and Memory service is not available.";
+                        break;
+                    }
+                    var action = args?["action"]?.ToString()?.ToLowerInvariant() ?? "set";
+                    if (action == "set")
+                    {
+                        var title = args?["title"]?.ToString() ?? "";
+                        var remindAtStr = args?["remindAt"]?.ToString() ?? "";
+                        var remindAt = DateTimeOffset.UtcNow.AddMinutes(15);
+                        if (DateTimeOffset.TryParse(remindAtStr, out var parsedDate))
+                        {
+                            remindAt = parsedDate;
+                        }
+                        else if (remindAtStr.Contains("hour", StringComparison.OrdinalIgnoreCase))
+                        {
+                            remindAt = DateTimeOffset.UtcNow.AddHours(1);
+                        }
+                        else if (remindAtStr.Contains("tomorrow", StringComparison.OrdinalIgnoreCase))
+                        {
+                            remindAt = DateTimeOffset.UtcNow.AddDays(1);
+                        }
+                        var reminder = await _taskAndMemoryService.CreateReminderAsync(title, remindAt);
+                        result.Output = JsonSerializer.Serialize(new { success = true, message = $"Reminder set for {reminder.RemindAt:yyyy-MM-dd HH:mm UTC}: '{reminder.Title}'", reminder });
+                    }
+                    else if (action == "dismiss")
+                    {
+                        var reminderId = args?["reminderId"]?.ToString() ?? "";
+                        var ok = await _taskAndMemoryService.DismissReminderAsync(reminderId);
+                        result.Output = JsonSerializer.Serialize(new { success = ok, message = ok ? $"Reminder {reminderId} dismissed" : $"Reminder {reminderId} not found" });
+                    }
+                    else // list
+                    {
+                        var rems = await _taskAndMemoryService.GetRemindersAsync();
+                        result.Output = JsonSerializer.Serialize(new { count = rems.Count, reminders = rems });
+                    }
                     break;
                 }
 

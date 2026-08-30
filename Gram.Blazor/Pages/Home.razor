@@ -246,35 +246,60 @@
                         @if (voiceConversationActive || voiceState != VoiceState.Idle)
                         {
                         <div class="center-voice-overlay" aria-live="polite">
-                            <div class="voice-conversation-stage">
-                                <div class="center-voice-visualizer @(voiceState == VoiceState.GramSpeaking ? "speaking" : "")" 
-                                     id="visualizerBars" 
-                                     @onclick="EndVoiceConversation" 
-                                     role="button" 
-                                     tabindex="0" 
-                                     title="Click to end voice conversation (Esc)">
-                                    <span class="v-bar"></span>
-                                    <span class="v-bar"></span>
-                                    <span class="v-bar"></span>
-                                    <span class="v-bar"></span>
-                                    <span class="v-bar"></span>
-                                    <span class="v-bar"></span>
-                                    <span class="v-bar"></span>
+                            <div class="voice-stage-hero">
+                                <div class="voice-mascot-pod">
+                                    <div class="voice-mascot-ambient-glow"></div>
+                                    <GramCharacter Size="168" State="@voiceCharacterState" AutoWaveOnLoad="false" Interactive="false" />
+                                </div>
+
+                                <div class="voice-status-badge">
+                                    @if (voiceState == VoiceState.UserSpeaking)
+                                    {
+                                        <span class="voice-status-dot"></span>
+                                        <span>Listening to you...</span>
+                                    }
+                                    else if (voiceState == VoiceState.GramSpeaking)
+                                    {
+                                        <span class="voice-status-dot speaking"></span>
+                                        <span>Gram is speaking...</span>
+                                    }
+                                    else if (isGenerating)
+                                    {
+                                        <span class="voice-status-dot thinking"></span>
+                                        <span>Gram is thinking...</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="voice-status-dot"></span>
+                                        <span>Ready · Speak anytime</span>
+                                    }
                                 </div>
                                 
-                                @if (!string.IsNullOrWhiteSpace(voiceLastResponse))
+                                @if (!string.IsNullOrWhiteSpace(voiceLiveTranscript))
                                 {
-                                    <div class="voice-response-live-text">
-                                        @voiceLastResponse
+                                    <div class="voice-transcript-stream">
+                                        "@voiceLiveTranscript"
+                                    </div>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(voiceLastResponse))
+                                {
+                                    <div class="voice-transcript-stream">
+                                        "@voiceLastResponse"
                                     </div>
                                 }
 
-                                <button type="button" class="voice-end-session-btn" @onclick="EndVoiceConversation" title="End voice conversation (Esc)">
-                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                                        <rect x="4" y="4" width="16" height="16" rx="2"></rect>
-                                    </svg>
-                                    <span>End voice</span>
-                                </button>
+                                <div class="voice-control-dock">
+                                    <button type="button" class="voice-dock-btn @(isVoiceMicMuted ? "is-muted" : "")" @onclick="ToggleVoiceMicMute" title="Toggle microphone mute (Space)">
+                                        <span>@(isVoiceMicMuted ? "Unmute Mic" : "Mute Mic")</span>
+                                    </button>
+
+                                    <button type="button" class="voice-dock-btn end-btn" @onclick="EndVoiceConversation" title="End voice conversation (Esc)">
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                                            <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                                        </svg>
+                                        <span>End Session</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     }
@@ -451,45 +476,7 @@
             }*@
 
             <div class="composer-box">
-                <!-- Context Mentions Popup -->
-                @if (showMentionPopup)
-                {
-                    <div class="mention-popup" role="listbox" aria-label="Add context" @onclick:stopPropagation="true">
-                        <div class="mention-popup-header">
-                            <span>Add context</span>
-                        </div>
-                        <div class="mention-results">
-                            @if (filteredMentions.Count == 0)
-                            {
-                                <div class="mention-empty">No matching context</div>
-                            }
-                            else
-                            {
-                                @foreach (var group in filteredMentions.GroupBy(item => item.Category))
-                                {
-                                    <div class="mention-group-label">@group.Key</div>
-                                    @foreach (var mention in group)
-                                    {
-                                        var mentionIndex = filteredMentions.IndexOf(mention);
-                                        <button type="button"
-                                                id="mention-option-@mentionIndex"
-                                                role="option"
-                                                aria-selected="@(mentionIndex == selectedMentionIndex)"
-                                                class="mention-item @(mentionIndex == selectedMentionIndex ? "selected" : "")"
-                                                @onmousedown:preventDefault="true"
-                                                @onclick="() => SelectMentionAsync(mention)">
-                                            <span class="mention-icon">@MentionIcon(mention.Kind)</span>
-                                            <span class="mention-copy">
-                                                <span class="mention-title">@mention.Title</span>
-                                                <span class="mention-desc">@mention.Description</span>
-                                            </span>
-                                        </button>
-                                    }
-                                }
-                            }
-                        </div>
-                    </div>
-                }
+                <MentionPicker IsOpen="showMentionPopup" Items="filteredMentions.Select(item => new MentionPickerItem(item.Id, item.Kind, item.Title, item.Description, item.Category, item.Target)).ToList()" SelectedIndex="selectedMentionIndex" Select="SelectMentionFromPicker" />
 
                 <InputFile id="imageFileInput" OnChange="HandleImageSelected" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="display: none;" multiple />
                 <InputFile id="docFileInput" OnChange="HandleDocFileSelected" accept=".cs,.razor,.ts,.js,.py,.json,.md,.txt,.html,.css,.sql,.yml,.yaml,.xml,.csv,.pdf,.sh,.go,.rs,.cpp,.c,.h" style="display: none;" multiple />
@@ -545,130 +532,13 @@
                               rows="1"></textarea>
 
                     <div class="composer-actions-right">
-                        @if (voiceState == VoiceState.Idle)
-                        {
-                            <button class="btn-composer-icon voice-btn"
-                                    @onclick="ToggleVoice"
-                                    title="Voice input">
-                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                                    <line x1="12" y1="19" x2="12" y2="23"></line>
-                                    <line x1="8" y1="23" x2="16" y2="23"></line>
-                                </svg>
-                            </button>
-                        }
-
-                        @if (voiceState != VoiceState.Idle)
-                        {
-                            <div class="audio-device-picker">
-                                <button type="button"
-                                        class="audio-device-trigger @(isAudioDeviceMenuOpen ? "open" : "")"
-                                        @onclick="ToggleAudioDeviceMenu"
-                                        title="@AudioDeviceSummaryTitle"
-                                        aria-label="Choose audio input and output devices"
-                                        aria-expanded="@isAudioDeviceMenuOpen">
-                                    <svg class="audio-device-trigger-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                        <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path>
-                                        <path d="M5 11a7 7 0 0 0 14 0"></path>
-                                        <line x1="12" y1="18" x2="12" y2="21"></line>
-                                        <line x1="9" y1="21" x2="15" y2="21"></line>
-                                    </svg>
-                                    <span class="audio-device-trigger-label">@ShortAudioDeviceName(SelectedAudioInputLabel) <span aria-hidden="true">·</span> @ShortAudioDeviceName(SelectedAudioOutputLabel)</span>
-                                    <svg class="audio-device-trigger-chevron @(isAudioDeviceMenuOpen ? "open" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                        <polyline points="6 9 12 15 18 9"></polyline>
-                                    </svg>
-                                </button>
-
-                                @if (isAudioDeviceMenuOpen)
-                                {
-                                    <div class="audio-device-backdrop" @onclick="CloseAudioDeviceMenu"></div>
-                                    <div class="audio-device-menu" @onclick:stopPropagation="true">
-                                        <div class="audio-device-menu-header">
-                                            <span>Audio devices</span>
-                                            <span class="audio-device-menu-status">@(audioDevicesLoaded ? "Connected" : "Detecting")</span>
-                                        </div>
-
-                                        <div class="audio-device-section">
-                                            <div class="audio-device-section-label">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                    <rect x="9" y="2" width="6" height="12" rx="3"></rect>
-                                                    <path d="M5 11a7 7 0 0 0 14 0"></path>
-                                                </svg>
-                                                <span>Input</span>
-                                            </div>
-                                            @if (!AudioInputDevices.Any())
-                                            {
-                                                <div class="audio-device-empty">No microphones detected</div>
-                                            }
-                                            else
-                                            {
-                                                @foreach (var device in AudioInputDevices)
-                                                {
-                                                    <button type="button" class="audio-device-option @(device.DeviceId == selectedAudioInputDeviceId ? "selected" : "")" @onclick="() => SelectAudioInputDevice(device.DeviceId)">
-                                                        <span class="audio-device-option-icon">
-                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                                <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path>
-                                                                <path d="M5 11a7 7 0 0 0 14 0"></path>
-                                                            </svg>
-                                                        </span>
-                                                        <span class="audio-device-option-text">
-                                                            <span>@AudioDeviceLabel(device, "microphone")</span>
-                                                            <small>Microphone</small>
-                                                        </span>
-                                                        @if (device.DeviceId == selectedAudioInputDeviceId)
-                                                        {
-                                                            <svg class="audio-device-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                                <polyline points="20 6 9 17 4 12"></polyline>
-                                                            </svg>
-                                                        }
-                                                    </button>
-                                                }
-                                            }
-                                        </div>
-
-                                        <div class="audio-device-section">
-                                            <div class="audio-device-section-label">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-                                                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                                                </svg>
-                                                <span>Output</span>
-                                            </div>
-                                            @if (!AudioOutputDevices.Any())
-                                            {
-                                                <div class="audio-device-empty">No speakers detected</div>
-                                            }
-                                            else
-                                            {
-                                                @foreach (var device in AudioOutputDevices)
-                                                {
-                                                    <button type="button" class="audio-device-option @(device.DeviceId == selectedAudioOutputDeviceId ? "selected" : "")" @onclick="() => SelectAudioOutputDevice(device.DeviceId)">
-                                                        <span class="audio-device-option-icon">
-                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-                                                            </svg>
-                                                        </span>
-                                                        <span class="audio-device-option-text">
-                                                            <span>@AudioDeviceLabel(device, "speaker")</span>
-                                                            <small>Speaker</small>
-                                                        </span>
-                                                        @if (device.DeviceId == selectedAudioOutputDeviceId)
-                                                        {
-                                                            <svg class="audio-device-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                                <polyline points="20 6 9 17 4 12"></polyline>
-                                                            </svg>
-                                                        }
-                                                    </button>
-                                                }
-                                            }
-                                        </div>
-                                    </div>
-                                }
-                            </div>
-                        }
+                        <VoiceControls VoiceState="voiceState.ToString()" IsDeviceMenuOpen="isAudioDeviceMenuOpen" DevicesLoaded="audioDevicesLoaded"
+                                       InputDevices="AudioInputDevices.ToList()" OutputDevices="AudioOutputDevices.ToList()"
+                                       SelectedInputId="selectedAudioInputDeviceId" SelectedOutputId="selectedAudioOutputDeviceId"
+                                       InputLabel="SelectedAudioInputLabel" OutputLabel="SelectedAudioOutputLabel"
+                                       DeviceSummary="AudioDeviceSummaryTitle" DeviceLabel="AudioDeviceLabel" ShortName="ShortAudioDeviceName"
+                                       ToggleVoice="ToggleVoice" ToggleDeviceMenu="ToggleAudioDeviceMenu" CloseDeviceMenu="CloseAudioDeviceMenu"
+                                       SelectInput="SelectAudioInputDevice" SelectOutput="SelectAudioOutputDevice" />
 
                         @if (TabService.IsSplitView && SecondaryConversation != null)
                         {
@@ -752,6 +622,9 @@
                 <div class="sidecar-header-tabs">
                     <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.Settings ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.Settings">
                         <span>Settings</span>
+                    </button>
+                    <button type="button" class="sidecar-tab-btn @(activeSidecarTab == SidecarTab.Tasks ? "active" : "")" @onclick="() => activeSidecarTab = SidecarTab.Tasks">
+                        <span>Tasks</span>
                     </button>
                     @if (Active.Artifacts.Count > 0 || activeSidecarTab == SidecarTab.Artifact)
                     {
@@ -903,75 +776,13 @@
                         </Button>
                     </div>
                 }
+                else if (activeSidecarTab == SidecarTab.Tasks)
+                {
+                    <TasksAndMemoryPanel />
+                }
                 else if (activeSidecarTab == SidecarTab.Artifact)
                 {
-                    <div class="artifact-viewer">
-                        @if (selectedArtifact != null)
-                        {
-                            <div class="artifact-toolbar" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-weight: 600; font-size: 13px;">@selectedArtifact.FileName</span>
-                                    <Badge Variant="outline" Style="font-size: 10px;">@selectedArtifact.Language</Badge>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 6px;">
-                                    @if (WebCodingEnabled)
-                                    {
-                                        <Button Variant="default" Size="sm" OnClick="() => ApplyArtifact(selectedArtifact)">
-                                            Apply to Workspace
-                                        </Button>
-                                    }
-                                    <Button Variant="secondary" Size="sm" OnClick="() => selectedArtifact = null">Back</Button>
-                                </div>
-                            </div>
-
-                            @if (selectedArtifact.Language?.ToLowerInvariant() == "html" || selectedArtifact.FileName.EndsWith(".html") || selectedArtifact.FileName.EndsWith(".svg"))
-                            {
-                                <div class="artifact-live-preview">
-                                    @((MarkupString)selectedArtifact.Content)
-                                </div>
-                            }
-                            else
-                            {
-                                <pre class="artifact-code-pre">@selectedArtifact.Content</pre>
-                            }
-                        }
-                        else
-                        {
-                            <div style="font-size: 12.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">
-                                Artifacts & Deliverables (@Active.Artifacts.Count)
-                            </div>
-
-                            @if (Active.Artifacts.Count == 0)
-                            {
-                                <div style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 24px 0;">
-                                    No artifacts generated yet. When models produce standalone code files, HTML snippets, or reports, they appear here.
-                                </div>
-                            }
-                            else
-                            {
-                                <div style="display: flex; flex-direction: column; gap: 6px;">
-                                    @foreach (var art in Active.Artifacts)
-                                    {
-                                        <div class="sheet-item-row" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: var(--bg-panel-subtle); border-radius: var(--radius-md); border: 1px solid var(--border-color); cursor: pointer;" @onclick="() => ViewArtifact(art)">
-                                            <div style="display: flex; flex-direction: column; min-width: 0;">
-                                                <span style="font-weight: 600; font-size: 12.5px; color: var(--text-primary);">@art.FileName</span>
-                                                <span style="font-size: 11px; color: var(--text-muted);">@art.Title</span>
-                                            </div>
-                                            <div style="display: flex; align-items: center; gap: 6px;">
-                                                <span class="mention-badge">@art.Language</span>
-                                                @if (WebCodingEnabled)
-                                                {
-                                                    <Button Variant="outline" Size="sm" OnClick:stopPropagation="true" OnClick="() => ApplyArtifact(art)">
-                                                        Apply
-                                                    </Button>
-                                                }
-                                            </div>
-                                        </div>
-                                    }
-                                </div>
-                            }
-                        }
-                    </div>
+                    <ArtifactPanel Artifacts="Active.Artifacts" SelectedArtifact="selectedArtifact" WebCodingEnabled="WebCodingEnabled" View="ViewArtifact" Apply="ApplyArtifact" Back="ClearSelectedArtifact" />
                 }
                 else if (activeSidecarTab == SidecarTab.GitDiff)
                 {
@@ -1190,6 +1001,20 @@
     private bool autoSendingVoice;
     private bool voiceConversationActive;
     private string voiceLastResponse = "";
+    private string voiceLiveTranscript = "";
+    private bool isVoiceMicMuted = false;
+    private string voiceCharacterState => voiceState switch { VoiceState.UserSpeaking => "voice_listening", VoiceState.GramSpeaking => "voice_speaking", _ => isGenerating ? "voice_thinking" : "idle" };
+
+    private async Task ToggleVoiceMicMute()
+    {
+        isVoiceMicMuted = !isVoiceMicMuted;
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramAudio.setMicrophoneMuted", isVoiceMicMuted);
+            SonnerService.Info(isVoiceMicMuted ? "Microphone Muted" : "Microphone Active", isVoiceMicMuted ? "Gram will not listen until unmuted." : "Gram is listening.");
+        }
+        catch { }
+    }
     private DotNetObjectReference<Home>? dotNetHelper;
     private ElementReference textareaRef;
     private CancellationTokenSource? voiceCts;
@@ -1372,6 +1197,12 @@
         }
     }
 
+    private Task ClearSelectedArtifact()
+    {
+        selectedArtifact = null;
+        return Task.CompletedTask;
+    }
+
     private async Task StageFileDiff(string filePath)
     {
         var ok = await GitGram.StageFileAsync(filePath, Environment.CurrentDirectory);
@@ -1482,7 +1313,6 @@
         OpenSidecar(SidecarTab.GitDiff);
     }
 
-    private record MentionItem(string Id, MentionKind Kind, string Title, string Description, string Category, string Target);
 
     private sealed class ComposerMentionState
     {
@@ -1493,6 +1323,7 @@
     }
     
     private bool showMentionPopup = false;
+    private record MentionItem(string Id, MentionKind Kind, string Title, string Description, string Category, string Target);
     private List<MentionItem> allMentions = new();
     private List<MentionItem> filteredMentions = new();
     private readonly List<MentionReference> pendingMentions = new();
@@ -1574,6 +1405,9 @@
         "Artifacts" => 2,
         _ => 4
     };
+
+    private Task SelectMentionFromPicker(MentionPickerItem item) =>
+        SelectMentionAsync(new MentionItem(item.Id, item.Kind, item.Title, item.Description, item.Category, item.Target));
 
     private async Task SelectMentionAsync(MentionItem mention)
     {
@@ -2321,12 +2155,20 @@
 
     private async Task EndVoiceConversation()
     {
+        var hadSpokenInteraction = !string.IsNullOrWhiteSpace(voiceLastResponse) || !string.IsNullOrWhiteSpace(voiceLiveTranscript);
         voiceConversationActive = false;
         await StopVoice();
         try { await JSRuntime.InvokeVoidAsync("gramAudio.stopSpeech"); }
         catch (Exception) {}
         voiceLastResponse = "";
+        voiceLiveTranscript = "";
+        isVoiceMicMuted = false;
         StateHasChanged();
+
+        if (hadSpokenInteraction)
+        {
+            SonnerService.Success("Voice Session Ended", "Your spoken exchange has been saved to this chat.");
+        }
     }
 
     private async Task SpeakVoiceResponseAsync(Message assistantMessage)
@@ -2505,6 +2347,7 @@
         if (!string.IsNullOrWhiteSpace(transcript))
         {
             draft = transcript;
+            voiceLiveTranscript = transcript;
             StateHasChanged();
             try
             {
@@ -2520,6 +2363,7 @@
         if (string.IsNullOrWhiteSpace(transcript)) return;
 
         draft = transcript.Trim();
+        voiceLiveTranscript = draft;
         StateHasChanged();
         try
         {

@@ -85,10 +85,22 @@
                 'state-researching', 'state-designing', 'state-reviewing', 'state-complete',
                 'state-landing', 'is-jumping',
                 'state-typing-name', 'is-recognizing',
-                'state-typing-password', 'is-covering-eyes'
+                'state-typing-password', 'is-covering-eyes',
+                'state-voice-listening', 'is-voice-listening',
+                'state-voice-thinking', 'is-voice-thinking',
+                'state-voice-speaking', 'is-voice-speaking',
+                'state-voice-interrupted', 'is-voice-interrupted'
             );
 
-            if (stateName === 'landing' || stateName === 'excited' || stateName === 'jump') {
+            if (stateName === 'voice_listening' || stateName === 'listening') {
+                this.root.classList.add('state-voice-listening', 'is-voice-listening');
+            } else if (stateName === 'voice_thinking') {
+                this.root.classList.add('state-voice-thinking', 'is-voice-thinking');
+            } else if (stateName === 'voice_speaking' || stateName === 'speaking') {
+                this.root.classList.add('state-voice-speaking', 'is-voice-speaking');
+            } else if (stateName === 'voice_interrupted' || stateName === 'interrupted') {
+                this.root.classList.add('state-voice-interrupted', 'is-voice-interrupted');
+            } else if (stateName === 'landing' || stateName === 'excited' || stateName === 'jump') {
                 this.root.classList.add('state-landing', 'is-jumping');
             } else if (stateName === 'typing_name' || stateName === 'name' || stateName === 'recognize') {
                 this.root.classList.add('state-typing-name', 'is-recognizing');

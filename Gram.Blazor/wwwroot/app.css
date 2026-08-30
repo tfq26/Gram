@@ -10375,5 +10375,645 @@ button:active:not(:disabled),
   transform: scale(0.94);
 }
 
+/* ==========================================================================
+   Gram Mascot Voice Animations & Modern Voice HUD
+   ========================================================================== */
+
+/* 1. Voice State: Listening */
+.gram-character-container.state-voice-listening .gram-char-head {
+  transform: rotate(5deg) translateY(-2px);
+  transition: transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.gram-character-container.state-voice-listening .gram-char-brow-l {
+  transform: translateY(-2.5px) rotate(-4deg);
+  transition: transform 300ms ease;
+}
+
+.gram-character-container.state-voice-listening .gram-char-brow-r {
+  transform: translateY(-2.5px) rotate(4deg);
+  transition: transform 300ms ease;
+}
+
+.gram-character-container.state-voice-listening .gram-char-voice-aura {
+  opacity: 1 !important;
+  transition: opacity 400ms ease;
+}
+
+.gram-character-container.state-voice-listening .voice-wave-1 {
+  animation: voiceRingExpand 2.2s ease-out infinite;
+}
+
+.gram-character-container.state-voice-listening .voice-wave-2 {
+  animation: voiceRingExpand 2.2s ease-out infinite 0.7s;
+}
+
+.gram-character-container.state-voice-listening .voice-wave-3 {
+  animation: voiceRingExpand 2.2s ease-out infinite 1.4s;
+}
+
+@keyframes voiceRingExpand {
+  0% {
+    r: 44px;
+    opacity: 0.8;
+    stroke-width: 1.6px;
+  }
+  100% {
+    r: 76px;
+    opacity: 0;
+    stroke-width: 0.4px;
+  }
+}
+
+/* 2. Voice State: Thinking / Reasoning */
+.gram-character-container.state-voice-thinking .gram-char-head {
+  transform: rotate(-3deg) translateY(-4px);
+  transition: transform 450ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gram-character-container.state-voice-thinking .gram-char-brow-l {
+  transform: translateY(1.5px) rotate(5deg);
+  transition: transform 350ms ease;
+}
+
+.gram-character-container.state-voice-thinking .gram-char-brow-r {
+  transform: translateY(1.5px) rotate(-5deg);
+  transition: transform 350ms ease;
+}
+
+.gram-character-container.state-voice-thinking .gram-char-gaze {
+  transform: translate(3.5px, -3px) !important;
+  transition: transform 350ms ease;
+}
+
+.gram-character-container.state-voice-thinking .gram-char-float {
+  animation: voiceThinkingFloat 2.4s ease-in-out infinite;
+}
+
+@keyframes voiceThinkingFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* 3. Voice State: Speaking / Conversing */
+.gram-character-container.state-voice-speaking .gram-char-head {
+  animation: voiceSpeakingHeadCadence 1.8s ease-in-out infinite;
+}
+
+@keyframes voiceSpeakingHeadCadence {
+  0%, 100% {
+    transform: rotate(0deg) translateY(0);
+  }
+  25% {
+    transform: rotate(3deg) translateY(-3px);
+  }
+  50% {
+    transform: rotate(-2deg) translateY(-1px);
+  }
+  75% {
+    transform: rotate(2deg) translateY(-4px);
+  }
+}
+
+.gram-character-container.state-voice-speaking .gram-char-blink {
+  animation: voiceHappyEyeSquint 2.6s ease-in-out infinite;
+}
+
+@keyframes voiceHappyEyeSquint {
+  0%, 100% {
+    transform: scaleY(1);
+  }
+  30%, 70% {
+    transform: scaleY(0.72) scaleX(1.08);
+  }
+}
+
+.gram-character-container.state-voice-speaking .gram-char-voice-aura {
+  opacity: 1 !important;
+  animation: voiceAcousticHaloBloom 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes voiceAcousticHaloBloom {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.18);
+    opacity: 0.9;
+  }
+}
+
+/* 4. Voice State: Interrupted / Barge-in */
+.gram-character-container.state-voice-interrupted .gram-char-head {
+  animation: voiceInterruptedSnap 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes voiceInterruptedSnap {
+  0% {
+    transform: scale(0.92) translateY(4px);
+  }
+  50% {
+    transform: scale(1.05) translateY(-3px);
+  }
+  100% {
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Voice Overlay Stage & Italicized Float Transcript
+   ========================================================================== */
+.voice-stage-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 20px;
+  gap: 20px;
+  z-index: 10;
+}
+
+.voice-mascot-pod {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 220px;
+  height: 220px;
+}
+
+.voice-mascot-ambient-glow {
+  position: absolute;
+  inset: -20px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent, #9333ea) 22%, transparent) 0%, transparent 70%);
+  filter: blur(18px);
+  pointer-events: none;
+  animation: voiceAmbientGlowPulse 3s ease-in-out infinite alternate;
+}
+
+@keyframes voiceAmbientGlowPulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.15);
+    opacity: 0.95;
+  }
+}
+
+.voice-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.04)) 85%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color, rgba(255, 255, 255, 0.1)) 60%, transparent);
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+}
+
+.voice-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+}
+
+.voice-status-dot.thinking {
+  background: #a855f7;
+  box-shadow: 0 0 8px #a855f7;
+  animation: voiceStatusBlink 1s infinite alternate;
+}
+
+.voice-status-dot.speaking {
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+  animation: voiceStatusBlink 0.6s infinite alternate;
+}
+
+@keyframes voiceStatusBlink {
+  0% { opacity: 0.3; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1.2); }
+}
+
+/* Pure Italicized Float Transcript (No Card / No Box Border) */
+.voice-transcript-stream {
+  font-style: italic;
+  font-size: 16.5px;
+  font-weight: 450;
+  color: var(--text-primary);
+  text-align: center;
+  line-height: 1.6;
+  max-width: 580px;
+  min-height: 48px;
+  padding: 4px 16px;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+  animation: fadeInTranscript 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  word-break: break-word;
+}
+
+@keyframes fadeInTranscript {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Floating Voice Control Dock */
+.voice-control-dock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.voice-dock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 24px;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.05)) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color, rgba(255, 255, 255, 0.12)) 80%, transparent);
+  color: var(--text-primary);
+  backdrop-filter: blur(12px);
+  transition: transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1), background-color 150ms ease;
+}
+
+.voice-dock-btn:hover {
+  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.1)) 95%, transparent);
+}
+
+.voice-dock-btn:active {
+  transform: scale(0.94);
+}
+
+.voice-dock-btn.end-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.voice-dock-btn.end-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ffffff;
+}
+
+.voice-dock-btn.is-muted {
+  background: rgba(234, 179, 8, 0.18);
+  border-color: rgba(234, 179, 8, 0.4);
+  color: #fef08a;
+}
+
+/* ==========================================================================
+   Tasks, Memory Rules & Reminders Panel Styles
+   ========================================================================== */
+.tasks-memory-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.panel-segment-control {
+  display: flex;
+  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.04)) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color, rgba(255, 255, 255, 0.08)) 80%, transparent);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+  width: 100%;
+}
+
+.panel-segment-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 550;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #a1a1aa);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, transform 120ms ease;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.panel-segment-btn:hover {
+  color: var(--text-primary, #ffffff);
+}
+
+.panel-segment-btn.active {
+  background: color-mix(in srgb, var(--accent, #6366f1) 22%, rgba(255, 255, 255, 0.08));
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.panel-content-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.task-quick-add-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.03)) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color, rgba(255, 255, 255, 0.08)) 70%, transparent);
+  border-radius: 10px;
+}
+
+.task-add-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  color: var(--text-primary);
+  outline: none;
+  padding: 4px;
+}
+
+.task-priority-select {
+  background: color-mix(in srgb, var(--bg-panel, #18181b) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color, rgba(255, 255, 255, 0.12)) 80%, transparent);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 3px 6px;
+  outline: none;
+}
+
+.task-add-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--accent, #6366f1);
+  border: 1px solid color-mix(in srgb, var(--accent, #6366f1) 80%, white);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+
+.task-add-btn:active {
+  transform: scale(0.94);
+}
+
+.task-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.task-items-list,
+.rules-items-list,
+.reminder-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-item-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.03)) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color, rgba(255, 255, 255, 0.07)) 80%, transparent);
+  transition: transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1), border-color 150ms ease;
+}
+
+.task-item-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 30%, transparent);
+}
+
+.task-item-card.is-completed {
+  opacity: 0.55;
+}
+
+.task-item-card.is-completed .task-item-title {
+  text-decoration: line-through;
+}
+
+.task-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid color-mix(in srgb, var(--border-color, rgba(255, 255, 255, 0.25)) 80%, transparent);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  color: #ffffff;
+  margin-top: 2px;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.task-checkbox.checked {
+  background: #22c55e;
+  border-color: #22c55e;
+}
+
+.task-item-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-item-title {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-primary);
+}
+
+.task-item-desc {
+  font-size: 11px;
+  color: var(--text-muted, #a1a1aa);
+}
+
+.task-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.priority-pill {
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.priority-low {
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+}
+
+.priority-medium {
+  background: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+}
+
+.priority-high {
+  background: rgba(249, 115, 22, 0.18);
+  color: #fdba74;
+}
+
+.priority-urgent {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+.task-due-date {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.task-delete-btn,
+.rule-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.task-delete-btn:hover,
+.rule-delete-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.rule-item-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.03)) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color, rgba(255, 255, 255, 0.08)) 80%, transparent);
+}
+
+.rule-cat-badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent, #6366f1) 20%, transparent);
+  color: var(--accent, #a5b4fc);
+  white-space: nowrap;
+}
+
+.rule-content-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.reminder-item-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-card, rgba(255, 255, 255, 0.03)) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color, rgba(255, 255, 255, 0.08)) 80%, transparent);
+}
+
+.reminder-icon-badge {
+  font-size: 16px;
+}
+
+.reminder-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reminder-title {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-primary);
+}
+
+.reminder-time {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.panel-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  gap: 8px;
+}
+
+.panel-empty-state .empty-icon {
+  font-size: 24px;
+}
+
+.panel-empty-state .empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.panel-empty-state .empty-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 260px;
+  line-height: 1.4;
+}
+
+
+
 
 

@@ -61,6 +61,7 @@ else
     builder.Services.AddSingleton<Gram.Blazor.Shared.IDatabaseProvider>(sp => sp.GetRequiredService<Gram.Blazor.Shared.SqliteDatabaseService>());
 }
 builder.Services.AddSingleton<Gram.Blazor.Shared.IEmailService, Gram.Blazor.Shared.EmailService>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.ITaskAndMemoryService, Gram.Blazor.Shared.TaskAndMemoryService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.SessionStorageService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.MarkdownService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IWebSearchProvider, Gram.Blazor.Shared.ParallelWebSearchProvider>();

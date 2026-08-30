@@ -1295,6 +1295,14 @@ window.gramAudio = {
         return true;
     },
 
+    setMicrophoneMuted: function (isMuted) {
+        if (this.mediaStream) {
+            this.mediaStream.getAudioTracks().forEach(track => {
+                track.enabled = !isMuted;
+            });
+        }
+    },
+
     stopSpeakerTest: function () {
         this.isTestingSpeaker = false;
         if (this.speakerTestContext) {

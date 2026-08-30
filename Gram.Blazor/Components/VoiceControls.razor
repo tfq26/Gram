@@ -1,0 +1,46 @@
+@using Gram.Blazor.Shared
+
+@if (VoiceState == "Idle")
+{
+    <button type="button" class="btn-composer-icon voice-btn" @onclick="ToggleVoice" title="Voice input" aria-label="Start voice input">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+    </button>
+}
+else
+{
+    <div class="audio-device-picker">
+        <button type="button" class="audio-device-trigger @(IsDeviceMenuOpen ? "open" : "")" @onclick="ToggleDeviceMenu" title="@DeviceSummary" aria-label="Choose audio input and output devices" aria-expanded="@IsDeviceMenuOpen">
+            <span class="audio-device-trigger-label">@ShortName(InputLabel) <span aria-hidden="true">·</span> @ShortName(OutputLabel)</span>
+            <span aria-hidden="true">⌄</span>
+        </button>
+        @if (IsDeviceMenuOpen)
+        {
+            <div class="audio-device-backdrop" @onclick="CloseDeviceMenu"></div>
+            <div class="audio-device-menu" @onclick:stopPropagation="true">
+                <div class="audio-device-menu-header"><span>Audio devices</span><span class="audio-device-menu-status">@(DevicesLoaded ? "Connected" : "Detecting")</span></div>
+                <DeviceSection Title="Input" EmptyText="No microphones detected" Devices="InputDevices" SelectedId="SelectedInputId" Label="@(device => DeviceLabel(device, "microphone"))" Select="SelectInput" />
+                <DeviceSection Title="Output" EmptyText="No speakers detected" Devices="OutputDevices" SelectedId="SelectedOutputId" Label="@(device => DeviceLabel(device, "speaker"))" Select="SelectOutput" />
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string VoiceState { get; set; } = "Idle";
+    [Parameter] public bool IsDeviceMenuOpen { get; set; }
+    [Parameter] public bool DevicesLoaded { get; set; }
+    [Parameter] public IReadOnlyList<AudioDeviceInfo> InputDevices { get; set; } = [];
+    [Parameter] public IReadOnlyList<AudioDeviceInfo> OutputDevices { get; set; } = [];
+    [Parameter] public string SelectedInputId { get; set; } = "";
+    [Parameter] public string SelectedOutputId { get; set; } = "";
+    [Parameter] public string InputLabel { get; set; } = "Default microphone";
+    [Parameter] public string OutputLabel { get; set; } = "Default speaker";
+    [Parameter] public string DeviceSummary { get; set; } = "Choose audio devices";
+    [Parameter] public Func<AudioDeviceInfo, string, string> DeviceLabel { get; set; } = (_, kind) => kind;
+    [Parameter] public Func<string, string> ShortName { get; set; } = value => value;
+    [Parameter] public EventCallback ToggleVoice { get; set; }
+    [Parameter] public EventCallback ToggleDeviceMenu { get; set; }
+    [Parameter] public EventCallback CloseDeviceMenu { get; set; }
+    [Parameter] public EventCallback<string> SelectInput { get; set; }
+    [Parameter] public EventCallback<string> SelectOutput { get; set; }
+}
