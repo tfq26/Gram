@@ -10227,12 +10227,10 @@ button:active:not(:disabled),
   to { opacity: 1; transform: scale(1); }
 }
 
-/* 2. Minimal Top-Floating Reconnection HUD */
+/* 2. Minimal Centered Frosted Reconnection Dialog */
 .components-reconnect-modal {
   position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%) translateY(-10px);
+  inset: 0;
   z-index: 100000;
   display: flex;
   align-items: center;
@@ -10240,9 +10238,7 @@ button:active:not(:disabled),
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
-  max-width: 380px;
-  width: calc(100% - 24px);
+  transition: opacity 150ms ease, visibility 150ms ease;
 }
 
 .components-reconnect-modal.components-reconnect-show,
@@ -10251,36 +10247,41 @@ button:active:not(:disabled),
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  transform: translateX(-50%) translateY(0);
 }
 
-.reconnect-hud-banner {
+.reconnect-pane-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.reconnect-pane-card {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  padding: 6px 12px;
-  border-radius: 8px;
-  background: rgba(15, 15, 18, 0.88);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-}
-
-.reconnect-hud-header {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
+  text-align: center;
+  max-width: 360px;
+  width: calc(100% - 32px);
+  padding: 24px 28px;
+  border-radius: 12px;
+  background: rgba(18, 18, 22, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
 }
 
 .reconnect-state-show,
 .reconnect-state-failed {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
+  gap: 8px;
+  width: 100%;
 }
 
 .components-reconnect-modal.components-reconnect-failed .reconnect-state-show,
@@ -10294,133 +10295,101 @@ button:active:not(:disabled),
 
 .components-reconnect-modal.components-reconnect-failed .reconnect-state-failed,
 .components-reconnect-modal.components-reconnect-rejected .reconnect-state-failed {
-  display: inline-flex;
+  display: flex;
+}
+
+.reconnect-indicator-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .reconnect-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: #ef4444;
   flex-shrink: 0;
 }
 
-.reconnect-label {
-  font-size: 11.5px;
-  font-weight: 500;
+.reconnect-title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
   color: #ef4444;
   letter-spacing: -0.01em;
+  font-family: inherit;
 }
 
-.reconnect-timer {
-  font-size: 10.5px;
+.reconnect-subtitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 450;
+  color: var(--text-primary, #ffffff);
+  font-family: inherit;
+}
+
+.reconnect-countdown {
+  font-size: 11.5px;
   color: var(--text-muted, #71717a);
   font-variant-numeric: tabular-nums;
+  font-family: inherit;
+  margin-top: 2px;
 }
 
-.reconnect-actions {
-  display: inline-flex;
+.reconnect-error-text {
+  margin: 2px 0 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted, #a1a1aa);
+  font-family: inherit;
+  word-break: break-word;
+  max-width: 300px;
+}
+
+.reconnect-pane-actions {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  width: 100%;
 }
 
-.reconnect-btn-subtle {
-  background: transparent;
-  border: none;
-  color: var(--text-muted, #71717a);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  transition: color 100ms ease;
-}
-
-.reconnect-btn-subtle:hover {
-  color: var(--text-primary, #ffffff);
-}
-
-.reconnect-btn-action {
-  padding: 2px 8px;
-  border-radius: 5px;
-  font-size: 11px;
+.reconnect-btn-primary {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 500;
   color: #ffffff;
-  background: rgba(239, 68, 68, 0.2);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: #ef4444;
+  border: 1px solid #f87171;
   cursor: pointer;
-  transition: background-color 100ms ease;
+  transition: opacity 100ms ease;
+  font-family: inherit;
 }
 
-.reconnect-btn-action:hover {
-  background: rgba(239, 68, 68, 0.35);
+.reconnect-btn-primary:hover {
+  opacity: 0.9;
 }
 
-.reconnect-details-drawer {
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-  transition: max-height 180ms ease, opacity 140ms ease;
-}
-
-.reconnect-details-drawer.is-expanded {
-  max-height: 160px;
-  opacity: 1;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
-}
-
-.reconnect-diag-body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.reconnect-diag-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: var(--text-muted, #71717a);
-}
-
-.reconnect-diag-sep {
-  opacity: 0.4;
-}
-
-.reconnect-diag-code {
-  font-family: var(--font-mono, monospace);
-  font-size: 10px;
-  line-height: 1.35;
-  color: #e4e4e7;
-  background: rgba(0, 0, 0, 0.25);
-  padding: 4px 6px;
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  word-break: break-word;
-  max-height: 48px;
-  overflow-y: auto;
-}
-
-.reconnect-diag-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.reconnect-btn-copy {
-  background: transparent;
-  border: none;
-  color: var(--text-muted, #71717a);
-  font-size: 10px;
+.reconnect-btn-secondary {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted, #a1a1aa);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
   cursor: pointer;
-  padding: 1px 4px;
-  border-radius: 3px;
-  transition: color 100ms ease;
+  transition: color 100ms ease, background-color 100ms ease;
+  font-family: inherit;
 }
 
-.reconnect-btn-copy:hover {
-  color: var(--text-primary, #ffffff);
+.reconnect-btn-secondary:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* ==========================================================================

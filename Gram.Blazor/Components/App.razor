@@ -16,37 +16,27 @@
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body>
-    <div id="components-reconnect-modal" class="components-reconnect-modal" role="status" aria-live="polite">
-        <div class="reconnect-hud-banner">
-            <div class="reconnect-hud-header">
-                <div class="reconnect-state-show">
+    <div id="components-reconnect-modal" class="components-reconnect-modal" role="dialog" aria-modal="true">
+        <div class="reconnect-pane-backdrop"></div>
+        <div class="reconnect-pane-card">
+            <div class="reconnect-state-show">
+                <div class="reconnect-indicator-row">
                     <span class="reconnect-dot"></span>
-                    <span class="reconnect-label">Reconnecting</span>
-                    <span id="reconnect-countdown-text" class="reconnect-timer">18s</span>
+                    <h3 class="reconnect-title">Reconnecting to Gram</h3>
                 </div>
-                <div class="reconnect-state-failed">
-                    <span class="reconnect-dot failed"></span>
-                    <span class="reconnect-label failed">Disconnected</span>
-                </div>
-                <div class="reconnect-actions">
-                    <button type="button" id="reconnect-toggle-btn" class="reconnect-btn-subtle" onclick="window.__gramToggleReconnectDetails()">Details</button>
-                    <button type="button" class="reconnect-btn-action" onclick="location.reload()">Reload</button>
-                </div>
+                <p class="reconnect-subtitle">Restoring your session...</p>
+                <div class="reconnect-countdown" id="reconnect-countdown-text">Timing out in 18s</div>
             </div>
-
-            <div id="reconnect-details-drawer" class="reconnect-details-drawer">
-                <div class="reconnect-diag-body">
-                    <div class="reconnect-diag-meta">
-                        <span id="reconnect-diag-subsystem">SignalR Circuit</span>
-                        <span class="reconnect-diag-sep">·</span>
-                        <span id="reconnect-diag-net">Online</span>
-                        <span class="reconnect-diag-sep">·</span>
-                        <span id="reconnect-diag-time">--:--</span>
-                    </div>
-                    <div id="reconnect-diag-detail" class="reconnect-diag-code">Connection to server was interrupted.</div>
-                    <div class="reconnect-diag-actions">
-                        <button type="button" id="reconnect-copy-btn" class="reconnect-btn-copy" onclick="window.__gramCopyDiagnostics()">Copy</button>
-                    </div>
+            <div class="reconnect-state-failed">
+                <div class="reconnect-indicator-row">
+                    <span class="reconnect-dot failed"></span>
+                    <h3 class="reconnect-title failed">Connection Lost</h3>
+                </div>
+                <p class="reconnect-subtitle">Could not reach the server.</p>
+                <p id="reconnect-diag-detail" class="reconnect-error-text">The connection to the backend server was dropped.</p>
+                <div class="reconnect-pane-actions">
+                    <button type="button" class="reconnect-btn-primary" onclick="location.reload()">Reload Page</button>
+                    <button type="button" id="reconnect-copy-btn" class="reconnect-btn-secondary" onclick="window.__gramCopyDiagnostics()">Copy Diagnostics</button>
                 </div>
             </div>
         </div>

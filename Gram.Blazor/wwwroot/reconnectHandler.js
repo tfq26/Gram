@@ -1,12 +1,11 @@
 // ============================================================================
-// Gram Minimal Reconnection Monitor
+// Gram Reconnection Monitor (Minimal Centered Pane)
 // ============================================================================
 
 (function () {
     let reconnectTimeoutSecs = 18;
     let countdownInterval = null;
     let secondsRemaining = reconnectTimeoutSecs;
-    let isDetailsExpanded = false;
     let lastExceptionInfo = {
         subsystem: "SignalR Circuit",
         detail: "Real-time session disconnected from server.",
@@ -25,12 +24,12 @@
     };
 
     window.addEventListener("offline", function () {
-        window.__gramReportException("Network Gateway", "Device is offline.");
+        window.__gramReportException("Network Gateway", "Device is offline. Please check your internet connection.");
     });
 
     window.addEventListener("online", function () {
         if (lastExceptionInfo.subsystem === "Network Gateway") {
-            window.__gramReportException("Network Gateway", "Network restored. Reconnecting...");
+            window.__gramReportException("Network Gateway", "Internet restored. Attempting to re-establish session...");
         }
     });
 
@@ -40,15 +39,10 @@
     });
 
     function updateDiagnosticsUI() {
-        const subEl = document.getElementById("reconnect-diag-subsystem");
         const detailEl = document.getElementById("reconnect-diag-detail");
-        const timeEl = document.getElementById("reconnect-diag-time");
-        const netEl = document.getElementById("reconnect-diag-net");
-
-        if (subEl) subEl.textContent = lastExceptionInfo.subsystem;
-        if (detailEl) detailEl.textContent = lastExceptionInfo.detail;
-        if (timeEl) timeEl.textContent = lastExceptionInfo.timestamp;
-        if (netEl) netEl.textContent = navigator.onLine ? "Online" : "Offline";
+        if (detailEl && lastExceptionInfo.detail) {
+            detailEl.textContent = lastExceptionInfo.detail;
+        }
     }
 
     function startCountdown() {
@@ -66,7 +60,7 @@
                 if (modal && (modal.classList.contains("components-reconnect-show") || !modal.classList.contains("components-reconnect-failed"))) {
                     modal.classList.remove("components-reconnect-show");
                     modal.classList.add("components-reconnect-failed");
-                    window.__gramReportException("Reconnection Timeout", `Failed to reconnect within ${reconnectTimeoutSecs}s.`);
+                    window.__gramReportException("Reconnection Timeout", `Connection timed out after ${reconnectTimeoutSecs} seconds.`);
                 }
             }
         }, 1000);
@@ -82,25 +76,9 @@
     function updateTimerDisplay() {
         const timerEl = document.getElementById("reconnect-countdown-text");
         if (timerEl) {
-            timerEl.textContent = `${secondsRemaining}s`;
+            timerEl.textContent = `Timing out in ${secondsRemaining}s`;
         }
     }
-
-    window.__gramToggleReconnectDetails = function () {
-        const detailsPanel = document.getElementById("reconnect-details-drawer");
-        const toggleBtn = document.getElementById("reconnect-toggle-btn");
-        if (!detailsPanel || !toggleBtn) return;
-
-        isDetailsExpanded = !isDetailsExpanded;
-        if (isDetailsExpanded) {
-            detailsPanel.classList.add("is-expanded");
-            toggleBtn.textContent = "Hide";
-            updateDiagnosticsUI();
-        } else {
-            detailsPanel.classList.remove("is-expanded");
-            toggleBtn.textContent = "Details";
-        }
-    };
 
     window.__gramCopyDiagnostics = function () {
         const report = `[Gram Diagnostic] ${lastExceptionInfo.timestamp} | ${lastExceptionInfo.subsystem} (${navigator.onLine ? "online" : "offline"}): ${lastExceptionInfo.detail}`;
@@ -110,7 +88,7 @@
                 const btn = document.getElementById("reconnect-copy-btn");
                 if (btn) {
                     btn.textContent = "Copied";
-                    setTimeout(() => btn.textContent = "Copy", 1500);
+                    setTimeout(() => btn.textContent = "Copy Diagnostics", 1500);
                 }
             });
         }
