@@ -60,6 +60,22 @@ public sealed class ContextOptimizationUnitTests
         Assert.Contains("gram-compacted-through", persisted);
     }
 
+    [Fact]
+    public void GenerateFallbackTitle_ExtractsConciseMeaningfulTitle()
+    {
+        var title1 = ModelService.GenerateFallbackTitle("Can you please help me configure PostgreSQL indexes with EF Core in .NET 9?");
+        Assert.Equal("Configure PostgreSQL indexes with EF", title1);
+
+        var title2 = ModelService.GenerateFallbackTitle("how do i build a multi-agent orchestration workflow?");
+        Assert.Equal("Multi-agent orchestration workflow", title2);
+
+        var title3 = ModelService.GenerateFallbackTitle("tell me about quantum computing algorithms");
+        Assert.Equal("Quantum computing algorithms", title3);
+
+        var title4 = ModelService.GenerateFallbackTitle("");
+        Assert.Equal("New chat", title4);
+    }
+
     private sealed class TemporaryDirectory : IDisposable
     {
         public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"gram-context-tests-{Guid.NewGuid():N}");

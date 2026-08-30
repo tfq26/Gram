@@ -960,19 +960,36 @@ public sealed class ModelService
         string? systemPrompt = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var isGramQ = modelId.Equals("gram-q", StringComparison.OrdinalIgnoreCase);
+        var isGramQPlus = modelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase);
+
         var model = Models.FirstOrDefault(m => m.Id.Equals(modelId, StringComparison.OrdinalIgnoreCase))
                     ?? new GramModel { Id = modelId, Name = modelId, Provider = "OpenRouter" };
 
         var providerId = model.Provider.ToLowerInvariant();
         var provider = Providers.FirstOrDefault(p => p.Id.Equals(providerId, StringComparison.OrdinalIgnoreCase) || p.Name.Equals(model.Provider, StringComparison.OrdinalIgnoreCase));
-        var apiKey = GetApiKey(provider?.Id ?? "openrouter");
-
-        if (string.IsNullOrWhiteSpace(apiKey))
+        
+        string? apiKey;
+        if (isGramQ)
         {
-            apiKey = GetApiKey("openrouter");
-            if (!string.IsNullOrWhiteSpace(apiKey))
+            apiKey = GetSystemApiKey("groq") ?? GetUserApiKey("groq");
+            providerId = "groq";
+        }
+        else if (isGramQPlus)
+        {
+            apiKey = GetSystemApiKey("google") ?? GetUserApiKey("google");
+            providerId = "google";
+        }
+        else
+        {
+            apiKey = GetApiKey(provider?.Id ?? "openrouter");
+            if (string.IsNullOrWhiteSpace(apiKey))
             {
-                providerId = "openrouter";
+                apiKey = GetApiKey("openrouter");
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                {
+                    providerId = "openrouter";
+                }
             }
         }
 
@@ -999,15 +1016,18 @@ public sealed class ModelService
         }
         else
         {
+            var actualModel = isGramQ ? "openai/gpt-oss-120b" : (isGramQPlus ? "gemini-2.5-flash" : modelId);
             var endpoint = providerId switch
             {
+                "groq" => "https://api.groq.com/openai/v1/chat/completions",
+                "google" => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
                 "openai" => $"{provider?.BaseUrl ?? "https://api.openai.com/v1"}/chat/completions",
                 "xai" => $"{provider?.BaseUrl ?? "https://api.x.ai/v1"}/chat/completions",
                 "deepseek" => $"{provider?.BaseUrl ?? "https://api.deepseek.com/v1"}/chat/completions",
                 _ => $"{provider?.BaseUrl ?? "https://openrouter.ai/api/v1"}/chat/completions"
             };
 
-            await foreach (var chunk in StreamOpenAICompatibleAsync(endpoint, modelId, history, systemPrompt, apiKey ?? "", providerId == "openrouter", cancellationToken))
+            await foreach (var chunk in StreamOpenAICompatibleAsync(endpoint, actualModel, history, systemPrompt, apiKey ?? "", providerId == "openrouter", cancellationToken))
             {
                 yield return chunk;
             }
@@ -1020,28 +1040,77 @@ public sealed class ModelService
         {
             var titleHistory = new List<Message>
             {
-                new("user", $"Generate a concise 2 to 5 word title for a conversation that starts with this message. Return ONLY the plain title text without quotes, markdown, or punctuation:\n\n{userPrompt}")
+                new("user", $"Generate a short, concise 2 to 4 word title capturing the subject of this conversation request. Return ONLY the plain title text (no quotes, no punctuation, no preamble):\n\n{userPrompt}")
             };
-            var system = "You generate short, concise 2 to 5 word titles for conversations. Output only the title text, nothing else.";
+            var system = "You generate short, clean 2 to 4 word titles for conversations. Output only the title text, nothing else.";
 
             var sb = new System.Text.StringBuilder();
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromSeconds(12));
+            cts.CancelAfter(TimeSpan.FromSeconds(8));
 
             await foreach (var chunk in StreamChatAsync(modelId, titleHistory, system, cts.Token))
             {
-                if (chunk.StartsWith("[API key") || chunk.StartsWith("[Error")) return null;
+                if (chunk.StartsWith("[API key") || chunk.StartsWith("[Error") || chunk.StartsWith("[Network")) break;
                 sb.Append(chunk);
             }
 
-            var result = sb.ToString().Trim().Trim('"', '\'', '`', '#', '*', '.', ':');
-            if (!string.IsNullOrWhiteSpace(result) && result.Length > 0 && !result.Contains('\n'))
+            var rawResult = sb.ToString().Trim().Trim('"', '\'', '`', '#', '*', '.', ':', '“', '”', '‘', '’');
+            if (!string.IsNullOrWhiteSpace(rawResult) && rawResult.Length > 0 && !rawResult.Contains('\n') && !rawResult.StartsWith("[") && !rawResult.Contains("API key"))
             {
-                return result.Length > 48 ? result[..48].Trim() : result;
+                return rawResult.Length > 36 ? rawResult[..36].Trim() : rawResult;
             }
         }
         catch {}
-        return null;
+
+        return GenerateFallbackTitle(userPrompt);
+    }
+
+    public static string GenerateFallbackTitle(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) return "New chat";
+
+        var clean = prompt.Trim().Replace("\r", " ").Replace("\n", " ");
+        var prefixes = new[]
+        {
+            "can you please ", "could you please ", "can you ", "could you ", "how do i ", "how can i ",
+            "how to ", "please ", "tell me about ", "what is ", "what are ", "explain ", "help me with ",
+            "help me ", "i want to ", "i need to ", "write a ", "write ", "create a ", "create ",
+            "build a ", "build ", "implement a ", "implement ", "refactor ", "fix "
+        };
+
+        bool strippedAny = true;
+        while (strippedAny && clean.Length > 0)
+        {
+            strippedAny = false;
+            foreach (var prefix in prefixes)
+            {
+                if (clean.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    clean = clean[prefix.Length..].Trim();
+                    strippedAny = true;
+                    break;
+                }
+            }
+        }
+
+        var words = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0) return "New chat";
+
+        var selectedWords = words.Take(Math.Min(5, words.Length)).ToArray();
+        var title = string.Join(" ", selectedWords).Trim('?', '!', '.', ',', ':', ';', '"', '\'');
+
+        if (title.Length > 38)
+        {
+            var spaceIdx = title.LastIndexOf(' ', 38);
+            title = spaceIdx > 12 ? title[..spaceIdx].Trim() : title[..38].Trim();
+        }
+
+        if (title.Length > 1)
+        {
+            title = char.ToUpperInvariant(title[0]) + title[1..];
+        }
+
+        return string.IsNullOrWhiteSpace(title) ? "New chat" : title;
     }
 
     private async IAsyncEnumerable<string> StreamOpenAICompatibleAsync(

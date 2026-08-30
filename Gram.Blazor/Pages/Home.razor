@@ -2569,8 +2569,12 @@
         var isFirstMessage = Active.Messages.Count(m => m.Role == "user") == 1;
         if (isFirstMessage)
         {
-            Active.Title = userMessageText.Length > 28 ? userMessageText[..28] + "…" : userMessageText;
-            ChatStateService.ActiveChatTitle = Active.Title;
+            var initialTitle = ModelService.GenerateFallbackTitle(userMessageText);
+            Active.Title = initialTitle;
+            var initialMeta = conversations.FirstOrDefault(c => c.Id == Active.Id);
+            if (initialMeta != null) initialMeta.Title = initialTitle;
+            ChatStateService.ActiveChatTitle = initialTitle;
+            TabService.UpdateChatTabTitle(Active.Id, initialTitle);
         }
 
         var assistantMessage = await GenerateAssistantResponseAsync(userMessageText, isFirstMessage);
@@ -2850,9 +2854,14 @@
         try
         {
             var generatedTitle = await ModelService.GenerateTitleAsync(modelId, firstPrompt);
-            if (!string.IsNullOrWhiteSpace(generatedTitle))
+            if (!string.IsNullOrWhiteSpace(generatedTitle) && generatedTitle != "New chat")
             {
                 conversation.Title = generatedTitle;
+                var meta = conversations.FirstOrDefault(c => c.Id == conversation.Id);
+                if (meta != null)
+                {
+                    meta.Title = generatedTitle;
+                }
                 if (conversation.Id == activeId)
                 {
                     ChatStateService.ActiveChatTitle = generatedTitle;

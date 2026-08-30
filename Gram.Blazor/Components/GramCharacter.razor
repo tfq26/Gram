@@ -203,9 +203,13 @@
                     </g>
                 </g>
 
-                <!-- Expressive voice mouth; animated by the voice state CSS. -->
-                <g class="gram-char-voice-mouth" transform="translate(64, 84)">
-                    <path d="M -8 0 Q 0 4 8 0" fill="none" stroke="rgba(233, 213, 255, 0.9)" stroke-width="1.8" stroke-linecap="round" />
+                <!-- Handheld voice microphone; state CSS moves it between user-facing and speaking positions. -->
+                <g class="gram-char-voice-mic" aria-hidden="true">
+                    <path class="gram-char-voice-mic-arm" d="M 111 82 C 101 82, 94 78, 87 75" fill="none" stroke="rgba(168, 85, 247, 0.85)" stroke-width="4.5" stroke-linecap="round" />
+                    <rect class="gram-char-voice-mic-body" x="80" y="58" width="8" height="25" rx="4" fill="#201033" stroke="#c084fc" stroke-width="1.4" />
+                    <rect class="gram-char-voice-mic-grille" x="81.5" y="61" width="5" height="12" rx="2.5" fill="#e9d5ff" opacity="0.85" />
+                    <path d="M 77 78 Q 84 84 91 78" fill="none" stroke="#a855f7" stroke-width="1.5" stroke-linecap="round" />
+                    <path d="M 84 84 V 90" fill="none" stroke="#c084fc" stroke-width="1.5" stroke-linecap="round" />
                 </g>
 
             </g>
