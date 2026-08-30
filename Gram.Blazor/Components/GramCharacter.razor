@@ -36,6 +36,12 @@
                 <stop offset="100%" stop-color="#ffffff" />
             </linearGradient>
 
+            <linearGradient id="@($"voiceMicGrad_{uniqueId}")" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#f5eaff" />
+                <stop offset="38%" stop-color="#c084fc" />
+                <stop offset="100%" stop-color="#6b21a8" />
+            </linearGradient>
+
             <filter id="@($"charGlow_{uniqueId}")" x="-25%" y="-25%" width="150%" height="150%">
                 <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#9333ea" flood-opacity="0.38" />
             </filter>
@@ -205,11 +211,12 @@
 
                 <!-- Handheld voice microphone; state CSS moves it between user-facing and speaking positions. -->
                 <g class="gram-char-voice-mic" aria-hidden="true">
-                    <path class="gram-char-voice-mic-arm" d="M 111 82 C 101 82, 94 78, 87 75" fill="none" stroke="rgba(168, 85, 247, 0.85)" stroke-width="4.5" stroke-linecap="round" />
-                    <rect class="gram-char-voice-mic-body" x="80" y="58" width="8" height="25" rx="4" fill="#201033" stroke="#c084fc" stroke-width="1.4" />
-                    <rect class="gram-char-voice-mic-grille" x="81.5" y="61" width="5" height="12" rx="2.5" fill="#e9d5ff" opacity="0.85" />
-                    <path d="M 77 78 Q 84 84 91 78" fill="none" stroke="#a855f7" stroke-width="1.5" stroke-linecap="round" />
-                    <path d="M 84 84 V 90" fill="none" stroke="#c084fc" stroke-width="1.5" stroke-linecap="round" />
+                    <path class="gram-char-voice-mic-arm" d="M 111 82 C 101 82, 94 78, 87 74" fill="none" stroke="#6b21a8" stroke-width="5" stroke-linecap="round" />
+                    <rect class="gram-char-voice-mic-body" x="78" y="52" width="13" height="25" rx="6.5" fill="url(#@($"voiceMicGrad_{uniqueId}"))" stroke="#f3e8ff" stroke-width="0.9" />
+                    <path class="gram-char-voice-mic-grille" d="M 81 57 H 88 M 80.5 60 H 88.5 M 80.5 63 H 88.5 M 81 66 H 88" fill="none" stroke="#4c1d95" stroke-width="1.05" stroke-linecap="round" />
+                    <path d="M 75 74 Q 84.5 84 94 74" fill="none" stroke="#a855f7" stroke-width="1.8" stroke-linecap="round" />
+                    <path d="M 84.5 83 V 91" fill="none" stroke="#c084fc" stroke-width="1.8" stroke-linecap="round" />
+                    <path d="M 79.5 91 H 89.5" fill="none" stroke="#f3e8ff" stroke-width="1.4" stroke-linecap="round" />
                 </g>
 
             </g>

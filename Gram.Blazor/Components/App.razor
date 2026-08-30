@@ -16,26 +16,23 @@
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body>
-    <div id="components-reconnect-modal" class="components-reconnect-modal">
-        <div class="reconnect-hud-backdrop"></div>
-        <div class="reconnect-hud-card">
-            <div class="reconnect-hud-icon-wrapper">
-                <svg class="reconnect-spinner" viewBox="0 0 24 24" width="28" height="28">
-                    <circle class="reconnect-spinner-track" cx="12" cy="12" r="10" fill="none" stroke-width="2.5" />
-                    <circle class="reconnect-spinner-head" cx="12" cy="12" r="10" fill="none" stroke-width="2.5" />
+    <div id="components-reconnect-modal" class="components-reconnect-modal" role="status" aria-live="polite">
+        <div class="reconnect-hud-banner">
+            <div class="reconnect-state-show">
+                <svg class="reconnect-spinner" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                    <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
+                    <path d="M12 2a10 10 0 0 1 10 10" />
                 </svg>
-                <div class="reconnect-pulse-core"></div>
+                <span class="reconnect-text">Reconnecting...</span>
             </div>
-            <div class="reconnect-hud-content">
-                <div class="reconnect-state-show">
-                    <h4 class="reconnect-hud-title">Reconnecting to Gram</h4>
-                    <p class="reconnect-hud-subtitle">Restoring real-time session...</p>
-                </div>
-                <div class="reconnect-state-failed">
-                    <h4 class="reconnect-hud-title">Connection Lost</h4>
-                    <p class="reconnect-hud-subtitle">Could not reach the server. Please reload.</p>
-                    <button type="button" class="reconnect-btn-reload" onclick="location.reload()">Reload</button>
-                </div>
+            <div class="reconnect-state-failed">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                <span class="reconnect-text">Disconnected</span>
+                <button type="button" class="reconnect-btn-reload" onclick="location.reload()">Reload</button>
             </div>
         </div>
     </div>
