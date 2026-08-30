@@ -2603,24 +2603,36 @@ html, body {
   margin-bottom: 6px;
 }
 
-.message-header .message-timestamp {
+/* User Message Hover Footer (Timestamp under user message) */
+.user-message-hover-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 3px;
+  padding-right: 2px;
+  min-height: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.user-message-row:hover .user-message-hover-footer {
+  opacity: 1;
+}
+
+/* Hover Timestamp Typography */
+.message-hover-timestamp {
   font-size: 10.5px;
   color: var(--text-muted, #71717a);
   font-weight: 400;
-  margin-left: auto;
   user-select: none;
-  opacity: 0.75;
+  letter-spacing: 0.02em;
+  opacity: 0.8;
 }
 
-.user-message-timestamp {
-  font-size: 10px;
-  color: var(--text-muted, #71717a);
-  align-self: flex-end;
+.message-hover-timestamp.assistant-timestamp {
   margin-left: 6px;
-  margin-top: 2px;
-  user-select: none;
-  opacity: 0.65;
-  white-space: nowrap;
+  opacity: 0.7;
 }
 
 .message-body {
@@ -2676,18 +2688,20 @@ html, body {
   border-radius: 0;
 }
 
-/* Assistant Message Action Toolbar (Copy & Retry) */
+/* Assistant Message Action Toolbar & Timestamp (Visible on Hover) */
 .message-actions {
   display: flex;
   align-items: center;
   gap: 4px;
   margin-top: 6px;
-  opacity: 0.7;
+  opacity: 0;
+  pointer-events: none;
   transition: opacity 0.15s ease;
 }
 
 .message-entry.assistant:hover .message-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .btn-msg-action {

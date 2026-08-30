@@ -56,10 +56,12 @@
                                     </div>
                                 }
                                 <div class="user-message-text">@message.Text</div>
-                                <span class="user-message-timestamp" title="@FormatFullDateTime(message.Timestamp)">@FormatMessageTime(message.Timestamp)</span>
                                 <button type="button" class="btn-msg-edit" @onclick="() => EditMessage.InvokeAsync(message)" title="Edit prompt" aria-label="Edit prompt">
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
                                 </button>
+                            </div>
+                            <div class="user-message-hover-footer">
+                                <span class="message-hover-timestamp" title="@FormatFullDateTime(message.Timestamp)">@FormatMessageTime(message.Timestamp)</span>
                             </div>
                         </div>
                     </div>
@@ -74,7 +76,6 @@
                         <div class="message-header">
                             <ModelIcon ModelId="@ActiveModelId" Size="14" />
                             <span>Gram</span>
-                            <span class="message-timestamp" title="@FormatFullDateTime(message.Timestamp)">@FormatMessageTime(message.Timestamp)</span>
                         </div>
                         <div class="message-body assistant-body">
                             @if (!hideTools && message.ToolCalls is { Count: > 0 } && message.ToolCalls.Any(tool => !IsPresentationTool(tool.ToolName)))
@@ -127,6 +128,7 @@
                                 <button type="button" class="btn-msg-action @(CopiedMessageId == messageKey ? "copied" : "")" @onclick="() => CopyMessage.InvokeAsync(message)" title="Copy response">@(CopiedMessageId == messageKey ? "Copied" : "Copy")</button>
                                 <button type="button" class="btn-msg-action @(SpeakingMessageId == messageKey ? "active" : "")" @onclick="() => ReadAloud.InvokeAsync(message)" title="Read aloud">@(SpeakingMessageId == messageKey ? "Stop" : "Read aloud")</button>
                                 <button type="button" class="btn-msg-action" @onclick="() => RetryMessage.InvokeAsync(message)" disabled="@IsGenerating" title="Retry response">Retry</button>
+                                <span class="message-hover-timestamp assistant-timestamp" title="@FormatFullDateTime(message.Timestamp)">@FormatMessageTime(message.Timestamp)</span>
                             </div>
                         }
                     </div>
