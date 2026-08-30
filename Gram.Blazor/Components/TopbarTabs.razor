@@ -24,7 +24,7 @@
                 <span class="topbar-tab-title">@tab.Title</span>
                 @if (TabService.OpenTabs.Count > 1 && !tab.IsPinned)
                 {
-                    <button class="topbar-tab-close" @onclick:stopPropagation="true" @onclick="() => TabService.CloseTab(tab.Id)" title="Close tab">
+                    <button type="button" class="topbar-tab-close" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onclick="() => CloseTab(tab)" title="Close tab" aria-label="Close @tab.Title">
                         ✕
                     </button>
                 }
@@ -84,6 +84,12 @@
             await JSRuntime.InvokeVoidAsync("gramTabDrag.startDrag", e, tab.Id, tab.Title);
         }
         catch {}
+    }
+
+    private Task CloseTab(WorkspaceTab tab)
+    {
+        TabService.CloseTab(tab.Id);
+        return InvokeAsync(StateHasChanged);
     }
 
     [JSInvokable]

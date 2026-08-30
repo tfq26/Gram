@@ -304,6 +304,12 @@ public sealed class WorkspaceTabService
         var index = OpenTabs.IndexOf(tab);
         OpenTabs.Remove(tab);
 
+        if (SecondaryTabId == tabId)
+        {
+            SecondaryTabId = null;
+            IsSplitView = false;
+        }
+
         if (OpenTabs.Count == 0)
         {
             var defaultTab = new WorkspaceTab

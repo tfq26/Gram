@@ -41,13 +41,15 @@
             {
                 var isLastGenerating = IsGenerating && message == Messages.LastOrDefault();
                 var messageKey = message.Timestamp.Ticks.ToString();
+                var priorUserPrompt = Messages.TakeWhile(candidate => candidate != message).LastOrDefault(candidate => candidate.Role.Equals("user", StringComparison.OrdinalIgnoreCase))?.Text;
+                var hideTools = IsPresentationMode || PresentationGenerationService.IsPresentationRequest(priorUserPrompt);
                 <div class="message-entry assistant">
                     <div class="message-header"><ModelIcon ModelId="@ActiveModelId" Size="14" /><span>Gram</span></div>
                     <div class="message-body assistant-body">
-                        @if (message.ToolCalls is { Count: > 0 })
+                        @if (!hideTools && message.ToolCalls is { Count: > 0 } && message.ToolCalls.Any(tool => !IsPresentationTool(tool.ToolName)))
                         {
                             <div class="message-tool-calls">
-                                @foreach (var tool in message.ToolCalls) { <ToolCallCard ToolCall="@tool" /> }
+                                @foreach (var tool in message.ToolCalls.Where(tool => !IsPresentationTool(tool.ToolName))) { <ToolCallCard ToolCall="@tool" /> }
                             </div>
                         }
                         @if (string.IsNullOrEmpty(message.Text) && isLastGenerating && (message.ToolCalls is null || message.ToolCalls.Count == 0))
@@ -104,6 +106,7 @@
     [Parameter, EditorRequired] public IReadOnlyList<Message> Messages { get; set; } = [];
     [Parameter] public string ActiveModelId { get; set; } = "";
     [Parameter] public bool IsGenerating { get; set; }
+    [Parameter] public bool IsPresentationMode { get; set; }
     [Parameter] public bool IsLoading { get; set; }
     [Parameter, EditorRequired] public HashSet<string> ExpandedErrors { get; set; } = [];
     [Parameter] public string? CopiedMessageId { get; set; }
@@ -130,4 +133,7 @@
         var index = text.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
         return index < 0 ? (text, false, null) : (text[..index].Trim(), true, text[(index + marker.Length)..].Trim(' ', '-', ':'));
     }
+
+    private static bool IsPresentationTool(string? name) => name is not null && name.StartsWith("presentation", StringComparison.OrdinalIgnoreCase)
+        || name is "create_presentation_project" or "revise_presentation_section" or "get_presentation_status" or "get_presentation_logs" or "assemble_presentation_html";
 }

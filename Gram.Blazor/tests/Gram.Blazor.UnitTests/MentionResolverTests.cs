@@ -142,6 +142,75 @@ public sealed class MentionResolverTests : IDisposable
         Assert.False(PresentationGenerationService.IsPresentationRequest("I gave a presentation yesterday and wanted to discuss it"));
     }
 
+    [Fact]
+    public async Task PresentationGenerationService_PersistsAndLoadsProjectsFromDisk()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Storage:DataDir"] = Path.Combine(_testRoot, "pres_data") })
+            .Build();
+        var storage = new StorageService(config);
+        var subagentEngine = new FakeSubagentEngine();
+        var logger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<PresentationGenerationService>();
+
+        // 1. Create service and a project
+        var service1 = new PresentationGenerationService(subagentEngine, storage, logger);
+        var project = await service1.CreatePresentationAsync(new PresentationBrief
+        {
+            Title = "Quantum Computing Future",
+            Audience = "Engineers",
+            CommunicationJob = "Explain Quantum Supremacy",
+            DesignSystem = "Minimalist Dark",
+            TargetSlideCount = 5
+        }, "conv-quantum-101", _workspace);
+
+        Assert.NotNull(project);
+        Assert.Equal(5, project.Sections.Count);
+
+        // 2. Instantiate a second service instance (simulating page refresh or restart)
+        var service2 = new PresentationGenerationService(subagentEngine, storage, logger);
+        var loaded = service2.GetProjects("conv-quantum-101");
+
+        Assert.Single(loaded);
+        Assert.Equal(project.Id, loaded[0].Id);
+        Assert.Equal("Quantum Computing Future", loaded[0].Title);
+        Assert.Equal(5, loaded[0].Sections.Count);
+    }
+
+    private sealed class FakeSubagentEngine : ISubagentEngine
+    {
+        #pragma warning disable CS0067
+        public event Action<SubagentTask>? OnTaskUpdated;
+        #pragma warning restore CS0067
+        public IReadOnlyList<SubagentDefinition> GetDefinitions() => Array.Empty<SubagentDefinition>();
+        public SubagentDefinition? GetDefinition(string name) => null;
+        public SubagentDefinition? ResolveProfile(string capability, string? preferredProfileId = null) => null;
+        public void RegisterDefinition(SubagentDefinition definition) { }
+        public Task<SubagentTask> SpawnTaskAsync(SubagentTaskSpec spec, CancellationToken cancellationToken = default)
+        {
+            var task = new SubagentTask
+            {
+                Id = "task-" + Guid.NewGuid().ToString("N")[..8],
+                ParentConversationId = spec.ParentConversationId,
+                SectionId = spec.SectionId,
+                Status = SubagentTaskStatus.Running
+            };
+            return Task.FromResult(task);
+        }
+        public Task<SubagentTask> SpawnSubagentAsync(string parentConversationId, string subagentName, string role, string prompt, string workspacePath, bool? useSandbox = null, string? modelId = null, CancellationToken cancellationToken = default)
+        {
+            var task = new SubagentTask
+            {
+                Id = "task-" + Guid.NewGuid().ToString("N")[..8],
+                ParentConversationId = parentConversationId,
+                Status = SubagentTaskStatus.Running
+            };
+            return Task.FromResult(task);
+        }
+        public SubagentTask? GetTask(string taskId) => null;
+        public IReadOnlyList<SubagentTask> GetTasksForConversation(string parentConversationId) => Array.Empty<SubagentTask>();
+        public Task<bool> CancelTaskAsync(string taskId) => Task.FromResult(true);
+    }
+
     public void Dispose()
     {
         try

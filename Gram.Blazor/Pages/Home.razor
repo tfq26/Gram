@@ -439,6 +439,7 @@
 
         <MessageList Messages="Active.Messages" ActiveModelId="@(string.IsNullOrWhiteSpace(Active.ModelId) ? (string.IsNullOrWhiteSpace(activeModelId) ? "gram-q" : activeModelId) : Active.ModelId)" IsGenerating="isGenerating"
                      IsLoading="isLoadingChatHistory"
+                     IsPresentationMode="IsPresentationConversation"
                      ExpandedErrors="expandedErrorIds" CopiedMessageId="copiedMessageId" SpeakingMessageId="speakingMessageId"
                      EditMessage="EditUserPrompt" ToggleError="ToggleErrorDetails" CopyMessage="CopyResponseText"
                      ReadAloud="ToggleReadAloud" RetryMessage="RetryResponseAsync" />
@@ -1035,6 +1036,7 @@
     private List<DiffFileItem> activeDiffs = new();
     private bool preventEnter = false;
     private bool isGenerating = false;
+    private bool isPresentationSession = false;
     private AgentRunSnapshot? currentRun;
     private bool showRunDetails;
     private bool isContextMenuOpen = false;
@@ -1055,6 +1057,11 @@
     private bool WebCodingEnabled => false;
     private bool IsProjectActive => WebCodingEnabled && (Active.IsProject || Active.Attachments.Any(a => !a.IsImage) || Active.Artifacts.Count > 0 || GramBox.ActiveSessions.Count > 0 || activeDiffs.Count > 0);
     private bool PresentationProgressVisible => activePresentationProject != null && !isPresentationCardDismissed;
+    private bool IsPresentationConversation => isPresentationSession
+        || Active.Title.Contains("presentation", StringComparison.OrdinalIgnoreCase)
+        || Active.Title.Contains("deck", StringComparison.OrdinalIgnoreCase)
+        || Active.Messages.Any(message => message.Role.Equals("user", StringComparison.OrdinalIgnoreCase) && PresentationGenerationService.IsPresentationRequest(message.Text))
+        || Active.Artifacts.Any(artifact => artifact.FileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase));
     private int PresentationReadySections => activePresentationProject?.Sections.Count(section => section.Status == ContentSectionStatus.Ready) ?? 0;
     private int PresentationProgressPercent => activePresentationProject?.Sections.Count > 0
         ? Math.Clamp((int)Math.Round(PresentationReadySections * 100d / activePresentationProject.Sections.Count), 0, 100)
@@ -1122,6 +1129,21 @@
         if (project == null || isGenerating) return;
         draft = $"Please retry and complete the presentation deck: \"{project.Title}\". Ensure all remaining slides are drafted and the final interactive HTML deck is assembled.";
         await Send();
+    }
+
+    private void SyncActivePresentationProject()
+    {
+        var project = PresentationGeneration.GetProjects(Active.Id).FirstOrDefault();
+        if (project != null)
+        {
+            activePresentationProject = project;
+            isPresentationCardDismissed = false;
+            presentationStatusLabel = GetPresentationStatusLabel(project);
+        }
+        else
+        {
+            activePresentationProject = null;
+        }
     }
 
     private (string Text, string CssClass, int? Percent) GetModelQuotaDisplay(GramModel model)
@@ -1617,6 +1639,7 @@
         var fav = ModelService.Models.FirstOrDefault(m => m.IsFavorite);
         activeModelId = fav?.Id ?? ModelService.Models.FirstOrDefault()?.Id ?? "";
         ChatStateService.ActiveChatTitle = Active.Title;
+        SyncActivePresentationProject();
         draft = "";
     }
 
@@ -1630,6 +1653,7 @@
             TabService.OpenChatTab(activeId, conversations[0].Title);
             ChatStateService.ActiveChatTitle = conversations[0].Title;
         }
+        SyncActivePresentationProject();
         draft = "";
         StateHasChanged();
     }
@@ -1825,6 +1849,7 @@
                 {
                     activeId = tabChatId;
                     ChatStateService.ActiveChatTitle = Active.Title;
+                    SyncActivePresentationProject();
                     StateHasChanged();
                 }
             }
@@ -1851,6 +1876,7 @@
                     activeId = conversations[0].Id;
                     TabService.UpdateChatTabTitle(activeId, conversations[0].Title);
                     ChatStateService.ActiveChatTitle = conversations[0].Title;
+                    SyncActivePresentationProject();
                 }
             }
             else
@@ -1887,6 +1913,8 @@
         pendingMentions.Clear();
         selectedArtifact = null;
         activeDiffs.Clear();
+        activePresentationProject = null;
+        isPresentationCardDismissed = false;
         _ = SaveConversationThroughApiAsync(newConv);
         TabService.OpenChatTab(id, "New chat");
         ChatStateService.ActiveChatTitle = "New chat";
@@ -1928,6 +1956,7 @@
         }
         TabService.OpenChatTab(id, chat?.Title ?? "New chat");
         ChatStateService.ActiveChatTitle = Active.Title;
+        SyncActivePresentationProject();
         isSidebarOpen = false;
         await InvokeAsync(StateHasChanged);
     }
@@ -2659,6 +2688,7 @@
             workspacePath,
             promptText,
             token);
+        isPresentationSession = isPresentationMode || mentionResolution.IsPresentationRequested;
         var contextResult = await ContextBuilder.AssembleContextAsync(
             Active,
             workspacePath: workspacePath,

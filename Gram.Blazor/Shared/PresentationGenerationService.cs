@@ -46,6 +46,7 @@ public sealed class PresentationGenerationService : IDisposable
     private readonly ConcurrentQueue<PresentationGenerationLogEntry> _logs = new();
     private readonly object _logFileLock = new();
     private readonly string _logPath;
+    private readonly string _projectsDirectory;
     private readonly Dictionary<string, ContentProject> _projects = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _workerThrottle = new(2, 2);
 
@@ -111,6 +112,9 @@ public sealed class PresentationGenerationService : IDisposable
         _imageAssetService = imageAssetService;
         _htmlRenderer = htmlRenderer;
         _logPath = _storage.GetFilePath("presentation_generation.jsonl");
+        _projectsDirectory = Path.Combine(_storage.DataDirectory, "presentations");
+        Directory.CreateDirectory(_projectsDirectory);
+        LoadSavedProjects();
         LoadRecentLogs();
         _subagentEngine.OnTaskUpdated += OnTaskUpdated;
         Log("service.initialized", "Presentation generation service initialized.");
@@ -135,6 +139,56 @@ public sealed class PresentationGenerationService : IDisposable
             .Where(project => project.ParentConversationId.Equals(parentConversationId, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(project => project.UpdatedAt)
             .ToList();
+
+    public void NotifyProjectUpdated(ContentProject project)
+    {
+        PersistProject(project);
+        ProjectUpdated?.Invoke(project);
+    }
+
+    public void PersistProject(ContentProject project)
+    {
+        try
+        {
+            lock (_projects)
+            {
+                var path = Path.Combine(_projectsDirectory, $"{project.Id}.json");
+                File.WriteAllText(path, JsonSerializer.Serialize(project, BackendJson.Options));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not persist presentation project {ProjectId}.", project.Id);
+        }
+    }
+
+    private void LoadSavedProjects()
+    {
+        try
+        {
+            if (!Directory.Exists(_projectsDirectory)) return;
+            foreach (var file in Directory.GetFiles(_projectsDirectory, "*.json"))
+            {
+                try
+                {
+                    var json = File.ReadAllText(file);
+                    var project = JsonSerializer.Deserialize<ContentProject>(json, BackendJson.Options);
+                    if (project is not null)
+                    {
+                        _projects[project.Id] = project;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to deserialize presentation project from {Path}.", file);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load saved presentation projects from {Dir}.", _projectsDirectory);
+        }
+    }
 
     public Task<ContentProject> CreatePresentationAsync(
         PresentationBrief brief,
@@ -173,7 +227,7 @@ public sealed class PresentationGenerationService : IDisposable
 
         _projects[project.Id] = project;
         Log("project.sections_planned", $"Planned {project.Sections.Count} section(s).", project.Id);
-        ProjectUpdated?.Invoke(project);
+        NotifyProjectUpdated(project);
 
         // Queue the section workers and return the project immediately. Dependency
         // chains continue in the background while the main agent remains responsive.
@@ -204,7 +258,7 @@ public sealed class PresentationGenerationService : IDisposable
         project.Revision++;
         project.Status = ContentProjectStatus.Generating;
         project.UpdatedAt = DateTimeOffset.UtcNow;
-        ProjectUpdated?.Invoke(project);
+        NotifyProjectUpdated(project);
 
         return await StartSectionAsync(project, section, workspacePath, cancellationToken);
     }
@@ -253,7 +307,7 @@ public sealed class PresentationGenerationService : IDisposable
             project.Status = ContentProjectStatus.Assembled;
             project.UpdatedAt = DateTimeOffset.UtcNow;
             Log("assembly.html_ready", $"Interactive HTML presentation assembled at {path}.", project.Id);
-            ProjectUpdated?.Invoke(project);
+            NotifyProjectUpdated(project);
         }
         return path;
     }
@@ -291,7 +345,7 @@ public sealed class PresentationGenerationService : IDisposable
         Log("worker.spawned", $"Worker '{task.SubagentName}' spawned for capability '{section.OwnerCapability}'.", project.Id, section.Id, task.Id);
         section.UpdatedAt = DateTimeOffset.UtcNow;
         project.UpdatedAt = DateTimeOffset.UtcNow;
-        ProjectUpdated?.Invoke(project);
+        NotifyProjectUpdated(project);
         return task;
     }
 
@@ -325,7 +379,7 @@ public sealed class PresentationGenerationService : IDisposable
             {
                 section.Status = ContentSectionStatus.Failed;
                 project.Status = ContentProjectStatus.Failed;
-                ProjectUpdated?.Invoke(project);
+                NotifyProjectUpdated(project);
                 Log("section.failed", "Section worker was cancelled.", project.Id, section.Id);
                 return;
             }
@@ -336,7 +390,7 @@ public sealed class PresentationGenerationService : IDisposable
                     section.Status = ContentSectionStatus.Failed;
                     section.LatestFeedback = ex.Message;
                     project.Status = ContentProjectStatus.Failed;
-                    ProjectUpdated?.Invoke(project);
+                    NotifyProjectUpdated(project);
                     Log("section.failed", "Section worker could not be completed.", project.Id, section.Id, exception: ex);
                     return;
                 }
@@ -421,7 +475,7 @@ public sealed class PresentationGenerationService : IDisposable
             : project.Sections.Any(item => item.Status == ContentSectionStatus.Failed)
                 ? ContentProjectStatus.Failed
                 : ContentProjectStatus.Generating;
-        ProjectUpdated?.Invoke(project);
+        NotifyProjectUpdated(project);
         if (project.Status == ContentProjectStatus.ReadyForAssembly)
         {
             Log("project.ready_for_assembly", "All presentation sections are ready for assembly.", project.Id);
@@ -453,7 +507,7 @@ public sealed class PresentationGenerationService : IDisposable
             project.Sources.Add(source);
             project.Assets.Add(cached.Asset);
             Log("asset.cached", $"Cached image '{cached.Source.Title}' with license '{cached.Source.License ?? "unspecified"}'.", project.Id, section.Id);
-            ProjectUpdated?.Invoke(project);
+            NotifyProjectUpdated(project);
             if (project.Status == ContentProjectStatus.ReadyForAssembly) _ = AssembleHtmlAsync(project.Id);
         }
         catch (Exception ex)
