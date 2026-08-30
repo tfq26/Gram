@@ -513,7 +513,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     ["title"] = new JsonObject { ["type"] = "string", ["description"] = "Presentation title." },
                     ["audience"] = new JsonObject { ["type"] = "string", ["description"] = "Intended audience." },
                     ["communicationJob"] = new JsonObject { ["type"] = "string", ["description"] = "What the audience should understand, decide, or do." },
-                    ["targetSlideCount"] = new JsonObject { ["type"] = "integer", ["description"] = "Target slide count, between 4 and 12." },
+                    ["targetSlideCount"] = new JsonObject { ["type"] = "integer", ["description"] = "Target slide count (default: 1 for single-slide generation, or up to 12)." },
                     ["sections"] = new JsonObject { ["type"] = "array", ["description"] = "Optional section plan. Each section has title, narrativeJob, ownerCapability, and dependencies." }
                 },
                 ["required"] = new JsonArray { "title", "audience", "communicationJob" }
@@ -1484,7 +1484,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     var audience = args?["audience"]?.ToString()?.Trim() ?? "General audience";
                     var communicationJob = args?["communicationJob"]?.ToString()?.Trim()
                         ?? "Explain the subject clearly and help the audience understand what to do next.";
-                    var targetSlideCount = args?["targetSlideCount"]?.GetValue<int>() ?? 8;
+                    var targetSlideCount = args?["targetSlideCount"]?.GetValue<int>() ?? 1;
                     var brief = new PresentationBrief
                     {
                         Title = title,

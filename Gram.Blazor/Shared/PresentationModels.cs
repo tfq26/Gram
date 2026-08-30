@@ -6,7 +6,7 @@ public sealed class PresentationBrief
     public string Audience { get; set; } = "General audience";
     public string CommunicationJob { get; set; } = "Explain the subject clearly and help the audience understand what to do next.";
     public string DesignSystem { get; set; } = "Gram editorial: restrained, visual, high-contrast, and evidence-led.";
-    public int TargetSlideCount { get; set; } = 8;
+    public int TargetSlideCount { get; set; } = 1;
     public List<PresentationSectionBrief> Sections { get; set; } = [];
 }
 

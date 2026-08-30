@@ -152,7 +152,7 @@ public sealed class MentionResolverTests : IDisposable
         var subagentEngine = new FakeSubagentEngine();
         var logger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<PresentationGenerationService>();
 
-        // 1. Create service and a project
+        // 1. Create service and a single slide project
         var service1 = new PresentationGenerationService(subagentEngine, storage, logger);
         var project = await service1.CreatePresentationAsync(new PresentationBrief
         {
@@ -160,11 +160,12 @@ public sealed class MentionResolverTests : IDisposable
             Audience = "Engineers",
             CommunicationJob = "Explain Quantum Supremacy",
             DesignSystem = "Minimalist Dark",
-            TargetSlideCount = 5
+            TargetSlideCount = 1
         }, "conv-quantum-101", _workspace);
 
         Assert.NotNull(project);
-        Assert.Equal(5, project.Sections.Count);
+        Assert.Single(project.Sections);
+        Assert.Equal("Overview", project.Sections[0].Title);
 
         // 2. Instantiate a second service instance (simulating page refresh or restart)
         var service2 = new PresentationGenerationService(subagentEngine, storage, logger);
@@ -173,7 +174,8 @@ public sealed class MentionResolverTests : IDisposable
         Assert.Single(loaded);
         Assert.Equal(project.Id, loaded[0].Id);
         Assert.Equal("Quantum Computing Future", loaded[0].Title);
-        Assert.Equal(5, loaded[0].Sections.Count);
+        Assert.Single(loaded[0].Sections);
+        Assert.Equal("Overview", loaded[0].Sections[0].Title);
     }
 
     private sealed class FakeSubagentEngine : ISubagentEngine

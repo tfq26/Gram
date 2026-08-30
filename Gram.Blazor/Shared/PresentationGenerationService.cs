@@ -208,9 +208,10 @@ public sealed class PresentationGenerationService : IDisposable
         };
         Log("project.created", $"Presentation project created with target slide count {brief.TargetSlideCount}.", project.Id);
 
+        var targetCount = brief.TargetSlideCount > 0 ? brief.TargetSlideCount : 1;
         var sectionBriefs = brief.Sections.Count > 0
-            ? brief.Sections
-            : CreateDefaultSectionPlan(brief.TargetSlideCount);
+            ? brief.Sections.Take(targetCount).ToList()
+            : CreateDefaultSectionPlan(targetCount);
 
         for (var index = 0; index < sectionBriefs.Count; index++)
         {
@@ -540,7 +541,20 @@ public sealed class PresentationGenerationService : IDisposable
 
     private static List<PresentationSectionBrief> CreateDefaultSectionPlan(int targetSlideCount)
     {
-        var count = Math.Clamp(targetSlideCount, 4, 12);
+        if (targetSlideCount <= 1)
+        {
+            return
+            [
+                new()
+                {
+                    Title = "Overview",
+                    NarrativeJob = "Establish the central takeaway, key insights, and actionable conclusion.",
+                    OwnerCapability = "writing"
+                }
+            ];
+        }
+
+        var count = Math.Clamp(targetSlideCount, 1, 12);
         var plan = new List<PresentationSectionBrief>
         {
             new() { Title = "Opening", NarrativeJob = "Establish the audience question, stakes, and central takeaway.", OwnerCapability = "writing" },
@@ -549,6 +563,11 @@ public sealed class PresentationGenerationService : IDisposable
             new() { Title = "Implications", NarrativeJob = "Show what the evidence means for this audience.", OwnerCapability = "writing", Dependencies = ["Evidence"] },
             new() { Title = "Action", NarrativeJob = "Close with the practical decision, recommendation, or next step.", OwnerCapability = "writing", Dependencies = ["Implications"] }
         };
+
+        if (count < plan.Count)
+        {
+            return plan.Take(count).ToList();
+        }
 
         while (plan.Count < count)
         {
