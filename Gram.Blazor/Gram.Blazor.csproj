@@ -4,16 +4,22 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**/bin/**;tests/**/obj/**;test_files/**;samples/**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**/bin/**;tests/**/obj/**;test_files/**;samples/**;clients/**/bin/**;clients/**/obj/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="4.0.102.4" />
     <PackageReference Include="Markdig" Version="0.40.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
+    <PackageReference Include="PdfPig" Version="0.1.16" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+    <PackageReference Include="StackExchange.Redis" Version="2.8.31" />
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs;samples/**/*.cs;test_files/**/*.cs" />
+    <Compile Remove="clients/**/*.cs" />
+    <RazorComponent Remove="clients/**/*.razor" />
+    <Content Remove="clients/**" />
     <EmbeddedResource Remove="tests/**/*.resx" />
     <None Remove="tests/**/*.cs;samples/**/*.cs;test_files/**/*.cs" />
     <Content Remove="tests/**/bin/**;tests/**/obj/**" />

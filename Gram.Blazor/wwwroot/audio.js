@@ -108,7 +108,7 @@ window.gramAudio = {
             this.analyser.smoothingTimeConstant = 0.8;
             this.sourceNode.connect(this.analyser);
 
-            // 2. Setup Audio Buffer Capture for local Whisper
+            // 2. Setup Audio Buffer Capture for local Whisper & Barge-in detection
             if (this.audioContext.createScriptProcessor) {
                 this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
                 this.processorNode.onaudioprocess = (e) => {
@@ -123,6 +123,22 @@ window.gramAudio = {
                     }
                     const rmsLevel = Math.min(1, Math.sqrt(sumSquares / Math.max(1, inputData.length)) * 4);
                     this.peakAudioLevel = Math.max(this.peakAudioLevel, rmsLevel);
+
+                    // Zero-lag Barge-In Interruption Detection:
+                    // If Gram is actively playing speech and user starts talking (energy > 0.12)
+                    if (this.isSpeaking() && rmsLevel > 0.12) {
+                        this.bargeInConsecutiveFrames = (this.bargeInConsecutiveFrames || 0) + 1;
+                        if (this.bargeInConsecutiveFrames >= 2) {
+                            console.log('[gramAudio] Real-time barge-in interruption triggered');
+                            this.stopSpeech();
+                            this.bargeInConsecutiveFrames = 0;
+                            if (this.dotNetRef) {
+                                this.dotNetRef.invokeMethodAsync('OnUserBargedIn');
+                            }
+                        }
+                    } else {
+                        this.bargeInConsecutiveFrames = 0;
+                    }
                 };
                 this.sourceNode.connect(this.processorNode);
                 this.processorNode.connect(this.audioContext.destination);
@@ -139,10 +155,16 @@ window.gramAudio = {
                 this.recognition.interimResults = true;
                 this.recognition.lang = navigator.language || 'en-US';
 
+                let silenceTimer = null;
+
                 this.recognition.onresult = (event) => {
                     let transcript = '';
+                    let isFinalChunk = false;
                     for (let i = 0; i < event.results.length; i++) {
                         transcript += event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            isFinalChunk = true;
+                        }
                     }
                     transcript = transcript.trim();
                     if (transcript) {
@@ -151,9 +173,19 @@ window.gramAudio = {
                     if (this.dotNetRef) {
                         this.dotNetRef.invokeMethodAsync('OnTranscriptReceived', transcript);
                     }
+
+                    // Adaptive Fast Turn-Taking: trigger auto-send after 550ms of silence
+                    if (silenceTimer) clearTimeout(silenceTimer);
+                    if (transcript && transcript.length > 0) {
+                        silenceTimer = setTimeout(() => {
+                            if (this.isListening && this.speechTranscript && this.dotNetRef) {
+                                this.dotNetRef.invokeMethodAsync('OnTranscriptFinalized', this.speechTranscript);
+                            }
+                        }, isFinalChunk ? 400 : 580);
+                    }
                 };
 
-                    this.recognition.onerror = (event) => {
+                this.recognition.onerror = (event) => {
                     this.lastRecognitionError = event.error || 'Speech recognition error';
                     console.warn('Speech recognition notice:', event.error);
                 };
@@ -654,6 +686,150 @@ window.gramAudio = {
         }
     },
 
+    streamingSpeechQueue: [],
+    isProcessingSpeechQueue: false,
+    activeSpeechGenerationId: null,
+    isSpeechQueueFinal: false,
+    bargeInConsecutiveFrames: 0,
+
+    startStreamingSpeech: function (generationId) {
+        this.stopSpeech();
+        this.activeSpeechGenerationId = generationId;
+        this.streamingSpeechQueue = [];
+        this.isProcessingSpeechQueue = false;
+        this.isSpeechQueueFinal = false;
+        this.bargeInConsecutiveFrames = 0;
+    },
+
+    cleanSpokenText: function (text) {
+        if (!text) return '';
+        return text
+            .replace(/```[\s\S]*?```/g, ' Code snippet omitted. ')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+            .replace(/[*_~#>-]/g, ' ')
+            .replace(/https?:\/\/\S+/g, ' link ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    },
+
+    enqueueSpeechChunk: function (text, isFinal, generationId, dotNetHelper, rate, pitch, useServerTts) {
+        if (generationId && this.activeSpeechGenerationId && generationId !== this.activeSpeechGenerationId) {
+            return;
+        }
+
+        const clean = this.cleanSpokenText(text);
+        if (clean) {
+            this.streamingSpeechQueue.push({ text: clean, isFinal: isFinal, generationId: generationId });
+        }
+        if (isFinal) {
+            this.isSpeechQueueFinal = true;
+        }
+
+        this.processSpeechQueue(dotNetHelper, rate, pitch, useServerTts);
+    },
+
+    processSpeechQueue: async function (dotNetHelper, rate, pitch, useServerTts) {
+        if (this.isProcessingSpeechQueue) return;
+        this.isProcessingSpeechQueue = true;
+
+        while (this.streamingSpeechQueue.length > 0) {
+            const chunk = this.streamingSpeechQueue.shift();
+            if (!chunk || !chunk.text) continue;
+            if (chunk.generationId && this.activeSpeechGenerationId && chunk.generationId !== this.activeSpeechGenerationId) {
+                continue;
+            }
+
+            try {
+                if (useServerTts) {
+                    await this.playServerChunkAsync(chunk.text);
+                } else {
+                    await this.playLocalUtteranceAsync(chunk.text, rate, pitch);
+                }
+            } catch (err) {
+                console.warn('[gramAudio] Streaming chunk playback notice:', err);
+            }
+        }
+
+        this.isProcessingSpeechQueue = false;
+
+        if (this.isSpeechQueueFinal && this.streamingSpeechQueue.length === 0) {
+            this.isSpeechQueueFinal = false;
+            this.activeSpeechGenerationId = null;
+            if (dotNetHelper) {
+                dotNetHelper.invokeMethodAsync('OnSpeechSynthesisEnded');
+            }
+        }
+    },
+
+    playLocalUtteranceAsync: function (text, rate, pitch) {
+        return new Promise((resolve) => {
+            if (!('speechSynthesis' in window) || !text) {
+                resolve();
+                return;
+            }
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = rate || 1.05;
+            utterance.pitch = pitch || 1.0;
+            utterance.lang = navigator.language || 'en-US';
+
+            const voices = window.speechSynthesis.getVoices();
+            if (voices.length > 0) {
+                const preferred = voices.find(v => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Karen') || v.name.includes('Siri')) && v.lang.startsWith('en'))
+                    || voices.find(v => v.lang.startsWith('en'))
+                    || voices[0];
+                if (preferred) utterance.voice = preferred;
+            }
+
+            utterance.onend = () => resolve();
+            utterance.onerror = (e) => {
+                console.warn('[gramAudio] Utterance notice:', e);
+                resolve();
+            };
+
+            window.speechSynthesis.speak(utterance);
+        });
+    },
+
+    playServerChunkAsync: async function (text) {
+        return new Promise(async (resolve) => {
+            try {
+                this.speechRequestController = new AbortController();
+                const response = await fetch('/api/tts/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text }),
+                    signal: this.speechRequestController.signal
+                });
+
+                if (!response.ok) {
+                    resolve();
+                    return;
+                }
+
+                const audioBlob = await response.blob();
+                const blobUrl = URL.createObjectURL(audioBlob);
+                const audio = new Audio(blobUrl);
+                this.serverSpeechAudio = audio;
+
+                const finish = () => {
+                    if (this.serverSpeechAudio === audio) {
+                        this.serverSpeechAudio = null;
+                    }
+                    URL.revokeObjectURL(blobUrl);
+                    resolve();
+                };
+
+                audio.onended = finish;
+                audio.onerror = finish;
+                await audio.play();
+            } catch (e) {
+                resolve();
+            }
+        });
+    },
+
     speakServerText: async function (text, dotNetHelper) {
         if (!text || text.trim() === '') return false;
 
@@ -703,28 +879,17 @@ window.gramAudio = {
 
         window.speechSynthesis.cancel();
 
-        if (!text || text.trim() === '') return false;
-
-        // Clean markdown formatting for natural spoken speech
-        let cleanText = text
-            .replace(/```[\s\S]*?```/g, ' Code snippet omitted. ')
-            .replace(/`([^`]+)`/g, '$1')
-            .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
-            .replace(/[*_~#>-]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-
+        const cleanText = this.cleanSpokenText(text);
         if (!cleanText) return false;
 
         const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.rate = rate || 1.0;
+        utterance.rate = rate || 1.05;
         utterance.pitch = pitch || 1.0;
         utterance.lang = navigator.language || 'en-US';
 
         const voices = window.speechSynthesis.getVoices();
         if (voices.length > 0) {
-            // Prefer natural English voices (e.g. Google, Samantha, Daniel, Siri, Natural)
-            const preferred = voices.find(v => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Karen')) && v.lang.startsWith('en'))
+            const preferred = voices.find(v => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Karen') || v.name.includes('Siri')) && v.lang.startsWith('en'))
                 || voices.find(v => v.lang.startsWith('en'))
                 || voices[0];
             if (preferred) utterance.voice = preferred;
@@ -748,6 +913,11 @@ window.gramAudio = {
     },
 
     stopSpeech: function () {
+        this.activeSpeechGenerationId = null;
+        this.streamingSpeechQueue = [];
+        this.isProcessingSpeechQueue = false;
+        this.isSpeechQueueFinal = false;
+
         if (this.speechRequestController) {
             try { this.speechRequestController.abort(); } catch (e) {}
             this.speechRequestController = null;
@@ -771,7 +941,8 @@ window.gramAudio = {
 
     isSpeaking: function () {
         return (this.serverSpeechAudio && !this.serverSpeechAudio.paused && !this.serverSpeechAudio.ended)
-            || ('speechSynthesis' in window && window.speechSynthesis.speaking);
+            || ('speechSynthesis' in window && window.speechSynthesis.speaking)
+            || (this.isProcessingSpeechQueue || this.streamingSpeechQueue.length > 0);
     },
 
     renderMath: function (element) {

@@ -9,6 +9,8 @@ public sealed class Conversation
     public DateTimeOffset Created { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset Updated { get; set; } = DateTimeOffset.UtcNow;
     public string? ModelId { get; set; }
+    public string? ProjectId { get; set; }
+    public bool IsArchived { get; set; }
     public string SystemPromptOverride { get; set; } = "";
     public string Rules { get; set; } = "";
     public List<Message> Messages { get; set; } = [];
@@ -43,6 +45,8 @@ public sealed class ConversationMeta
     public DateTimeOffset Created { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset Updated { get; set; } = DateTimeOffset.UtcNow;
     public string? ModelId { get; set; }
+    public string? ProjectId { get; set; }
+    public bool IsArchived { get; set; }
     public string SystemPromptOverride { get; set; } = "";
     public string Rules { get; set; } = "";
     public int MessageCount { get; set; }
@@ -50,6 +54,51 @@ public sealed class ConversationMeta
     public int ArtifactCount { get; set; }
     public bool IsProject { get; set; }
     public int Version { get; set; } = 1;
+}
+
+public sealed class Project
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+    public string Name { get; set; } = "New Project";
+    public string Description { get; set; } = "";
+    public string CustomInstructions { get; set; } = "";
+    public string Color { get; set; } = "#8b5cf6"; // Default violet
+    public string Icon { get; set; } = "folder";
+    public bool StrictContextOnly { get; set; } = true;
+    public DateTimeOffset Created { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset Updated { get; set; } = DateTimeOffset.UtcNow;
+    public List<ProjectFileInfo> Files { get; set; } = [];
+
+    public Project() {}
+
+    public Project(string id, string name)
+    {
+        Id = id;
+        Name = name;
+        Created = DateTimeOffset.UtcNow;
+        Updated = DateTimeOffset.UtcNow;
+    }
+}
+
+public sealed class ProjectFileInfo
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+    public string FileName { get; set; } = "";
+    public string ContentType { get; set; } = "text/plain";
+    public long SizeBytes { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string RelativePath { get; set; } = "";
+    public bool IsText { get; set; } = true;
+
+    public bool IsImage => 
+        (!string.IsNullOrWhiteSpace(ContentType) && ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) ||
+        (!string.IsNullOrWhiteSpace(FileName) && (
+            FileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+            FileName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+            FileName.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+            FileName.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) ||
+            FileName.EndsWith(".gif", StringComparison.OrdinalIgnoreCase) ||
+            FileName.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)));
 }
 
 public sealed class Message
@@ -61,6 +110,7 @@ public sealed class Message
     public string? Thinking { get; set; }
     public List<ToolCallInfo>? ToolCalls { get; set; }
     public List<MentionReference> Mentions { get; set; } = [];
+    public string? SandboxId { get; set; }
 
     public Message() {}
     public Message(string role, string text)

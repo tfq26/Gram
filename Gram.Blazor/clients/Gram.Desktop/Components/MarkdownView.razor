@@ -1,0 +1,26 @@
+@namespace Gram.Desktop.Components
+@using Gram.Blazor.Shared
+@inject MarkdownService MarkdownService
+@inject IJSRuntime JSRuntime
+
+<div @ref="markdownElement" class="dt-markdown-body @Class">
+    @((MarkupString)MarkdownService.RenderToHtml(Content))
+</div>
+
+@code {
+    [Parameter] public string? Content { get; set; }
+    [Parameter] public string Class { get; set; } = "";
+    private ElementReference markdownElement;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramAudio.renderMath", markdownElement);
+        }
+        catch
+        {
+            // Ignore JS interop exceptions during fast DOM teardown
+        }
+    }
+}

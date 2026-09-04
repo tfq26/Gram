@@ -112,6 +112,38 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
                     used BOOLEAN NOT NULL DEFAULT FALSE
                 );
 
+                CREATE TABLE IF NOT EXISTS projects (
+                    id VARCHAR(64) PRIMARY KEY,
+                    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    name VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    custom_instructions TEXT,
+                    color VARCHAR(32),
+                    icon VARCHAR(32),
+                    strict_context BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    data_json JSONB NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS sandbox_jobs (
+                    job_id VARCHAR(64) PRIMARY KEY,
+                    request_json JSONB NOT NULL,
+                    status VARCHAR(32) NOT NULL,
+                    sandbox_id VARCHAR(64),
+                    error TEXT,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS sandbox_outbox (
+                    message_id VARCHAR(64) PRIMARY KEY,
+                    job_id VARCHAR(64) NOT NULL,
+                    payload_json JSONB NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    published_at TIMESTAMPTZ
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
                 CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
                 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -119,9 +151,14 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
                 CREATE INDEX IF NOT EXISTS idx_reset_user_id ON password_reset_tokens(user_id);
                 CREATE INDEX IF NOT EXISTS idx_reset_code ON password_reset_tokens(code);
                 CREATE INDEX IF NOT EXISTS idx_reset_token ON password_reset_tokens(token);
+                CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
+                CREATE INDEX IF NOT EXISTS idx_sandbox_jobs_status ON sandbox_jobs(status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_sandbox_outbox_pending ON sandbox_outbox(published_at, created_at);
 
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS image TEXT;
                 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+                ALTER TABLE conversations ADD COLUMN IF NOT EXISTS project_id VARCHAR(64);
+                ALTER TABLE conversations ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
             """;
             await cmd.ExecuteNonQueryAsync(ct);
 
@@ -140,6 +177,85 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
     }
 
     // Default admin seeding is disabled for Gram Cloud (web app) — reserved for Mini-Gram offline only.
+
+    public async Task SaveSandboxJobAsync(SandboxJobRecord job, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            INSERT INTO sandbox_jobs (job_id, request_json, status, sandbox_id, error, created_at, updated_at)
+            VALUES (@id, @request::jsonb, @status, @sandbox, @error, @created, @updated)
+            ON CONFLICT(job_id) DO UPDATE SET request_json=@request::jsonb, status=@status, sandbox_id=@sandbox, error=@error, updated_at=@updated;";
+        cmd.Parameters.AddWithValue("@id", job.JobId);
+        cmd.Parameters.AddWithValue("@request", JsonSerializer.Serialize(job.Request));
+        cmd.Parameters.AddWithValue("@status", job.Status.ToString());
+        cmd.Parameters.AddWithValue("@sandbox", (object?)job.SandboxId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@error", (object?)job.Error ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@created", job.CreatedAt);
+        cmd.Parameters.AddWithValue("@updated", job.UpdatedAt);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task SaveSandboxJobWithOutboxAsync(SandboxJobRecord job, SandboxOutboxRecord message, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using var jobCmd = conn.CreateCommand(); jobCmd.Transaction = tx;
+        jobCmd.CommandText = "INSERT INTO sandbox_jobs (job_id,request_json,status,sandbox_id,error,created_at,updated_at) VALUES (@id,@request::jsonb,@status,@sandbox,@error,@created,@updated) ON CONFLICT(job_id) DO UPDATE SET request_json=@request::jsonb,status=@status,sandbox_id=@sandbox,error=@error,updated_at=@updated;";
+        jobCmd.Parameters.AddWithValue("@id", job.JobId); jobCmd.Parameters.AddWithValue("@request", JsonSerializer.Serialize(job.Request)); jobCmd.Parameters.AddWithValue("@status", job.Status.ToString()); jobCmd.Parameters.AddWithValue("@sandbox", (object?)job.SandboxId ?? DBNull.Value); jobCmd.Parameters.AddWithValue("@error", (object?)job.Error ?? DBNull.Value); jobCmd.Parameters.AddWithValue("@created", job.CreatedAt); jobCmd.Parameters.AddWithValue("@updated", job.UpdatedAt); await jobCmd.ExecuteNonQueryAsync(ct);
+        await using var outboxCmd = conn.CreateCommand(); outboxCmd.Transaction = tx;
+        outboxCmd.CommandText = "INSERT INTO sandbox_outbox (message_id,job_id,payload_json,created_at) VALUES (@id,@job,@payload::jsonb,@created) ON CONFLICT(message_id) DO NOTHING;";
+        outboxCmd.Parameters.AddWithValue("@id", message.MessageId); outboxCmd.Parameters.AddWithValue("@job", message.JobId); outboxCmd.Parameters.AddWithValue("@payload", message.Payload); outboxCmd.Parameters.AddWithValue("@created", message.CreatedAt); await outboxCmd.ExecuteNonQueryAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    public async Task<SandboxJobRecord?> GetSandboxJobAsync(string jobId, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT job_id, request_json::text, status, sandbox_id, error, created_at, updated_at FROM sandbox_jobs WHERE job_id=@id;";
+        cmd.Parameters.AddWithValue("@id", jobId);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? ParseSandboxJob(reader) : null;
+    }
+
+    public async Task<List<SandboxJobRecord>> ListSandboxJobsAsync(CancellationToken ct = default)
+    {
+        var jobs = new List<SandboxJobRecord>();
+        await using var conn = await _dataSource.OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT job_id, request_json::text, status, sandbox_id, error, created_at, updated_at FROM sandbox_jobs ORDER BY created_at;";
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var job = ParseSandboxJob(reader);
+            if (job is not null) jobs.Add(job);
+        }
+        return jobs;
+    }
+
+    public async Task<List<SandboxOutboxRecord>> ListPendingSandboxOutboxAsync(int limit = 100, CancellationToken ct = default)
+    {
+        var messages = new List<SandboxOutboxRecord>();
+        await using var conn = await _dataSource.OpenConnectionAsync(ct); await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT message_id,job_id,payload_json::text,created_at,published_at FROM sandbox_outbox WHERE published_at IS NULL ORDER BY created_at LIMIT @limit;"; cmd.Parameters.AddWithValue("@limit", Math.Clamp(limit, 1, 1000));
+        await using var reader = await cmd.ExecuteReaderAsync(ct); while (await reader.ReadAsync(ct)) messages.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetFieldValue<DateTimeOffset>(3), reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4))); return messages;
+    }
+
+    public async Task MarkSandboxOutboxPublishedAsync(string messageId, CancellationToken ct = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(ct); await using var cmd = conn.CreateCommand(); cmd.CommandText = "UPDATE sandbox_outbox SET published_at=NOW() WHERE message_id=@id AND published_at IS NULL;"; cmd.Parameters.AddWithValue("@id", messageId); await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private static SandboxJobRecord? ParseSandboxJob(NpgsqlDataReader reader)
+    {
+        try
+        {
+            var request = JsonSerializer.Deserialize<SandboxJobRequest>(reader.GetString(1));
+            return request is null ? null : new SandboxJobRecord(reader.GetString(0), request, Enum.Parse<SandboxJobStatus>(reader.GetString(2)), reader.IsDBNull(3) ? null : reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetFieldValue<DateTimeOffset>(5), reader.GetFieldValue<DateTimeOffset>(6));
+        }
+        catch { return null; }
+    }
 
     public async Task<UserRecord?> GetUserByEmailAsync(string email)
     {
@@ -330,7 +446,7 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
         var list = new List<ConversationMeta>();
         await using var conn = await _dataSource.OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, title, created_at, updated_at, model_id, system_prompt, rules, version FROM conversations WHERE user_id = @user_id ORDER BY updated_at DESC;";
+        cmd.CommandText = "SELECT id, title, created_at, updated_at, model_id, system_prompt, rules, version, project_id, is_archived FROM conversations WHERE user_id = @user_id ORDER BY updated_at DESC;";
         cmd.Parameters.AddWithValue("@user_id", userId);
 
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -345,7 +461,9 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
                 ModelId = reader.IsDBNull(4) ? "" : reader.GetString(4),
                 SystemPromptOverride = reader.IsDBNull(5) ? "" : reader.GetString(5),
                 Rules = reader.IsDBNull(6) ? "" : reader.GetString(6),
-                Version = reader.IsDBNull(7) ? 1 : reader.GetInt32(7)
+                Version = reader.IsDBNull(7) ? 1 : reader.GetInt32(7),
+                ProjectId = reader.IsDBNull(8) ? null : reader.GetString(8),
+                IsArchived = !reader.IsDBNull(9) && reader.GetBoolean(9)
             });
         }
         return list;
@@ -380,10 +498,10 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
             await using var conn = await _dataSource.OpenConnectionAsync(ct);
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
-                INSERT INTO conversations (id, user_id, title, model_id, system_prompt, rules, created_at, updated_at, data_json, version)
-                VALUES (@id, @user_id, @title, @model_id, @system_prompt, @rules, @created_at, @updated_at, @data_json::jsonb, @version)
+                INSERT INTO conversations (id, user_id, title, model_id, system_prompt, rules, created_at, updated_at, data_json, version, project_id, is_archived)
+                VALUES (@id, @user_id, @title, @model_id, @system_prompt, @rules, @created_at, @updated_at, @data_json::jsonb, @version, @project_id, @is_archived)
                 ON CONFLICT (id) DO UPDATE 
-                SET title = @title, model_id = @model_id, system_prompt = @system_prompt, rules = @rules, updated_at = @updated_at, data_json = @data_json::jsonb, version = @version
+                SET title = @title, model_id = @model_id, system_prompt = @system_prompt, rules = @rules, updated_at = @updated_at, data_json = @data_json::jsonb, version = @version, project_id = @project_id, is_archived = @is_archived
                 WHERE @expected_version IS NULL OR conversations.version = @expected_version;
             """;
             cmd.Parameters.AddWithValue("@id", conversation.Id);
@@ -396,6 +514,8 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
             cmd.Parameters.AddWithValue("@updated_at", conversation.Updated.UtcDateTime);
             cmd.Parameters.AddWithValue("@data_json", json);
             cmd.Parameters.AddWithValue("@version", conversation.Version);
+            cmd.Parameters.AddWithValue("@project_id", (object?)conversation.ProjectId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@is_archived", conversation.IsArchived);
             cmd.Parameters.AddWithValue("@expected_version", (object?)expectedVersion ?? DBNull.Value);
 
             return await cmd.ExecuteNonQueryAsync(ct) > 0;
@@ -416,6 +536,110 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
         cmd.Parameters.AddWithValue("@user_id", userId);
 
         return await cmd.ExecuteNonQueryAsync(ct) > 0;
+    }
+
+    public async Task<List<Project>> ListProjectsAsync(string userId, CancellationToken ct = default)
+    {
+        var list = new List<Project>();
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT data_json::text FROM projects WHERE user_id = @user_id ORDER BY updated_at DESC;";
+            cmd.Parameters.AddWithValue("@user_id", userId);
+
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                var json = reader.GetString(0);
+                try
+                {
+                    var project = JsonSerializer.Deserialize<Project>(json);
+                    if (project != null) list.Add(project);
+                }
+                catch {}
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list projects for user {UserId}", userId);
+        }
+        return list;
+    }
+
+    public async Task<Project?> GetProjectAsync(string projectId, string userId, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT data_json::text FROM projects WHERE id = @id AND user_id = @user_id;";
+            cmd.Parameters.AddWithValue("@id", projectId);
+            cmd.Parameters.AddWithValue("@user_id", userId);
+
+            var json = await cmd.ExecuteScalarAsync(ct) as string;
+            if (string.IsNullOrEmpty(json)) return null;
+
+            return JsonSerializer.Deserialize<Project>(json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get project {Id} for user {UserId}", projectId, userId);
+            return null;
+        }
+    }
+
+    public async Task<bool> SaveProjectAsync(Project project, string userId, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(project);
+            await using var conn = await _dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO projects (id, user_id, name, description, custom_instructions, color, icon, strict_context, created_at, updated_at, data_json)
+                VALUES (@id, @user_id, @name, @description, @custom_instructions, @color, @icon, @strict_context, @created_at, @updated_at, @data_json::jsonb)
+                ON CONFLICT (id) DO UPDATE 
+                SET name = @name, description = @description, custom_instructions = @custom_instructions, color = @color, icon = @icon, strict_context = @strict_context, updated_at = @updated_at, data_json = @data_json::jsonb;
+            """;
+            cmd.Parameters.AddWithValue("@id", project.Id);
+            cmd.Parameters.AddWithValue("@user_id", userId);
+            cmd.Parameters.AddWithValue("@name", project.Name);
+            cmd.Parameters.AddWithValue("@description", (object?)project.Description ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@custom_instructions", (object?)project.CustomInstructions ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@color", (object?)project.Color ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@icon", (object?)project.Icon ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@strict_context", project.StrictContextOnly);
+            cmd.Parameters.AddWithValue("@created_at", project.Created.UtcDateTime);
+            cmd.Parameters.AddWithValue("@updated_at", project.Updated.UtcDateTime);
+            cmd.Parameters.AddWithValue("@data_json", json);
+
+            return await cmd.ExecuteNonQueryAsync(ct) > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save project {Id} in PostgreSQL", project.Id);
+            return false;
+        }
+    }
+
+    public async Task<bool> DeleteProjectAsync(string projectId, string userId, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM projects WHERE id = @id AND user_id = @user_id;";
+            cmd.Parameters.AddWithValue("@id", projectId);
+            cmd.Parameters.AddWithValue("@user_id", userId);
+
+            return await cmd.ExecuteNonQueryAsync(ct) > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete project {Id} in PostgreSQL", projectId);
+            return false;
+        }
     }
 
     public async Task<bool> SavePasskeyAsync(string userId, string credentialId, string publicKey, string name)

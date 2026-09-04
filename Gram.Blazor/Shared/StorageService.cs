@@ -9,21 +9,20 @@ public sealed class StorageService
 
     public StorageService(IConfiguration? configuration = null)
     {
-        // 1. Check the current variable and the legacy name used by older
-        // deployments. Keeping both avoids silently switching data stores.
-        var envDataDir = Environment.GetEnvironmentVariable("GRAM_DATA_DIR")
-            ?? Environment.GetEnvironmentVariable("GRAM_STORAGE_DIR");
-        
-        // 2. Check configuration (appsettings.json / command line args)
+        // 1. Check explicit configuration (appsettings.json / in-memory test configuration)
         var configDataDir = configuration?["GRAM_DATA_DIR"] ?? configuration?["Storage:DataDir"];
 
-        if (!string.IsNullOrWhiteSpace(envDataDir))
-        {
-            DataDirectory = envDataDir;
-        }
-        else if (!string.IsNullOrWhiteSpace(configDataDir))
+        // 2. Check ambient environment variables
+        var envDataDir = Environment.GetEnvironmentVariable("GRAM_DATA_DIR")
+            ?? Environment.GetEnvironmentVariable("GRAM_STORAGE_DIR");
+
+        if (!string.IsNullOrWhiteSpace(configDataDir))
         {
             DataDirectory = configDataDir;
+        }
+        else if (!string.IsNullOrWhiteSpace(envDataDir))
+        {
+            DataDirectory = envDataDir;
         }
         else if (Directory.Exists("/app/data"))
         {

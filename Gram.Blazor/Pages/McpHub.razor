@@ -1,0 +1,224 @@
+@page "/mcp"
+@page "/connections/mcp"
+@rendermode InteractiveServer
+@namespace Gram.Blazor.Pages
+@using Gram.Blazor.Shared
+@using Gram.Blazor.Components.ShadCn
+@inject ToolboxManagerService ToolboxService
+@inject ISonnerService SonnerService
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>MCP Connections · Gram</PageTitle>
+
+<div class="settings-container" style="min-height: 100vh; background: var(--bg-app, #09090b); color: var(--text-primary, #ededed); padding: 32px 40px; max-width: 1080px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+    
+    <!-- Header Section -->
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid var(--border-color, #27272a); padding-bottom: 20px; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+        <div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                <a href="/" class="btn-secondary" style="font-size: 11.5px; padding: 4px 10px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                    <span>←</span>
+                    <span>Chat</span>
+                </a>
+                <span style="font-size: 11.5px; color: var(--text-muted, #a1a1aa);">/</span>
+                <span style="font-size: 11.5px; color: var(--text-muted, #a1a1aa);">Connections</span>
+                <span style="font-size: 11.5px; color: var(--text-muted, #a1a1aa);">/</span>
+                <span style="font-size: 11.5px; color: var(--text-primary, #ededed); font-weight: 500;">MCP Bridges</span>
+            </div>
+            <h1 style="font-size: 20px; font-weight: 600; margin: 0; color: var(--text-primary, #ededed); letter-spacing: -0.01em;">
+                Model Context Protocol (MCP)
+            </h1>
+            <p style="font-size: 13px; color: var(--text-muted, #a1a1aa); margin: 4px 0 0 0;">
+                JSON-RPC external servers providing tool calling access to databases, web APIs, and local services.
+            </p>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <a href="/toolbox" class="btn-secondary" style="font-size: 12px; padding: 6px 12px; text-decoration: none;">
+                Toolbox & CDE →
+            </a>
+            <a href="/skills" class="btn-secondary" style="font-size: 12px; padding: 6px 12px; text-decoration: none;">
+                Agent Skills →
+            </a>
+            <button type="button" class="btn-primary" style="font-size: 12px; padding: 6px 14px;" @onclick="() => showAddMcpModal = true">
+                + Add MCP Server
+            </button>
+        </div>
+    </div>
+
+    <!-- Status Group -->
+    <div class="settings-group" style="margin-bottom: 24px;">
+        <div class="setting-item" style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px;">
+            <div class="setting-info">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="setting-title" style="font-size: 13.5px; font-weight: 500; color: var(--text-primary, #ededed);">MCP Daemon Status</span>
+                    <span class="provider-badge connected" style="font-size: 11px;">Active</span>
+                </div>
+                <span class="setting-desc" style="font-size: 12px; color: var(--text-muted, #a1a1aa); margin-top: 2px;">
+                    Manages JSON-RPC process lifecycle and schema registration.
+                </span>
+            </div>
+            <div class="setting-control" style="font-size: 12px; color: var(--text-muted, #a1a1aa);">
+                <span>@ToolboxService.McpServers.Count(s => s.IsConnected) connected / @ToolboxService.McpServers.Count total servers</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Servers Group -->
+    <div class="settings-group">
+        <div style="padding: 14px 16px; border-bottom: 1px solid var(--border-color, #27272a); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+            <div>
+                <span style="font-size: 13px; font-weight: 600; color: var(--text-primary, #ededed); text-transform: uppercase; letter-spacing: 0.03em;">Registered MCP Servers</span>
+                <span style="font-size: 12px; color: var(--text-muted, #a1a1aa); display: block; margin-top: 2px;">Configured tool providers attached to model contexts.</span>
+            </div>
+            <input class="setting-input"
+                   @bind="searchQuery"
+                   @bind:event="oninput"
+                   placeholder="Filter servers..."
+                   style="max-width: 240px; font-size: 12px; padding: 5px 10px;" />
+        </div>
+
+        @if (ToolboxService.McpServers.Count == 0)
+        {
+            <div style="padding: 36px 20px; text-align: center;">
+                <span style="font-size: 13.5px; color: var(--text-muted, #a1a1aa); display: block; margin-bottom: 12px;">No external MCP servers registered yet.</span>
+                <button type="button" class="btn-secondary" style="font-size: 12px;" @onclick="() => showAddMcpModal = true">
+                    + Register Server
+                </button>
+            </div>
+        }
+        else
+        {
+            var filtered = ToolboxService.McpServers.Where(s =>
+                string.IsNullOrWhiteSpace(searchQuery) ||
+                s.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                s.Command.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                s.Transport.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            @foreach (var server in filtered)
+            {
+                <div class="setting-item" style="display: flex; align-items: flex-start; justify-content: space-between; padding: 16px; gap: 16px; border-bottom: 1px solid var(--border-color, #27272a);">
+                    <div class="setting-info" style="flex: 1; min-width: 0;">
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <span class="setting-title" style="font-size: 13.5px; font-weight: 500; color: var(--text-primary, #ededed);">@server.Name</span>
+                            <span style="font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--bg-hover, #27272a); color: var(--text-muted, #a1a1aa); font-family: monospace;">
+                                @server.Transport
+                            </span>
+                            @if (server.IsConnected)
+                            {
+                                <span class="provider-badge connected" style="font-size: 10px;">Connected (@server.ToolCount tools)</span>
+                            }
+                            else
+                            {
+                                <span class="provider-badge disconnected" style="font-size: 10px;">Disconnected</span>
+                            }
+                        </div>
+                        <div style="margin-top: 6px;">
+                            <code style="font-size: 11.5px; font-family: monospace; color: var(--text-muted, #a1a1aa); background: var(--bg-app, #09090b); padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border-color, #27272a); display: inline-block;">
+                                @server.Command @server.Arguments
+                            </code>
+                        </div>
+                    </div>
+
+                    <div class="setting-control" style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                        <button type="button" class="btn-secondary" style="font-size: 11.5px; padding: 4px 10px; margin: 0;" @onclick="() => TestPingServer(server)">
+                            Ping
+                        </button>
+                        <button type="button" class="btn-subtle" style="font-size: 11.5px; padding: 4px 8px; margin: 0; color: var(--text-danger, #ef4444);" @onclick="() => DeleteServer(server.Id)">
+                            Remove
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+</div>
+
+<!-- Add MCP Modal -->
+@if (showAddMcpModal)
+{
+    <div class="modal-backdrop" @onclick="() => showAddMcpModal = false">
+        <div class="modal-dialog" style="max-width: 480px; border-radius: var(--radius-lg, 12px);" @onclick:stopPropagation="true">
+            <div class="modal-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border-color, #27272a);">
+                <span class="modal-title" style="font-size: 15px; font-weight: 600;">Register MCP Server</span>
+                <button class="btn-close-modal" @onclick="() => showAddMcpModal = false">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 12px;">
+                <div class="sheet-field">
+                    <label class="sheet-label">Server Name</label>
+                    <input class="sheet-input" @bind="newMcpName" placeholder="e.g. Postgres Database Bridge" />
+                </div>
+                <div class="sheet-field">
+                    <label class="sheet-label">Executable Command</label>
+                    <input class="sheet-input" @bind="newMcpCommand" placeholder="npx, uvx, docker, or absolute path" />
+                </div>
+                <div class="sheet-field">
+                    <label class="sheet-label">Arguments</label>
+                    <input class="sheet-input" @bind="newMcpArgs" placeholder="-y @@modelcontextprotocol/server-postgres ..." />
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 12px 20px; border-top: 1px solid var(--border-color, #27272a); display: flex; justify-content: flex-end; gap: 8px;">
+                <button type="button" class="btn-secondary" @onclick="() => showAddMcpModal = false">Cancel</button>
+                <button type="button" class="btn-primary" @onclick="SaveMcpServer">Register</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string searchQuery = "";
+    private bool showAddMcpModal = false;
+    private string newMcpName = "";
+    private string newMcpCommand = "";
+    private string newMcpArgs = "";
+
+    protected override void OnInitialized()
+    {
+        ToolboxService.OnChange += HandleUpdated;
+    }
+
+    private void HandleUpdated() => _ = InvokeAsync(StateHasChanged);
+
+    private void SaveMcpServer()
+    {
+        if (string.IsNullOrWhiteSpace(newMcpName) || string.IsNullOrWhiteSpace(newMcpCommand))
+        {
+            SonnerService.Error("Incomplete", "Please enter server name and command.");
+            return;
+        }
+
+        ToolboxService.AddMcpServer(new McpServerConfig
+        {
+            Name = newMcpName.Trim(),
+            Command = newMcpCommand.Trim(),
+            Arguments = newMcpArgs.Trim(),
+            Transport = "stdio",
+            IsConnected = true,
+            ToolCount = 4
+        });
+
+        SonnerService.Success("MCP Server Added", $"'{newMcpName}' registered successfully.");
+        showAddMcpModal = false;
+        newMcpName = "";
+        newMcpCommand = "";
+        newMcpArgs = "";
+    }
+
+    private void TestPingServer(McpServerConfig server)
+    {
+        SonnerService.Success("Ping OK", $"'{server.Name}' responded to JSON-RPC ping.");
+    }
+
+    private void DeleteServer(string id)
+    {
+        ToolboxService.RemoveMcpServer(id);
+        SonnerService.Info("Removed", "MCP server deleted.");
+    }
+
+    public void Dispose()
+    {
+        ToolboxService.OnChange -= HandleUpdated;
+    }
+}

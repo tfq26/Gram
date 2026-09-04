@@ -44,6 +44,25 @@ public sealed class BackendClientTests
         Assert.Equal("1", request?.Headers.GetValues("Last-Event-ID").Single());
     }
 
+    [Fact]
+    public async Task GetAsync_RetriesTransientServerFailures()
+    {
+        var attempts = 0;
+        using var http = new HttpClient(new RecordingHandler(_ =>
+        {
+            attempts++;
+            return attempts < 3
+                ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                : JsonResponse("{\"id\":\"c1\",\"title\":\"Recovered\",\"created\":\"2026-01-01T00:00:00Z\",\"updated\":\"2026-01-01T00:00:00Z\",\"modelId\":null,\"messageCount\":0,\"artifactCount\":0,\"version\":1}");
+        })) { BaseAddress = new Uri("https://gram.test") };
+        var client = new GramBackendClient(http);
+
+        var result = await client.GetAsync<ConversationSummary>("/api/v1/conversations/c1");
+
+        Assert.Equal("Recovered", result.Title);
+        Assert.Equal(3, attempts);
+    }
+
     private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
     { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 

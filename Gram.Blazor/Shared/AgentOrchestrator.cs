@@ -31,6 +31,7 @@ public sealed class AgentOrchestrator
     private readonly IQuotaTracker? _quotaTracker;
     private readonly IRateLimitCoordinator? _rateLimiter;
     private readonly SearchGroundingHarness? _searchGroundingHarness;
+    private readonly ResearchEvidenceService? _researchEvidenceService;
     private readonly HttpClient _httpClient = new();
 
     public AgentOrchestrator(
@@ -41,7 +42,8 @@ public sealed class AgentOrchestrator
         WebContentService webContentService,
         IQuotaTracker? quotaTracker = null,
         IRateLimitCoordinator? rateLimiter = null,
-        SearchGroundingHarness? searchGroundingHarness = null)
+        SearchGroundingHarness? searchGroundingHarness = null,
+        ResearchEvidenceService? researchEvidenceService = null)
     {
         _modelService = modelService;
         _toolExecutor = toolExecutor;
@@ -51,6 +53,7 @@ public sealed class AgentOrchestrator
         _quotaTracker = quotaTracker;
         _rateLimiter = rateLimiter;
         _searchGroundingHarness = searchGroundingHarness;
+        _researchEvidenceService = researchEvidenceService;
     }
 
     public async IAsyncEnumerable<AgentStepUpdate> RunAgentLoopAsync(
@@ -58,7 +61,7 @@ public sealed class AgentOrchestrator
         List<Message> history,
         string workspacePath,
         string? systemPrompt = null,
-        int maxIterations = 8,
+        int maxIterations = 25,
         string? repositoryMap = null,
         IEnumerable<string>? allowedToolNames = null,
         string? forcedWebSearchQuery = null,
@@ -67,7 +70,7 @@ public sealed class AgentOrchestrator
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
         bool allowLocalCapabilities = true)
     {
-        var isLocal = _settingsService.IsFeatureSupported("localFileStorage");
+        var isLocal = _settingsService.IsFeatureSupported("localFileStorage") || allowLocalCapabilities;
         var activeGit = _gitService.Accounts.FirstOrDefault(a => a.IsDefault) ?? _gitService.Accounts.FirstOrDefault();
         var intent = string.Join("\n", history.Where(x => x.Role.Equals("user", StringComparison.OrdinalIgnoreCase)).TakeLast(3).Select(x => x.Text));
         var tools = _toolExecutor.GetAvailableTools(isLocal, activeGit, intent);
@@ -92,6 +95,13 @@ public sealed class AgentOrchestrator
                 "grambox_checkpoint", "grambox_rollback", "grambox_status"
             };
             tools = tools.Where(tool => !localTools.Contains(tool.Name)).ToList();
+        }
+
+        if (!FeatureFlags.PresentationsEnabled)
+        {
+            tools = tools.Where(tool => !tool.Name.Contains("presentation", StringComparison.OrdinalIgnoreCase)
+                && !tool.Name.Equals("create_presentation_project", StringComparison.OrdinalIgnoreCase)
+                && !tool.Name.Equals("assemble_presentation_html", StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
         var lastUserPrompt = history.LastOrDefault(x => x.Role.Equals("user", StringComparison.OrdinalIgnoreCase))?.Text;
@@ -226,7 +236,7 @@ public sealed class AgentOrchestrator
             var quotaKey = QuotaRequestKey.Create(
                 providerId,
                 actualModel,
-                modelId.Equals("gram-q", StringComparison.OrdinalIgnoreCase) || modelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase) ? "system" : "byok",
+                GramModelIds.IsSystemModel(modelId) ? "system" : "byok",
                 apiKey);
 
             var isExplicitCacheProvider = providerId == "anthropic" || providerId == "openrouter" || endpoint.Contains("openrouter.ai") || endpoint.Contains("anthropic.com");
@@ -299,8 +309,9 @@ public sealed class AgentOrchestrator
             {
                 var friendlyName = modelId switch
                 {
-                    "gram-q" => "Gram Q (Groq API Key)",
-                    "gram-q-plus" => "Gram Q+ (Google Gemini API Key)",
+                    "gram-q" => "Gram Q (Vercel AI Gateway key)",
+                    "gram-q-plus" => "Gram Q+ (Groq API Key)",
+                    "gram-q-plus-plus" => "Gram Q++ (Google Gemini API Key)",
                     _ => providerId
                 };
                 yield return new AgentStepUpdate
@@ -378,15 +389,6 @@ public sealed class AgentOrchestrator
                             fallbackTarget = ("llama-3.1-8b-instant", "groq", "https://api.groq.com/openai/v1/chat/completions", gKey);
                         }
                     }
-                    else if (modelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase) && actualModel == "gemini-2.5-flash")
-                    {
-                        var gemKey = _modelService.GetSystemApiKey("google") ?? _modelService.GetUserApiKey("google");
-                        if (!string.IsNullOrWhiteSpace(gemKey))
-                        {
-                            fallbackTarget = ("gemini-2.0-flash", "google", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", gemKey);
-                        }
-                    }
-
                     if (fallbackTarget != null)
                     {
                         response.Dispose();
@@ -662,6 +664,16 @@ public sealed class AgentOrchestrator
             }
         }
 
+        if (iteration >= maxIterations)
+        {
+            yield return new AgentStepUpdate
+            {
+                ContentDelta = $"\n\n[Agent reached maximum loop iterations ({maxIterations}). Stopping.]",
+                IsComplete = true
+            };
+            yield break;
+        }
+
         yield return new AgentStepUpdate { IsComplete = true };
     }
 
@@ -922,6 +934,12 @@ public sealed class AgentOrchestrator
         if (!force && !NeedsWebSearch(prompt)) return null;
         if (string.IsNullOrWhiteSpace(prompt)) return null;
 
+        if (_researchEvidenceService != null)
+        {
+            var packet = await _researchEvidenceService.BuildAsync(new ResearchRequest(prompt!, 8), cancellationToken);
+            return packet.Sources.Count > 0 ? packet.ModelContext : null;
+        }
+
         if (_searchGroundingHarness != null)
         {
             var grounded = await _searchGroundingHarness.RunAsync(prompt!, 4, cancellationToken);
@@ -973,25 +991,23 @@ public sealed class AgentOrchestrator
 
     private (string actualModel, string providerId, string endpoint, string? apiKey) ResolveTargetModel(string modelId)
     {
-        // Gram Q and Gram Q+ are platform models and may use system keys or user BYOK keys
-        if (modelId.Equals("gram-q", StringComparison.OrdinalIgnoreCase))
-        {
-            var groqKey = _modelService.GetSystemApiKey("groq") ?? _modelService.GetUserApiKey("groq");
-            if (!string.IsNullOrWhiteSpace(groqKey))
-            {
-                return ("openai/gpt-oss-120b", "groq", "https://api.groq.com/openai/v1/chat/completions", groqKey);
-            }
-            return ("openai/gpt-oss-120b", "groq", "https://api.groq.com/openai/v1/chat/completions", null);
-        }
-
-        if (modelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase))
+        // Gram platform roles may use system keys or user BYOK keys.
+        if (modelId.Equals(GramModelIds.GramQ, StringComparison.OrdinalIgnoreCase))
         {
             var geminiKey = _modelService.GetSystemApiKey("google") ?? _modelService.GetUserApiKey("google");
-            if (!string.IsNullOrWhiteSpace(geminiKey))
-            {
-                return ("gemini-3-flash-preview", "google", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", geminiKey);
-            }
-            return ("gemini-3-flash-preview", "google", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", null);
+            return (GramModelIds.GoogleGeminiFlashLite, "google", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", geminiKey);
+        }
+
+        if (modelId.Equals(GramModelIds.GramQPlus, StringComparison.OrdinalIgnoreCase))
+        {
+            var vercelKey = _modelService.GetSystemApiKey("vercel") ?? _modelService.GetUserApiKey("vercel");
+            return (GramModelIds.MuseSparkContributor, "vercel", "https://ai-gateway.vercel.sh/v1/chat/completions", vercelKey);
+        }
+
+        if (modelId.Equals(GramModelIds.GramQPlusPlus, StringComparison.OrdinalIgnoreCase))
+        {
+            var geminiKey = _modelService.GetSystemApiKey("google") ?? _modelService.GetUserApiKey("google");
+            return (GramModelIds.GoogleGeminiFlashLite, "google", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", geminiKey);
         }
 
         // All other models (e.g. Gemini, OpenAI, Claude, DeepSeek) strictly route through user BYOK keys
@@ -1015,6 +1031,7 @@ public sealed class AgentOrchestrator
             "anthropic" => $"{prov?.BaseUrl ?? "https://api.anthropic.com/v1"}/chat/completions",
             "xai" => $"{prov?.BaseUrl ?? "https://api.x.ai/v1"}/chat/completions",
             "deepseek" => $"{prov?.BaseUrl ?? "https://api.deepseek.com/v1"}/chat/completions",
+            "vercel" => $"{prov?.BaseUrl ?? "https://ai-gateway.vercel.sh/v1"}/chat/completions",
             "ollama" => $"{prov?.BaseUrl ?? "http://localhost:11434"}/v1/chat/completions",
             "cloudflare" => $"{prov?.BaseUrl ?? "https://api.cloudflare.com/client/v4/accounts/me/ai/v1"}/chat/completions",
             _ => $"{prov?.BaseUrl ?? "https://openrouter.ai/api/v1"}/chat/completions"

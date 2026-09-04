@@ -1,0 +1,299 @@
+@namespace Gram.Blazor.Components
+@using Gram.Blazor.Shared
+@using Gram.Blazor.Components.ShadCn
+@using Microsoft.AspNetCore.Components.Forms
+@inject ProjectService ProjectService
+@inject ISonnerService SonnerService
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop" @onclick="Close">
+        <div class="modal-dialog project-modal-dialog" style="max-width: 540px; border-radius: var(--radius-lg);" @onclick:stopPropagation="true">
+            <div class="modal-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="width: 28px; height: 28px; border-radius: var(--radius-sm); background: @(selectedColor)22; color: @selectedColor; display: flex; align-items: center; justify-content: center; font-size: 14px;">
+                        📁
+                    </div>
+                    <div>
+                        <span class="modal-title" style="font-size: 15px; font-weight: 600;">
+                            @(IsNew ? "New Project" : "Project Settings & Knowledge")
+                        </span>
+                    </div>
+                </div>
+                <button class="btn-close-modal" @onclick="Close" title="Close">✕</button>
+            </div>
+
+            <!-- Tab Switcher -->
+            <div style="display: flex; background: var(--bg-hover); padding: 3px; margin: 12px 20px 0 20px; border-radius: var(--radius-sm); gap: 2px;">
+                <button type="button"
+                        class="auth-tab-btn @(activeTab == "general" ? "active" : "")"
+                        style="flex: 1; padding: 6px 12px; font-size: 12px; font-weight: 500; border: none; border-radius: calc(var(--radius-sm) - 2px); background: @(activeTab == "general" ? "var(--bg-panel)" : "transparent"); color: var(--text-primary); cursor: pointer;"
+                        @onclick='() => activeTab = "general"'>
+                    General
+                </button>
+                <button type="button"
+                        class="auth-tab-btn @(activeTab == "instructions" ? "active" : "")"
+                        style="flex: 1; padding: 6px 12px; font-size: 12px; font-weight: 500; border: none; border-radius: calc(var(--radius-sm) - 2px); background: @(activeTab == "instructions" ? "var(--bg-panel)" : "transparent"); color: var(--text-primary); cursor: pointer;"
+                        @onclick='() => activeTab = "instructions"'>
+                    Instructions
+                </button>
+                <button type="button"
+                        class="auth-tab-btn @(activeTab == "knowledge" ? "active" : "")"
+                        style="flex: 1; padding: 6px 12px; font-size: 12px; font-weight: 500; border: none; border-radius: calc(var(--radius-sm) - 2px); background: @(activeTab == "knowledge" ? "var(--bg-panel)" : "transparent"); color: var(--text-primary); cursor: pointer;"
+                        @onclick='() => activeTab = "knowledge"'>
+                    Knowledge (@(editingProject?.Files.Count ?? 0))
+                </button>
+            </div>
+
+            <div class="modal-body" style="padding: 16px 20px; max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;">
+                @if (activeTab == "general")
+                {
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Project Name</label>
+                        <input class="setting-input" @bind="projectName" placeholder="e.g. Mobile App Redesign, Market Research..." />
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Description (Optional)</label>
+                        <input class="setting-input" @bind="projectDescription" placeholder="Brief summary of what this project is about..." />
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Theme Color</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            @foreach (var color in AvailableColors)
+                            {
+                                <button type="button"
+                                        style="width: 24px; height: 24px; border-radius: 50%; background: @color; border: @(selectedColor == color ? "2.5px solid #ffffff" : "2px solid transparent"); cursor: pointer; transition: transform 0.1s ease; outline: @(selectedColor == color ? $"2px solid {color}" : "none");"
+                                        @onclick="() => selectedColor = color">
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--bg-panel-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-top: 4px;">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <span style="font-size: 12.5px; font-weight: 600; color: var(--text-primary);">Strict Context Isolation</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">Confine Gram's context strictly to this project's instructions and knowledge base documents.</span>
+                        </div>
+                        <label class="setting-toggle">
+                            <input type="checkbox" class="setting-checkbox" @bind="strictContext" />
+                        </label>
+                    </div>
+                }
+                else if (activeTab == "instructions")
+                {
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <label style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Project Custom Instructions</label>
+                            <span style="font-size: 11px; color: var(--text-muted);">Injected on every prompt in this project</span>
+                        </div>
+                        <textarea class="setting-textarea"
+                                  @bind="customInstructions"
+                                  rows="8"
+                                  placeholder="Specify instructions, rules, coding guidelines, or persona Gram must follow when chatting within this project...&#10;&#10;Examples:&#10;• Focus on Python 3.12 and FastAPI architecture.&#10;• Maintain strict compliance with the knowledge documents attached.&#10;• Output solutions with minimal boilerplate and clear explanations."></textarea>
+                    </div>
+                }
+                else if (activeTab == "knowledge")
+                {
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <div>
+                                <label style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Project Knowledge Base</label>
+                                <div style="font-size: 11px; color: var(--text-muted);">Files uploaded here are automatically included in Gram's context.</div>
+                            </div>
+
+                            <label class="btn-primary-action" style="margin: 0; padding: 4px 10px; font-size: 11.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                <span>Add Files</span>
+                                <InputFile OnChange="HandleFileUpload" style="display: none;" multiple />
+                            </label>
+                        </div>
+
+                        @if (isUploading)
+                        {
+                            <div style="font-size: 12px; color: var(--accent); padding: 8px; text-align: center; background: var(--bg-hover); border-radius: var(--radius-sm);">
+                                Uploading files...
+                            </div>
+                        }
+
+                        @if (editingProject?.Files.Count > 0)
+                        {
+                            <div style="display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto;">
+                                @foreach (var file in editingProject.Files)
+                                {
+                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: var(--bg-panel-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+                                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+                                            <span style="font-size: 14px;">📄</span>
+                                            <div style="display: flex; flex-direction: column; min-width: 0;">
+                                                <span style="font-size: 12px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@file.FileName</span>
+                                                <span style="font-size: 10.5px; color: var(--text-muted);">@(file.SizeBytes < 1024 ? $"{file.SizeBytes} B" : $"{file.SizeBytes / 1024} KB") · @file.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn-subtle" style="padding: 4px 6px; color: var(--text-danger, #ef4444); border: none; background: transparent; cursor: pointer;" @onclick="() => DeleteFile(file.FileName)" title="Delete file">
+                                            ✕
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div style="text-align: center; padding: 24px 12px; border: 1px dashed var(--border-color); border-radius: var(--radius-md); background: var(--bg-panel-subtle);">
+                                <div style="font-size: 24px; margin-bottom: 6px;">📂</div>
+                                <div style="font-size: 13px; font-weight: 600; color: var(--text-primary);">No files in project yet</div>
+                                <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 2px;">Attach Markdown, code files, text, CSV, or documents to ground Gram's reasoning.</div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="modal-footer" style="padding: 12px 20px; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between;">
+                @if (!IsNew && editingProject != null)
+                {
+                    <button type="button" class="btn-subtle" style="color: #ef4444; font-size: 12px; padding: 6px 12px; background: transparent; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--radius-sm); cursor: pointer;" @onclick="HandleDeleteProject">
+                        Delete Project
+                    </button>
+                }
+                else
+                {
+                    <div></div>
+                }
+
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="btn-secondary" style="margin: 0; padding: 6px 14px; font-size: 12.5px;" @onclick="Close">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn-primary-action" style="margin: 0; padding: 6px 16px; font-size: 12.5px;" @onclick="HandleSave">
+                        @(IsNew ? "Create Project" : "Save Changes")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public Project? Project { get; set; }
+    [Parameter] public EventCallback<Project> OnProjectSaved { get; set; }
+    [Parameter] public EventCallback<string> OnProjectDeleted { get; set; }
+
+    private static readonly string[] AvailableColors = ["#8b5cf6", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#ec4899", "#06b6d4"];
+
+    private string activeTab = "general";
+    private bool IsNew => Project == null || string.IsNullOrWhiteSpace(Project.Id);
+    private Project? editingProject;
+    private string projectName = "";
+    private string projectDescription = "";
+    private string customInstructions = "";
+    private string selectedColor = "#8b5cf6";
+    private bool strictContext = true;
+    private bool isUploading = false;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen)
+        {
+            if (Project != null && !string.IsNullOrWhiteSpace(Project.Id))
+            {
+                editingProject = Project;
+                projectName = Project.Name;
+                projectDescription = Project.Description;
+                customInstructions = Project.CustomInstructions;
+                selectedColor = !string.IsNullOrWhiteSpace(Project.Color) ? Project.Color : "#8b5cf6";
+                strictContext = Project.StrictContextOnly;
+            }
+            else
+            {
+                editingProject = new Project { Name = "New Project" };
+                projectName = "New Project";
+                projectDescription = "";
+                customInstructions = "";
+                selectedColor = "#8b5cf6";
+                strictContext = true;
+            }
+            activeTab = "general";
+        }
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+
+    private async Task HandleSave()
+    {
+        if (string.IsNullOrWhiteSpace(projectName))
+        {
+            SonnerService.Error("Project name required", "Please enter a valid project name.");
+            return;
+        }
+
+        var targetProject = editingProject ?? new Project();
+        targetProject.Name = projectName.Trim();
+        targetProject.Description = projectDescription?.Trim() ?? "";
+        targetProject.CustomInstructions = customInstructions?.Trim() ?? "";
+        targetProject.Color = selectedColor;
+        targetProject.StrictContextOnly = strictContext;
+
+        await ProjectService.SaveProjectAsync(targetProject);
+        SonnerService.Success(IsNew ? "Project created" : "Project updated", $"Project '{targetProject.Name}' is ready.");
+
+        await OnProjectSaved.InvokeAsync(targetProject);
+        await Close();
+    }
+
+    private async Task HandleDeleteProject()
+    {
+        if (editingProject == null) return;
+        var name = editingProject.Name;
+        await ProjectService.DeleteProjectAsync(editingProject.Id);
+        SonnerService.Info("Project deleted", $"Project '{name}' was deleted.");
+        await OnProjectDeleted.InvokeAsync(editingProject.Id);
+        await Close();
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        if (editingProject == null) return;
+        isUploading = true;
+        StateHasChanged();
+
+        try
+        {
+            foreach (var file in e.GetMultipleFiles(10))
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+                await ProjectService.UploadProjectFileAsync(editingProject.Id, file.Name, stream, file.ContentType);
+            }
+            editingProject = ProjectService.GetProject(editingProject.Id) ?? editingProject;
+            SonnerService.Success("Files added", $"Knowledge files uploaded to '{editingProject.Name}'.");
+        }
+        catch (Exception ex)
+        {
+            SonnerService.Error("Upload error", ex.Message);
+        }
+        finally
+        {
+            isUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteFile(string fileName)
+    {
+        if (editingProject == null) return;
+        await ProjectService.DeleteProjectFileAsync(editingProject.Id, fileName);
+        editingProject = ProjectService.GetProject(editingProject.Id) ?? editingProject;
+        StateHasChanged();
+        SonnerService.Info("File removed", $"Removed '{fileName}' from knowledge base.");
+    }
+}

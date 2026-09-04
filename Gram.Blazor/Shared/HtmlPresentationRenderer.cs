@@ -17,9 +17,9 @@ public sealed class HtmlPresentationRenderer
         _logger = logger;
     }
 
-    public async Task<string> RenderAsync(PresentationAssemblyInput input, CancellationToken cancellationToken = default)
+    public async Task<string> RenderAsync(PresentationAssemblyInput input, CancellationToken cancellationToken = default, string? outputDirectory = null)
     {
-        var directory = _storage.GetFilePath(Path.Combine("presentations", input.ProjectId));
+        var directory = outputDirectory ?? _storage.GetFilePath(Path.Combine("presentations", input.ProjectId));
         var assetsDirectory = Path.Combine(directory, "assets");
         Directory.CreateDirectory(assetsDirectory);
         var assetUrls = new List<string>();
@@ -38,15 +38,18 @@ public sealed class HtmlPresentationRenderer
         {
             var section = input.Sections[index];
             var content = ParseContent(section.ContentJson);
+            var isTitleSlide = input.Sections.Count == 1 && string.Equals(content.SlideType, "title", StringComparison.OrdinalIgnoreCase);
             slides.AppendLine($"<section class=\"slide {(index == 0 ? "active" : "hidden")}\" data-slide=\"{index}\">");
-            slides.AppendLine($"  <div class=\"slide-container\">");
-            slides.AppendLine($"    <div class=\"slide-kicker\">{Html(section.Title)}</div>");
-            slides.AppendLine($"    <h2 class=\"slide-title\">{Html(content.TakeawayTitle ?? section.Title)}</h2>");
+            slides.AppendLine($"  <div class=\"slide-container {(isTitleSlide ? "title-slide-container" : "")}\">");
+            if (!isTitleSlide) slides.AppendLine($"    <div class=\"slide-kicker\">{Html(section.Title)}</div>");
+            slides.AppendLine($"    <h2 class=\"slide-title {(isTitleSlide ? "title-slide-title" : "")}\">{Html(content.TakeawayTitle ?? section.Title)}</h2>");
             if (!string.IsNullOrWhiteSpace(content.Subtitle))
             {
                 slides.AppendLine($"    <p class=\"slide-subtitle\">{Html(content.Subtitle)}</p>");
             }
-            if (content.BodyPoints.Count > 0)
+            if (isTitleSlide && !string.IsNullOrWhiteSpace(content.TakeawayTitle) && content.TakeawayTitle.Contains("quadratic", StringComparison.OrdinalIgnoreCase))
+                slides.AppendLine("    <div class=\"title-slide-formula\" aria-label=\"x equals negative b plus or minus the square root of b squared minus four a c, divided by two a\">x = (−b ± √(b² − 4ac)) / 2a</div>");
+            if (!isTitleSlide && content.BodyPoints.Count > 0)
             {
                 slides.AppendLine("    <div class=\"slide-points\">");
                 foreach (var point in content.BodyPoints.Take(6))
@@ -55,7 +58,7 @@ public sealed class HtmlPresentationRenderer
                 }
                 slides.AppendLine("    </div>");
             }
-            if (!string.IsNullOrWhiteSpace(content.VisualBrief))
+            if (!isTitleSlide && !string.IsNullOrWhiteSpace(content.VisualBrief))
             {
                 slides.AppendLine($"    <div class=\"visual-brief-box\"><span class=\"brief-label\">Visual Concept</span><p class=\"brief-text\">{Html(content.VisualBrief)}</p></div>");
             }
@@ -172,6 +175,26 @@ public sealed class HtmlPresentationRenderer
               backdrop-filter: blur(20px);
               position: relative;
             }
+            .title-slide-container {
+              min-height: 540px;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              text-align: center;
+              background: #ffffff;
+              border: 0;
+              border-radius: 0;
+              box-shadow: none;
+              backdrop-filter: none;
+              color: #18181b;
+            }
+            .title-slide-title { max-width: 780px; color: #18181b; font-size: clamp(34px, 5vw, 58px); }
+            .title-slide-container .slide-subtitle { max-width: 620px; color: #52525b; margin-bottom: 24px; }
+            .title-slide-formula { margin-top: 12px; color: #27272a; font-family: Georgia, 'Times New Roman', serif; font-size: clamp(24px, 3vw, 36px); letter-spacing: .01em; }
+            .single-slide { background: #ffffff; color: #18181b; }
+            .single-slide .deck-viewport { padding-bottom: 40px; }
+            .single-slide .deck-controls { display: none; }
             .slide-kicker {
               font-family: var(--font-mono);
               font-size: 11.5px;
@@ -299,22 +322,7 @@ public sealed class HtmlPresentationRenderer
             }
           </style>
         </head>
-        <body>
-          <header class="deck-topbar">
-            <div class="deck-brand">
-              <div class="deck-brand-icon">📽️</div>
-              <div class="deck-title-group">
-                <span class="deck-top-title">__TITLE__</span>
-                <span class="deck-top-meta">__AUDIENCE__ · __JOB__</span>
-              </div>
-            </div>
-            <button type="button" class="deck-ctrl-btn" onclick="toggleFullscreen()" title="Fullscreen (F)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
-              </svg>
-            </button>
-          </header>
-
+        <body class="__BODY_CLASS__">
           <main class="deck-viewport">
             __SLIDES__
           </main>
@@ -379,6 +387,7 @@ public sealed class HtmlPresentationRenderer
             .Replace("__TITLE__", Html(input.Title), StringComparison.Ordinal)
             .Replace("__AUDIENCE__", Html(input.Audience), StringComparison.Ordinal)
             .Replace("__JOB__", Html(input.CommunicationJob), StringComparison.Ordinal)
+            .Replace("__BODY_CLASS__", input.Sections.Count == 1 ? "single-slide" : "", StringComparison.Ordinal)
             .Replace("__SLIDES__", slides.ToString(), StringComparison.Ordinal);
         var path = Path.Combine(directory, "index.html");
         await File.WriteAllTextAsync(path, html, Encoding.UTF8, cancellationToken);

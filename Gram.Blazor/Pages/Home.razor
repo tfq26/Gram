@@ -14,7 +14,6 @@
 @inject Gram.Blazor.Shared.IAgentWorkflowRouter AgentWorkflowRouter
 @inject Gram.Blazor.Shared.ContextBuilder ContextBuilder
 @inject Gram.Blazor.Shared.MentionResolver MentionResolver
-@inject Gram.Blazor.Shared.PresentationGenerationService PresentationGeneration
 @inject Gram.Blazor.Shared.IQuotaTracker QuotaTracker
 @inject Gram.Blazor.Shared.IAgentRunTracker AgentRunTracker
 @inject Gram.Blazor.Shared.IRunApi BackendRunApi
@@ -28,6 +27,7 @@
 @inject Gram.Blazor.Shared.IGramBoxService GramBox
 @inject Gram.Blazor.Shared.IStreamingTranscriberFactory StreamingTranscriberFactory
 @inject Gram.Blazor.Shared.ITextToSpeechProvider TextToSpeechProvider
+@inject Gram.Blazor.Shared.ProjectService ProjectService
 @implements IAsyncDisposable
 
 <PageTitle>Gram</PageTitle>
@@ -53,8 +53,13 @@
             </div>
 
             <ConversationRail Conversations="conversations" ActiveId="activeId"
+                              Projects="ProjectService.Projects"
                               IsLoading="isLoadingConversations"
                               OnNewConversation="NewConversation"
+                              OnCreateProject="HandleCreateProject"
+                              OnEditProject="HandleEditProject"
+                              OnNewChatInProject="HandleNewChatInProject"
+                              OnOpenArchivedChats="() => isArchivedModalOpen = true"
                               OnSelectConversation="SelectConversation"
                               OnDeleteConversation="DeleteConversation"
                               OnDeleteMultiple="DeleteMultipleConversations"
@@ -175,6 +180,52 @@
                         </div>
                     }
                 </div>
+
+                @if (!string.IsNullOrWhiteSpace(Active.ProjectId))
+                {
+                    var currentProject = ProjectService.GetProject(Active.ProjectId);
+                    if (currentProject != null)
+                    {
+                        var projColor = !string.IsNullOrWhiteSpace(currentProject.Color) ? currentProject.Color : "#8b5cf6";
+                        <button type="button"
+                                class="btn-subtle"
+                                style="display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-panel-subtle); color: var(--text-primary); font-size: 12px; font-weight: 500; cursor: pointer;"
+                                title="Project: @currentProject.Name (@currentProject.Files.Count files). Click for settings & knowledge."
+                                @onclick="() => HandleEditProject(currentProject)">
+                            <div style="width: 7px; height: 7px; border-radius: 50%; background: @projColor;"></div>
+                            <span style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@currentProject.Name</span>
+                            @if (currentProject.Files.Count > 0)
+                            {
+                                <span style="font-size: 10px; color: var(--text-muted); background: var(--bg-hover); padding: 1px 4px; border-radius: 8px;">@currentProject.Files.Count</span>
+                            }
+                        </button>
+                    }
+                }
+
+                @{
+                    var activeSandboxCount = GramBox.ActiveSessions.Count;
+                    var runningSandbox = GramBox.ActiveSessions.FirstOrDefault(s => s.MajorState == SandboxMajorState.RunningCommand);
+                }
+                @if (activeSandboxCount > 0)
+                {
+                    <a href="/sandboxes"
+                       class="btn-subtle"
+                       style="display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-panel-subtle); color: var(--text-primary); font-size: 12px; font-weight: 500; text-decoration: none;"
+                       title="View all sandboxes in dedicated dashboard">
+                        <span>📦</span>
+                        @if (runningSandbox != null)
+                        {
+                            <span style="display: flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 600;">
+                                <span class="pulse-dot" style="width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite;"></span>
+                                <span>Running</span>
+                            </span>
+                        }
+                        else
+                        {
+                            <span>@activeSandboxCount @(activeSandboxCount == 1 ? "Sandbox" : "Sandboxes")</span>
+                        }
+                    </a>
+                }
             </div>
 
             <div class="chat-actions">
@@ -207,7 +258,7 @@
 
         <div class="@(TabService.IsSplitView || TabService.IsDraggingTab ? "split-workspace-container" : "chat-pane-single")" style="display: flex; flex: 1; min-height: 0; width: 100%; height: 100%; overflow: hidden;">
                 <div class="@(TabService.IsSplitView || TabService.IsDraggingTab ? "split-pane-half primary" : "")" style="position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; height: 100%; overflow: hidden; transition: flex 0.2s cubic-bezier(0.16, 1, 0.3, 1);">
-                    @if (TabService.ActiveTab?.Type == WorkspaceTabType.Presentation)
+                        @if (FeatureFlags.PresentationsEnabled && TabService.ActiveTab?.Type == WorkspaceTabType.Presentation)
                     {
                         <div class="presentation-deck-workspace-view">
                             <div class="deck-workspace-topbar">
@@ -352,7 +403,7 @@
                     <div class="messages-container @(voiceConversationActive ? "voice-conversation-hidden" : "")" id="messagesContainer">
                         <RunStatusPanel Run="currentRun" IsGenerating="isGenerating" Tracker="AgentRunTracker"
                                         ShowDetails="showRunDetails" ShowDetailsChanged="OnRunDetailsChanged" />
-                        @if (PresentationProgressVisible)
+                        @if (FeatureFlags.PresentationsEnabled && PresentationProgressVisible)
                         {
                             <div class="presentation-builder-card @(IsPresentationFailed ? "has-error" : "")" role="status" aria-live="polite">
                                 <div class="presentation-builder-header">
@@ -442,6 +493,9 @@
                      IsLoading="isLoadingChatHistory"
                      IsPresentationMode="IsPresentationConversation"
                      ExpandedErrors="expandedErrorIds" CopiedMessageId="copiedMessageId" SpeakingMessageId="speakingMessageId"
+                     ActiveChatId="@activeId"
+                     OnOpenDiff="HandleSandboxOpenDiff"
+                     OnMergeSandbox="HandleSandboxMerge"
                      EditMessage="EditUserPrompt" ToggleError="ToggleErrorDetails" CopyMessage="CopyResponseText"
                      ReadAloud="ToggleReadAloud" RetryMessage="RetryResponseAsync" />
         </div>
@@ -465,7 +519,7 @@
         }*@
 
         <div class="composer-wrapper @(pendingMentions.Count > 0 ? "has-context-mentions" : "")">
-            <AttachmentTray FileNames="attachedFiles" Attachments="Active.Attachments" Remove="RemoveFile" />
+            <AttachmentTray FileNames="attachedFiles" Attachments="Active.Attachments" Remove="RemoveFile" OnClick="OpenDocumentViewer" />
             @*
             @if (attachedFiles.Count > 0)
             {
@@ -740,6 +794,18 @@
                         </div>
                     }
 
+                    <!-- Compact on Archive Toggle -->
+                    <div class="sheet-toggle-row">
+                        <div class="sheet-toggle-text">
+                            <span class="sheet-toggle-title">Compact on Archive</span>
+                            <span class="sheet-toggle-desc">Compress and compact conversation history when archiving chats</span>
+                        </div>
+                        <input type="checkbox"
+                               class="sheet-checkbox"
+                               checked="@(SettingsService.GetSetting("compactOnArchive", "false") == "true")"
+                               @onchange='e => SettingsService.SetSetting("compactOnArchive", (e.Value is true or "True" or "true") ? "true" : "false")' />
+                    </div>
+
                     <!-- Audio Devices Configuration -->
                     <div class="sheet-field">
                         <label class="sheet-label">Microphone & Audio</label>
@@ -928,48 +994,127 @@
 </div>
 
 <ContextMenu IsOpen="@isContextMenuOpen" IsOpenChanged="v => isContextMenuOpen = v" X="@contextMenuX" Y="@contextMenuY">
-    <ContextMenuItem OnClick="() => RenameFromContextMenu(contextMenuTarget)">
-        <Icon>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-            </svg>
-        </Icon>
-        <ChildContent>Rename</ChildContent>
-    </ContextMenuItem>
+    @if (contextMenuSelectedIds.Count > 1)
+    {
+        <div style="padding: 6px 10px; font-size: 11px; font-weight: 600; color: var(--text-muted); border-bottom: 1px solid var(--border-color); margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+            <span>@contextMenuSelectedIds.Count chats selected</span>
+        </div>
 
-    <ContextMenuItem OnClick="() => DuplicateFromContextMenu(contextMenuTarget)">
-        <Icon>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-        </Icon>
-        <ChildContent>Duplicate</ChildContent>
-    </ContextMenuItem>
+        <ContextMenuItem OnClick="() => ArchiveSelectedFromContextMenu()">
+            <Icon>
+                <span>📦</span>
+            </Icon>
+            <ChildContent>Archive @contextMenuSelectedIds.Count chats</ChildContent>
+        </ContextMenuItem>
 
-    <ContextMenuItem OnClick="() => CopyIdFromContextMenu(contextMenuTarget)">
-        <Icon>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-        </Icon>
-        <ChildContent>Copy ID</ChildContent>
-    </ContextMenuItem>
+        <ContextMenuItem Variant="destructive" Shortcut="Del" OnClick="() => DeleteSelectedFromContextMenu()">
+            <Icon>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+            </Icon>
+            <ChildContent>Delete @contextMenuSelectedIds.Count chats</ChildContent>
+        </ContextMenuItem>
+    }
+    else
+    {
+        <ContextMenuItem OnClick="() => RenameFromContextMenu(contextMenuTarget)">
+            <Icon>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+            </Icon>
+            <ChildContent>Rename</ChildContent>
+        </ContextMenuItem>
 
-    <ContextMenuSeparator />
+        <ContextMenuItem OnClick="() => DuplicateFromContextMenu(contextMenuTarget)">
+            <Icon>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+            </Icon>
+            <ChildContent>Duplicate</ChildContent>
+        </ContextMenuItem>
 
-    <ContextMenuItem Variant="destructive" Shortcut="Del" Disabled="@(conversations.Count <= 1)" OnClick="() => DeleteFromContextMenu(contextMenuTarget)">
-        <Icon>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            </svg>
-        </Icon>
-        <ChildContent>Delete</ChildContent>
-    </ContextMenuItem>
+        <ContextMenuItem OnClick="() => CopyIdFromContextMenu(contextMenuTarget)">
+            <Icon>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+            </Icon>
+            <ChildContent>Copy ID</ChildContent>
+        </ContextMenuItem>
+
+        <ContextMenuItem OnClick="() => ArchiveFromContextMenu(contextMenuTarget)">
+            <Icon>
+                <span>📦</span>
+            </Icon>
+            <ChildContent>Archive</ChildContent>
+        </ContextMenuItem>
+
+        @if (ProjectService.Projects.Count > 0 && contextMenuTarget != null)
+        {
+            <ContextMenuSeparator />
+            @if (!string.IsNullOrEmpty(contextMenuTarget.ProjectId))
+            {
+                <ContextMenuItem OnClick="() => AssignChatToProject(contextMenuTarget, null)">
+                    <Icon>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </Icon>
+                    <ChildContent>Remove from Project</ChildContent>
+                </ContextMenuItem>
+            }
+            @foreach (var p in ProjectService.Projects)
+            {
+                if (contextMenuTarget.ProjectId != p.Id)
+                {
+                    <ContextMenuItem OnClick="() => AssignChatToProject(contextMenuTarget, p.Id)">
+                        <Icon>
+                            <div style="width: 8px; height: 8px; border-radius: 50%; background: @(!string.IsNullOrWhiteSpace(p.Color) ? p.Color : "#8b5cf6");"></div>
+                        </Icon>
+                        <ChildContent>Move to @p.Name</ChildContent>
+                    </ContextMenuItem>
+                }
+            }
+        }
+
+        <ContextMenuSeparator />
+
+        <ContextMenuItem Variant="destructive" Shortcut="Del" Disabled="@(conversations.Count <= 1)" OnClick="() => DeleteFromContextMenu(contextMenuTarget)">
+            <Icon>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+            </Icon>
+            <ChildContent>Delete</ChildContent>
+        </ContextMenuItem>
+    }
 </ContextMenu>
+
+<ProjectModal IsOpen="@isProjectModalOpen"
+              IsOpenChanged="v => isProjectModalOpen = v"
+              Project="@projectModalTarget"
+              OnProjectSaved="HandleProjectSaved"
+              OnProjectDeleted="HandleProjectDeleted" />
+
+<ArchivedChatsModal IsOpen="@isArchivedModalOpen"
+                    IsOpenChanged="v => isArchivedModalOpen = v"
+                    ArchivedConversations="@(conversations.Where(c => c.IsArchived).ToList())"
+                    OnUnarchiveChat="HandleUnarchiveChat"
+                    OnSelectChat="SelectConversation"
+                    OnDeleteChat="DeleteConversation" />
+
+<DocumentViewerModal @bind-IsOpen="isDocumentViewerOpen"
+                     ConversationId="@Active.Id"
+                     FileName="@selectedViewerFileName" />
 
 @code {
     private enum VoiceState { Idle, UserSpeaking, GramSpeaking }
@@ -1048,6 +1193,18 @@
     private double contextMenuX = 0;
     private double contextMenuY = 0;
     private Conversation? contextMenuTarget;
+    private List<string> contextMenuSelectedIds = new();
+    private bool isProjectModalOpen = false;
+    private Project? projectModalTarget;
+    private bool isArchivedModalOpen = false;
+    private bool isDocumentViewerOpen = false;
+    private string selectedViewerFileName = string.Empty;
+
+    private void OpenDocumentViewer(string fileName)
+    {
+        selectedViewerFileName = fileName;
+        isDocumentViewerOpen = true;
+    }
     private string? copiedMessageId;
     private string? speakingMessageId;
     private readonly HashSet<string> expandedErrorIds = new();
@@ -1058,11 +1215,11 @@
     private bool WebCodingEnabled => false;
     private bool IsProjectActive => WebCodingEnabled && (Active.IsProject || Active.Attachments.Any(a => !a.IsImage) || Active.Artifacts.Count > 0 || GramBox.ActiveSessions.Count > 0 || activeDiffs.Count > 0);
     private bool PresentationProgressVisible => activePresentationProject != null && !isPresentationCardDismissed;
-    private bool IsPresentationConversation => isPresentationSession
+    private bool IsPresentationConversation => FeatureFlags.PresentationsEnabled && (isPresentationSession
         || Active.Title.Contains("presentation", StringComparison.OrdinalIgnoreCase)
         || Active.Title.Contains("deck", StringComparison.OrdinalIgnoreCase)
         || Active.Messages.Any(message => message.Role.Equals("user", StringComparison.OrdinalIgnoreCase) && PresentationGenerationService.IsPresentationRequest(message.Text))
-        || Active.Artifacts.Any(artifact => artifact.FileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase));
+        || Active.Artifacts.Any(artifact => artifact.FileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase)));
     private int PresentationReadySections => activePresentationProject?.Sections.Count(section => section.Status == ContentSectionStatus.Ready) ?? 0;
     private int PresentationProgressPercent => activePresentationProject?.Sections.Count > 0
         ? Math.Clamp((int)Math.Round(PresentationReadySections * 100d / activePresentationProject.Sections.Count), 0, 100)
@@ -1134,17 +1291,7 @@
 
     private void SyncActivePresentationProject()
     {
-        var project = PresentationGeneration.GetProjects(Active.Id).FirstOrDefault();
-        if (project != null)
-        {
-            activePresentationProject = project;
-            isPresentationCardDismissed = false;
-            presentationStatusLabel = GetPresentationStatusLabel(project);
-        }
-        else
-        {
-            activePresentationProject = null;
-        }
+        activePresentationProject = null;
     }
 
     private (string Text, string CssClass, int? Percent) GetModelQuotaDisplay(GramModel model)
@@ -1395,7 +1542,6 @@
     {
         allMentions = new List<MentionItem>
         {
-            new("presentation", MentionKind.Presentation, "Presentation Deck", "Generate an interactive multi-slide presentation deck", "Actions", "presentation"),
             new("web-search", MentionKind.Web, "Search the web", "Force live search through the configured provider", "Actions", "web"),
             new("toolbox", MentionKind.Toolbox, "Gram Toolbox", "Enabled tools, skills, and MCP capabilities", "Actions", "toolbox")
         };
@@ -1617,7 +1763,6 @@
         GitGram.OnStateChanged += OnGitGramStateChanged;
         GitGram.SetActiveWorkspace(Environment.CurrentDirectory);
         GramBox.OnStatusChanged += OnGramBoxStatusChanged;
-        PresentationGeneration.ProjectUpdated += OnPresentationProjectUpdated;
         QuotaTracker.OnNotification += OnQuotaNotification;
         AuthService.OnAuthStateChanged += OnAuthChanged;
         autoSendVoice = SettingsService.GetSetting("autoSendVoice", "true") == "true";
@@ -1647,6 +1792,8 @@
     protected override async Task OnInitializedAsync()
     {
         await ConversationService.InitializeAsync();
+        await ProjectService.InitializeAsync();
+        ProjectService.OnChange += OnProjectServiceChanged;
         isLoadingConversations = false;
         if (conversations.Count > 0 && (activeId == "default" || !conversations.Any(c => c.Id == activeId)))
         {
@@ -1657,6 +1804,11 @@
         SyncActivePresentationProject();
         draft = "";
         StateHasChanged();
+    }
+
+    private void OnProjectServiceChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void HandleNewChatRequested()
@@ -2041,9 +2193,195 @@
     private void OnConversationContextMenu(ConversationRail.ConversationContextMenu context)
     {
         contextMenuTarget = context.Conversation;
+        contextMenuSelectedIds = context.SelectedIds?.ToList() ?? (context.Conversation != null ? [context.Conversation.Id] : []);
         contextMenuX = Math.Min(context.Event.ClientX, 230);
         contextMenuY = Math.Min(context.Event.ClientY, 560);
         isContextMenuOpen = true;
+    }
+
+    private async Task DeleteSelectedFromContextMenu()
+    {
+        isContextMenuOpen = false;
+        if (contextMenuSelectedIds.Count > 0)
+        {
+            var ids = contextMenuSelectedIds.ToList();
+            contextMenuSelectedIds.Clear();
+            await ExecuteBulkDeleteAsync(ids);
+        }
+    }
+
+    private void HandleCreateProject()
+    {
+        projectModalTarget = null;
+        isProjectModalOpen = true;
+    }
+
+    private void HandleEditProject(Project project)
+    {
+        projectModalTarget = project;
+        isProjectModalOpen = true;
+    }
+
+    private async Task HandleNewChatInProject(Project project)
+    {
+        var newId = Guid.NewGuid().ToString("N")[..8];
+        var conv = new Conversation(newId, "New chat", DateTimeOffset.UtcNow)
+        {
+            ProjectId = project.Id,
+            ModelId = activeModelId
+        };
+
+        conversations.Insert(0, conv);
+        activeId = newId;
+        ChatStateService.ActiveChatTitle = conv.Title;
+        await SaveConversationThroughApiAsync(conv);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleProjectSaved(Project project)
+    {
+        await ProjectService.LoadProjectsAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleProjectDeleted(string projectId)
+    {
+        foreach (var conv in conversations.Where(c => c.ProjectId == projectId))
+        {
+            conv.ProjectId = null;
+            await SaveConversationThroughApiAsync(conv);
+        }
+        await ProjectService.LoadProjectsAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task AssignChatToProject(Conversation? chat, string? projectId)
+    {
+        isContextMenuOpen = false;
+        if (chat == null) return;
+
+        chat.ProjectId = projectId;
+        await SaveConversationThroughApiAsync(chat);
+
+        if (!string.IsNullOrEmpty(projectId))
+        {
+            var targetProject = ProjectService.GetProject(projectId);
+            SonnerService.Success("Moved to project", $"Chat moved to '{targetProject?.Name ?? "Project"}'.");
+        }
+        else
+        {
+            SonnerService.Info("Removed from project", "Chat moved to General Chats.");
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ArchiveFromContextMenu(Conversation? chat)
+    {
+        isContextMenuOpen = false;
+        if (chat == null) return;
+
+        var compactEnabled = SettingsService.GetSetting("compactOnArchive", "false") == "true";
+        if (compactEnabled)
+        {
+            await ContextBuilder.CompactForArchiveAsync(chat);
+        }
+
+        chat.IsArchived = true;
+        await SaveConversationThroughApiAsync(chat);
+
+        if (chat.Id == activeId)
+        {
+            var nextActive = conversations.FirstOrDefault(c => !c.IsArchived && c.Id != chat.Id);
+            if (nextActive != null)
+            {
+                await SelectConversation(nextActive.Id);
+            }
+            else
+            {
+                NewConversation();
+            }
+        }
+
+        SonnerService.Success("Chat archived", compactEnabled ? $"'{chat.Title}' archived and memory compacted." : $"'{chat.Title}' moved to archive.");
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ArchiveSelectedFromContextMenu()
+    {
+        isContextMenuOpen = false;
+        if (contextMenuSelectedIds.Count == 0) return;
+
+        var idsToArchive = contextMenuSelectedIds.ToList();
+        contextMenuSelectedIds.Clear();
+        var compactEnabled = SettingsService.GetSetting("compactOnArchive", "false") == "true";
+
+        var wasActiveArchived = false;
+        foreach (var id in idsToArchive)
+        {
+            var chat = conversations.FirstOrDefault(c => c.Id == id);
+            if (chat != null)
+            {
+                if (compactEnabled)
+                {
+                    await ContextBuilder.CompactForArchiveAsync(chat);
+                }
+                chat.IsArchived = true;
+                await SaveConversationThroughApiAsync(chat);
+                if (chat.Id == activeId) wasActiveArchived = true;
+            }
+        }
+
+        if (wasActiveArchived)
+        {
+            var nextActive = conversations.FirstOrDefault(c => !c.IsArchived);
+            if (nextActive != null)
+            {
+                await SelectConversation(nextActive.Id);
+            }
+            else
+            {
+                NewConversation();
+            }
+        }
+
+        SonnerService.Success("Chats archived", $"Archived {idsToArchive.Count} chats.");
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleUnarchiveChat(Conversation chat)
+    {
+        chat.IsArchived = false;
+        await SaveConversationThroughApiAsync(chat);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleSandboxOpenDiff(string sandboxId)
+    {
+        var session = GramBox.GetSandbox(sandboxId);
+        if (session != null)
+        {
+            GramBox.SelectActiveSession(sandboxId);
+            OpenSidecar(SidecarTab.Sandboxes);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task HandleSandboxMerge(string sandboxId)
+    {
+        var session = GramBox.GetSandbox(sandboxId);
+        if (session != null)
+        {
+            var ok = await GramBox.CommitChangesAsync($"feat: merge sandbox {session.Id} changes", sandboxId);
+            if (ok)
+            {
+                SonnerService.Success("Merged Sandbox", $"Sandbox '{session.Name}' merged successfully.");
+            }
+            else
+            {
+                SonnerService.Error("Merge Failed", "Could not commit or merge sandbox changes.");
+            }
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private Task OnRunDetailsChanged(bool expanded)
@@ -2114,6 +2452,14 @@
         isAttachMenuOpen = false;
     }
 
+    private sealed class CompressedImageResult
+    {
+        public string? Base64 { get; set; }
+        public string? ContentType { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+    }
+
     private async Task HandleImageSelected(InputFileChangeEventArgs e)
     {
         isAttachMenuOpen = false;
@@ -2122,17 +2468,50 @@
             try
             {
                 var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "image/png" : file.ContentType;
-                using var stream = file.OpenReadStream(25 * 1024 * 1024);
-                var attInfo = await SessionStorage.SaveAttachmentAsync(Active.Id, file.Name, stream, contentType);
-                if (!Active.Attachments.Any(a => a.FileName == attInfo.FileName))
+                var fileName = file.Name;
+                Stream uploadStream;
+
+                try
                 {
-                    Active.Attachments.Add(attInfo);
+                    using var readStream = file.OpenReadStream(25 * 1024 * 1024);
+                    using var ms = new MemoryStream();
+                    await readStream.CopyToAsync(ms);
+                    var base64 = Convert.ToBase64String(ms.ToArray());
+
+                    var compressed = await JSRuntime.InvokeAsync<CompressedImageResult>("gramMedia.compressImage", base64, contentType, 1920, 0.82);
+                    if (compressed != null && !string.IsNullOrEmpty(compressed.Base64))
+                    {
+                        var compressedBytes = Convert.FromBase64String(compressed.Base64);
+                        uploadStream = new MemoryStream(compressedBytes);
+                        contentType = compressed.ContentType ?? "image/webp";
+                        if (!fileName.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
+                        {
+                            fileName = Path.GetFileNameWithoutExtension(fileName) + ".webp";
+                        }
+                    }
+                    else
+                    {
+                        uploadStream = new MemoryStream(ms.ToArray());
+                    }
                 }
-                if (!attachedFiles.Contains(attInfo.FileName))
+                catch
                 {
-                    attachedFiles.Add(attInfo.FileName);
+                    uploadStream = file.OpenReadStream(25 * 1024 * 1024);
                 }
-                SonnerService.Success("Image attached", $"{file.Name} ready for visual analysis");
+
+                using (uploadStream)
+                {
+                    var attInfo = await SessionStorage.SaveAttachmentAsync(Active.Id, fileName, uploadStream, contentType);
+                    if (!Active.Attachments.Any(a => a.FileName == attInfo.FileName))
+                    {
+                        Active.Attachments.Add(attInfo);
+                    }
+                    if (!attachedFiles.Contains(attInfo.FileName))
+                    {
+                        attachedFiles.Add(attInfo.FileName);
+                    }
+                    SonnerService.Success("Image attached", $"{fileName} ready for visual analysis");
+                }
             }
             catch (Exception ex)
             {
@@ -2419,6 +2798,41 @@
     }
 
     [JSInvokable]
+    public async Task OnTranscriptFinalized(string transcript)
+    {
+        if (string.IsNullOrWhiteSpace(transcript)) return;
+
+        draft = transcript.Trim();
+        voiceLiveTranscript = draft;
+        await InvokeAsync(StateHasChanged);
+
+        if (autoSendVoice && voiceState == VoiceState.UserSpeaking && !autoSendingVoice && !isGenerating)
+        {
+            autoSendingVoice = true;
+            try
+            {
+                await Send();
+            }
+            finally
+            {
+                autoSendingVoice = false;
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnUserBargedIn()
+    {
+        if (voiceState == VoiceState.GramSpeaking)
+        {
+            chatCts?.Cancel();
+            voiceState = VoiceState.UserSpeaking;
+            await JSRuntime.InvokeVoidAsync("gramAudio.stopSpeech");
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
     public async Task OnAssemblyAiTranscriptReceived(string transcript, bool isFinal)
     {
         if (string.IsNullOrWhiteSpace(transcript)) return;
@@ -2652,14 +3066,10 @@
             TabService.UpdateChatTabTitle(Active.Id, initialTitle);
         }
 
-        var assistantMessage = await GenerateAssistantResponseAsync(userMessageText, isFirstMessage);
-        if (isVoiceTurn && voiceConversationActive)
-        {
-            await SpeakVoiceResponseAsync(assistantMessage);
-        }
+        var assistantMessage = await GenerateAssistantResponseAsync(userMessageText, isFirstMessage, isVoiceTurn);
     }
 
-    private async Task<Message> GenerateAssistantResponseAsync(string promptText, bool isFirstMessage = false)
+    private async Task<Message> GenerateAssistantResponseAsync(string promptText, bool isFirstMessage = false, bool isVoiceTurn = false)
     {
         var assistantMsg = new Message("assistant", "");
         Active.Messages.Add(assistantMsg);
@@ -2687,9 +3097,9 @@
         var currentUserMessage = Active.Messages.LastOrDefault(message => message.Role == "user");
         var isPresentationMode = PresentationGenerationService.IsPresentationRequest(promptText, currentUserMessage?.Mentions);
 
-        if (isPresentationMode && !effectiveModelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase))
+        if (isPresentationMode && !effectiveModelId.Equals("gram-q-plus-plus", StringComparison.OrdinalIgnoreCase))
         {
-            effectiveModelId = "gram-q-plus";
+            effectiveModelId = "gram-q-plus-plus";
             SonnerService.Info("Presentation mode", "Presentation generation is routed through Gram Q+ for reliability.");
         }
 
@@ -2730,6 +3140,18 @@
                 return Task.CompletedTask;
             });
 
+        // Real-Time Pipelined Streaming Speech
+        var isVoiceStreaming = isVoiceTurn && voiceConversationActive;
+        var voiceSpeechGenId = isVoiceStreaming ? Guid.NewGuid().ToString() : null;
+        var voiceSentenceBuffer = new System.Text.StringBuilder();
+
+        if (isVoiceStreaming && voiceSpeechGenId != null)
+        {
+            voiceState = VoiceState.GramSpeaking;
+            StateHasChanged();
+            _ = JSRuntime.InvokeVoidAsync("gramAudio.startStreamingSpeech", voiceSpeechGenId);
+        }
+
         try
         {
             assistantMsg.ToolCalls = new List<ToolCallInfo>();
@@ -2749,6 +3171,34 @@
                     if (!string.IsNullOrEmpty(update.ContentDelta))
                     {
                         streamBuffer.Enqueue(update.ContentDelta);
+
+                        // Pipelined chunk tokenizer for sub-600ms voice responsiveness
+                        if (isVoiceStreaming && voiceSpeechGenId != null)
+                        {
+                            voiceSentenceBuffer.Append(update.ContentDelta);
+                            var buf = voiceSentenceBuffer.ToString();
+                            int splitIdx = -1;
+                            for (int i = 0; i < buf.Length - 1; i++)
+                            {
+                                char c = buf[i];
+                                char next = buf[i + 1];
+                                if ((c == '.' || c == '!' || c == '?' || c == '\n') && (char.IsWhiteSpace(next) || c == '\n'))
+                                {
+                                    splitIdx = i + 1;
+                                    break;
+                                }
+                            }
+
+                            if (splitIdx > 0)
+                            {
+                                var sentence = buf.Substring(0, splitIdx).Trim();
+                                voiceSentenceBuffer.Remove(0, splitIdx);
+                                if (!string.IsNullOrWhiteSpace(sentence))
+                                {
+                                    _ = JSRuntime.InvokeVoidAsync("gramAudio.enqueueSpeechChunk", sentence, false, voiceSpeechGenId, dotNetHelper, 1.05, 1.0, TextToSpeechProvider.IsConfigured);
+                                }
+                            }
+                        }
                     }
                     if (!string.IsNullOrWhiteSpace(update.ErrorMessage)) assistantMsg.ErrorDetail = update.ErrorMessage;
                     if (update.ToolCall is not null)
@@ -2762,6 +3212,15 @@
                 }, token);
 
             await streamBuffer.FlushAndCompleteAsync();
+
+            // Flush final spoken sentence
+            if (isVoiceStreaming && voiceSpeechGenId != null)
+            {
+                var remaining = voiceSentenceBuffer.ToString().Trim();
+                voiceSentenceBuffer.Clear();
+                _ = JSRuntime.InvokeVoidAsync("gramAudio.enqueueSpeechChunk", remaining, true, voiceSpeechGenId, dotNetHelper, 1.05, 1.0, TextToSpeechProvider.IsConfigured);
+            }
+
             if (result.Run is not null) currentRun = AgentRunTracker.Get(result.Run.Id);
             if (!string.IsNullOrWhiteSpace(result.ErrorMessage) && !result.Cancelled) assistantMsg.ErrorDetail = result.ErrorMessage;
             if (result.Cancelled && string.IsNullOrWhiteSpace(assistantMsg.Text) && assistantMsg.ToolCalls.Count == 0)
@@ -2770,6 +3229,7 @@
         catch (OperationCanceledException)
         {
             streamBuffer.Cancel();
+            if (isVoiceStreaming) _ = JSRuntime.InvokeVoidAsync("gramAudio.stopSpeech");
             if (currentRun != null) await BackendRunApi.CancelAsync(currentRun.Id, "Generation cancelled.");
             if (string.IsNullOrWhiteSpace(assistantMsg.Text) && (assistantMsg.ToolCalls == null || assistantMsg.ToolCalls.Count == 0))
             {
@@ -3033,13 +3493,13 @@
         try
         {
             ConversationService.OnChange -= OnConversationsChanged;
+            ProjectService.OnChange -= OnProjectServiceChanged;
             ChatStateService.OnTitleRenamed -= OnExternalTitleRenamed;
             ChatStateService.OnNewChatRequested -= HandleNewChatRequested;
             TabService.OnTabsChanged -= OnTabsUpdated;
             TabService.OnDragStateChanged -= OnTabsUpdated;
             GitGram.OnStateChanged -= OnGitGramStateChanged;
             GramBox.OnStatusChanged -= OnGramBoxStatusChanged;
-            PresentationGeneration.ProjectUpdated -= OnPresentationProjectUpdated;
             QuotaTracker.OnNotification -= OnQuotaNotification;
             AuthService.OnAuthStateChanged -= OnAuthChanged;
             await StopVoice();

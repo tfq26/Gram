@@ -10,6 +10,19 @@ public enum GramBoxEngineType
     OciContainer
 }
 
+public enum SandboxMajorState
+{
+    Created,
+    Preparing,
+    Ready,
+    RunningCommand,
+    Merging,
+    Merged,
+    Conflict,
+    Error,
+    Disposed
+}
+
 public enum SandboxStatus
 {
     Idle,
@@ -43,19 +56,32 @@ public sealed class GramBoxSandboxSession
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
+    public string? TaskDescription { get; set; }
+    public string OriginatingChatId { get; set; } = "";
+    public HashSet<string> SubscribingChatIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string BranchName { get; set; } = "";
+    public string TargetBranch { get; set; } = "main";
     public string WorktreePath { get; set; } = "";
     public string BaseRepoPath { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastActiveAt { get; set; } = DateTime.UtcNow;
+    public DateTime? CompletedAt { get; set; }
     public SandboxStatus Status { get; set; } = SandboxStatus.Idle;
+    public SandboxMajorState MajorState { get; set; } = SandboxMajorState.Created;
+    public string? StateDetail { get; set; }
     public string? CurrentCommand { get; set; }
     public GramBoxEngineType DriverType { get; set; } = GramBoxEngineType.NativeWorktree;
     public long DiskUsageBytes { get; set; }
     public string? LastError { get; set; }
     public string? LeaseId { get; set; }
     public string? RunId { get; set; }
+    public List<string> ModifiedFiles { get; set; } = [];
+    public int Insertions { get; set; }
+    public int Deletions { get; set; }
+    public List<SandboxCheckpoint> Checkpoints { get; set; } = [];
     public SandboxResourceBudget? ResourceBudget { get; set; }
+    public long PeakWorkingSetBytes { get; set; }
+    public long CpuTimeMs { get; set; }
     public SandboxNetworkMode NetworkMode { get; set; } = SandboxNetworkMode.Disabled;
     public List<string> AllowedNetworkHosts { get; set; } = [];
 }

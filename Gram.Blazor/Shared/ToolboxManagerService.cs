@@ -233,6 +233,26 @@ public sealed class ToolboxManagerService
         SaveState();
     }
 
+    public void UpdateSkill(AgentSkillDefinition updated)
+    {
+        var idx = Skills.FindIndex(s => s.Id == updated.Id);
+        if (idx >= 0)
+        {
+            Skills[idx] = updated;
+            SaveState();
+        }
+    }
+
+    public void ToggleSkill(string skillId)
+    {
+        var skill = Skills.FirstOrDefault(s => s.Id == skillId);
+        if (skill != null)
+        {
+            skill.IsActive = !skill.IsActive;
+            SaveState();
+        }
+    }
+
     public void RemoveSkill(string skillId)
     {
         Skills.RemoveAll(s => s.Id == skillId);

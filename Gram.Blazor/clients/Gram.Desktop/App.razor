@@ -1,0 +1,263 @@
+@namespace Gram.Desktop
+@using Gram.Desktop.Components
+@using Gram.Desktop.Components.Platform
+@using Gram.Desktop.Services
+@using Gram.Blazor.Shared
+@inject IPlatformService Platform
+@inject DesktopSession Session
+@inject HttpClient HttpClient
+@inject WorkspaceTabService TabService
+@inject ThemeService ThemeService
+@inject DesktopLayoutService LayoutService
+@implements IDisposable
+
+<div class="app-shell @Platform.PlatformCssClass" data-theme="@ThemeService.ActiveThemeName.ToLowerInvariant().Replace(" ", "-")" style="@ThemeService.GetInlineCssVariables()">
+    <!-- 1. Menubar Region -->
+    <Menubar Models="Session.Models"
+             SelectedModelId="@SelectedModelId"
+             SelectedModelIdChanged="HandleModelSelected"
+             IsLoading="Session.IsLoading"
+             IsStreaming="Session.IsStreaming"
+             IsConnected="@IsBackendConnected"
+             BackendUrl="@BackendUrl"
+             IsSidebarOpen="@isSidebarOpen"
+             IsInfosheetOpen="@isInfosheetOpen"
+             IsSettingsOpen="@isSettingsOpen"
+             OnToggleSidebar="ToggleSidebar"
+             OnToggleInfosheet="ToggleInfosheet"
+             OnOpenSettings="() => isSettingsOpen = !isSettingsOpen" />
+
+    @if (isSettingsOpen)
+    {
+        <!-- Full-Screen Settings View -->
+        <SettingsView BackendUrl="@BackendUrl"
+                      OnClose="() => isSettingsOpen = false" />
+    }
+    else
+    {
+        <!-- Main Workspace Panes -->
+        <div class="workspace-panes @(isSidebarOpen ? "left-open" : "left-closed") @(isInfosheetOpen ? "right-open" : "right-closed")">
+            <!-- 2. Sidebar Region (Left Pane) -->
+            <Sidebar Conversations="Session.Conversations"
+                     ActiveConversationId="@Session.ActiveConversation?.Id"
+                     IsOpen="@isSidebarOpen"
+                     IsLoading="Session.IsLoading"
+                     IsStreaming="Session.IsStreaming"
+                     OnToggle="ToggleSidebar"
+                     OnSelectConversation="HandleSelectConversation"
+                     OnNewConversation="HandleNewConversation"
+                     OnAddReference="HandleAddReference" />
+
+            <!-- 3. Canvas Region (Center Pane) -->
+            <Canvas @ref="canvasRef"
+                    Conversation="Session.ActiveConversation"
+                    Conversations="Session.Conversations"
+                    DraftResponse="@Session.DraftResponse"
+                    IsStreaming="Session.IsStreaming"
+                    IsLoading="Session.IsLoading"
+                    IsSidebarOpen="@isSidebarOpen"
+                    IsInfosheetOpen="@isInfosheetOpen"
+                    ErrorMessage="@Session.Error"
+                    Models="Session.Models"
+                    SelectedModelId="@SelectedModelId"
+                    SelectedModelIdChanged="HandleModelSelected"
+                    OnToggleSidebar="ToggleSidebar"
+                    OnToggleInfosheet="ToggleInfosheet"
+                    OnSelectConversation="HandleSelectConversation"
+                    OnSendMessage="HandleSendMessage"
+                    OnCancel="HandleCancel"
+                    OnNewConversation="HandleNewConversation" />
+
+            <!-- 4. Infosheet Region (Right Pane) -->
+            <Infosheet CurrentModel="CurrentSelectedModel"
+                       ActiveRun="Session.ActiveRun"
+                       RelevantMemories="Session.RelevantMemories"
+                       MemoryCandidates="Session.MemoryCandidates"
+                       OnConfirmMemory="Session.ConfirmMemoryAsync"
+                       OnRejectMemory="Session.RejectMemoryAsync"
+                       OnForgetMemory="Session.ForgetMemoryAsync"
+                       Conversation="Session.ActiveConversation"
+                       DraftResponse="@Session.DraftResponse"
+                       IsOpen="@isInfosheetOpen"
+                       IsStreaming="Session.IsStreaming"
+                       Error="@Session.Error"
+                       OnClose="() => { isInfosheetOpen = false; LayoutService.SavePanes(isSidebarOpen, isInfosheetOpen); }" />
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string BackendUrl { get; set; } = "http://localhost:7337";
+
+    private string? SelectedModelId { get; set; }
+    private bool isSidebarOpen { get; set; } = true;
+    private bool isInfosheetOpen { get; set; } = true;
+    private bool isSettingsOpen { get; set; } = false;
+    private Canvas? canvasRef;
+
+    private bool IsBackendConnected => Session.Models != null && Session.Models.Count > 0 && string.IsNullOrWhiteSpace(Session.Error);
+
+    private ModelSummary? CurrentSelectedModel => Session.Models?.FirstOrDefault(m => m.Id == SelectedModelId)
+                                                  ?? Session.Models?.FirstOrDefault(m => m.IsEnabled);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 1. Immediately apply saved layout panes from local disk on initial render
+        var layout = LayoutService.GetLayout();
+        isSidebarOpen = layout.IsSidebarOpen;
+        isInfosheetOpen = layout.IsInfosheetOpen;
+        SelectedModelId = layout.SelectedModelId;
+
+        Session.StateChanged += OnSessionStateChanged;
+        Session.RunEventReceived += OnRunEventReceived;
+        TabService.OnTabsChanged += OnTabsChanged;
+        ThemeService.OnChange += OnThemeChanged;
+
+        // 2. Load backend models and conversation catalog asynchronously
+        await Session.LoadAsync();
+
+        if (Session.Models.Count > 0 && (string.IsNullOrWhiteSpace(SelectedModelId) || !Session.Models.Any(m => m.Id == SelectedModelId)))
+        {
+            SelectedModelId = Session.Models.FirstOrDefault(m => m.IsEnabled)?.Id ?? Session.Models[0].Id;
+            LayoutService.SaveSelectedModel(SelectedModelId);
+        }
+
+        // 3. Synchronize open tab titles with latest titles from backend conversations
+        foreach (var tab in TabService.OpenTabs.Where(t => t.Type == WorkspaceTabType.Chat && !string.IsNullOrWhiteSpace(t.ChatId) && t.ChatId != "default"))
+        {
+            var match = Session.Conversations.FirstOrDefault(c => c.Id == tab.ChatId);
+            if (match != null && match.Title != tab.Title)
+            {
+                TabService.UpdateChatTabTitle(tab.ChatId!, match.Title);
+            }
+        }
+
+        // 4. Asynchronously restore active tab chat safely, ensuring latest saved version
+        var activeTab = TabService.ActiveTab;
+        if (activeTab?.Type == WorkspaceTabType.Chat &&
+            !string.IsNullOrWhiteSpace(activeTab.ChatId) &&
+            activeTab.ChatId != "default")
+        {
+            if (Session.Conversations.Any(c => c.Id == activeTab.ChatId))
+            {
+                await Session.SelectConversationAsync(activeTab.ChatId);
+            }
+            else if (Session.Conversations.Count > 0)
+            {
+                // Fallback to first available chat if previously open chat was deleted
+                var first = Session.Conversations[0];
+                await Session.SelectConversationAsync(first.Id);
+                TabService.OpenChatTab(first.Id, first.Title);
+            }
+        }
+        else if (activeTab?.Type == WorkspaceTabType.Chat && activeTab.ChatId == "default")
+        {
+            // Keep default New chat tab active
+        }
+        else if (Session.Conversations.Count > 0 && Session.ActiveConversation == null && TabService.OpenTabs.Count == 0)
+        {
+            var first = Session.Conversations[0];
+            await Session.SelectConversationAsync(first.Id);
+            TabService.OpenChatTab(first.Id, first.Title);
+        }
+    }
+
+    private void OnSessionStateChanged()
+    {
+        if (Session.ActiveConversation != null)
+        {
+            TabService.UpdateChatTabTitle(Session.ActiveConversation.Id, Session.ActiveConversation.Title);
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnTabsChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            var activeTab = TabService.ActiveTab;
+            if (activeTab?.Type == WorkspaceTabType.Chat &&
+                !string.IsNullOrWhiteSpace(activeTab.ChatId) &&
+                activeTab.ChatId != "default" &&
+                activeTab.ChatId != Session.ActiveConversation?.Id)
+            {
+                await Session.SelectConversationAsync(activeTab.ChatId);
+            }
+            StateHasChanged();
+        });
+    }
+
+    private void OnRunEventReceived(RunEvent evt)
+    {
+    }
+
+    private async Task HandleSelectConversation(string convId)
+    {
+        await Session.SelectConversationAsync(convId);
+        if (Session.ActiveConversation != null)
+        {
+            TabService.OpenChatTab(Session.ActiveConversation.Id, Session.ActiveConversation.Title);
+        }
+        else
+        {
+            var convo = Session.Conversations.FirstOrDefault(c => c.Id == convId);
+            TabService.OpenChatTab(convId, convo?.Title ?? "Chat");
+        }
+    }
+
+    private async Task HandleNewConversation()
+    {
+        await Session.CreateConversationAsync(SelectedModelId);
+        if (Session.ActiveConversation != null)
+        {
+            TabService.OpenChatTab(Session.ActiveConversation.Id, Session.ActiveConversation.Title);
+        }
+    }
+
+    private void ToggleSidebar()
+    {
+        isSidebarOpen = !isSidebarOpen;
+        LayoutService.SavePanes(isSidebarOpen, isInfosheetOpen);
+    }
+
+    private void ToggleInfosheet()
+    {
+        isInfosheetOpen = !isInfosheetOpen;
+        LayoutService.SavePanes(isSidebarOpen, isInfosheetOpen);
+    }
+
+    private void HandleModelSelected(string modelId)
+    {
+        SelectedModelId = modelId;
+        LayoutService.SaveSelectedModel(modelId);
+        StateHasChanged();
+    }
+
+    private async Task HandleSendMessage(string text)
+    {
+        await Session.SendAsync(text, SelectedModelId);
+    }
+
+    private async Task HandleCancel()
+    {
+        await Session.CancelAsync();
+    }
+
+    private void HandleAddReference(ConversationSummary chat)
+    {
+        canvasRef?.AddReferencedChat(chat);
+    }
+
+    private void OnThemeChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Session.StateChanged -= OnSessionStateChanged;
+        Session.RunEventReceived -= OnRunEventReceived;
+        TabService.OnTabsChanged -= OnTabsChanged;
+        ThemeService.OnChange -= OnThemeChanged;
+    }
+}

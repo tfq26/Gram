@@ -1,0 +1,264 @@
+@namespace Gram.Desktop.Components.Platform
+@using Gram.Desktop.Services
+@inject IPlatformService Platform
+
+<button type="@Type"
+        class="platform-btn @Platform.PlatformCssClass @GetVariantClass() @CustomClass @(IsDisabled ? "disabled" : "") @(IsActive ? "active" : "")"
+        disabled="@IsDisabled"
+        @onclick="HandleClick"
+        @onkeydown="HandleKeyDown"
+        title="@ComputedTitle"
+        aria-label="@(AriaLabel ?? Title)">
+    @if (Icon != null)
+    {
+        <span class="platform-btn-icon" aria-hidden="true">@Icon</span>
+    }
+    @if (ChildContent != null)
+    {
+        <span class="platform-btn-content">@ChildContent</span>
+    }
+    @if (!string.IsNullOrWhiteSpace(ShortcutKey))
+    {
+        <kbd class="platform-btn-shortcut" aria-hidden="true">@ComputedShortcut</kbd>
+    }
+</button>
+
+<style>
+/* ========================================================================= */
+/* BASE STYLES                                                              */
+/* ========================================================================= */
+.platform-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.12s ease;
+    border: 1px solid transparent;
+    outline: none;
+    line-height: 1;
+    white-space: nowrap;
+}
+.platform-btn.disabled, .platform-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+.platform-btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.platform-btn-shortcut {
+    font-size: 10px;
+    font-family: inherit;
+    opacity: 0.65;
+    margin-left: 2px;
+}
+
+/* ========================================================================= */
+/* 1. MACOS NATIVE BUTTON STYLING (SF Pro, Gloss, Rounded, System Vibrancy)   */
+/* ========================================================================= */
+.platform-btn.os-macos {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", sans-serif;
+    font-size: 12.5px;
+    padding: 5px 12px;
+    border-radius: 6px;
+    letter-spacing: -0.01em;
+}
+.platform-btn.os-macos:active:not(:disabled) {
+    transform: scale(0.975);
+}
+.platform-btn.os-macos:focus-visible {
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.4);
+}
+
+/* macOS Primary: Cupertino Blue with gentle top gloss */
+.platform-btn.os-macos.variant-primary {
+    background: linear-gradient(180deg, #007aff 0%, #0062cc 100%);
+    color: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.platform-btn.os-macos.variant-primary:hover:not(:disabled) {
+    background: linear-gradient(180deg, #1a87ff 0%, #006fe6 100%);
+}
+
+/* macOS Secondary: Frosted Acrylic Glass */
+.platform-btn.os-macos.variant-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e5e5ea;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    backdrop-filter: blur(12px);
+}
+.platform-btn.os-macos.variant-secondary:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* macOS Ghost: Seamless hover */
+.platform-btn.os-macos.variant-ghost {
+    background: transparent;
+    color: #aeaeb2;
+    border-color: transparent;
+}
+.platform-btn.os-macos.variant-ghost:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f2f2f7;
+}
+
+/* macOS Danger */
+.platform-btn.os-macos.variant-danger {
+    background: rgba(255, 69, 58, 0.15);
+    color: #ff453a;
+    border: 1px solid rgba(255, 69, 58, 0.3);
+}
+.platform-btn.os-macos.variant-danger:hover:not(:disabled) {
+    background: rgba(255, 69, 58, 0.25);
+}
+
+/* ========================================================================= */
+/* 2. WINDOWS FLUENT BUTTON STYLING (Segoe UI, Crisp Borders, Fluent Accent)  */
+/* ========================================================================= */
+.platform-btn.os-windows {
+    font-family: "Segoe UI Variable Text", "Segoe UI", Tahoma, sans-serif;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+.platform-btn.os-windows:active:not(:disabled) {
+    transform: translateY(1px);
+}
+.platform-btn.os-windows:focus-visible {
+    border-color: #60cdff;
+    outline: 2px solid #000000;
+}
+
+.platform-btn.os-windows.variant-primary {
+    background: #0078d4;
+    color: #ffffff;
+    border-bottom: 2px solid #005a9e;
+}
+.platform-btn.os-windows.variant-primary:hover:not(:disabled) {
+    background: #106ebe;
+}
+
+.platform-btn.os-windows.variant-secondary {
+    background: #2b2b2b;
+    color: #ffffff;
+    border: 1px solid #3c3c3c;
+}
+.platform-btn.os-windows.variant-secondary:hover:not(:disabled) {
+    background: #323232;
+    border-color: #4a4a4a;
+}
+
+.platform-btn.os-windows.variant-ghost {
+    background: transparent;
+    color: #cccccc;
+}
+.platform-btn.os-windows.variant-ghost:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.06);
+    color: #ffffff;
+}
+
+.platform-btn.os-windows.variant-danger {
+    background: #c42b1c;
+    color: #ffffff;
+}
+
+/* ========================================================================= */
+/* 3. LINUX ADWAITA BUTTON STYLING (Clean GNOME Dark Flat)                   */
+/* ========================================================================= */
+.platform-btn.os-linux {
+    font-family: "Ubuntu", "Cantarell", "DejaVu Sans", sans-serif;
+    font-size: 13px;
+    padding: 6px 13px;
+    border-radius: 5px;
+}
+.platform-btn.os-linux.variant-primary {
+    background: #3584e4;
+    color: #ffffff;
+}
+.platform-btn.os-linux.variant-secondary {
+    background: #303030;
+    color: #eeeeee;
+    border: 1px solid #444444;
+}
+.platform-btn.os-linux.variant-ghost {
+    background: transparent;
+    color: #cccccc;
+}
+</style>
+
+@code {
+    public enum ButtonVariant
+    {
+        Primary,
+        Secondary,
+        Ghost,
+        Danger
+    }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Icon { get; set; }
+    [Parameter] public ButtonVariant Variant { get; set; } = ButtonVariant.Secondary;
+    [Parameter] public string Type { get; set; } = "button";
+    [Parameter] public bool IsDisabled { get; set; } = false;
+    [Parameter] public bool IsActive { get; set; } = false;
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public string? ShortcutKey { get; set; }
+    [Parameter] public string CustomClass { get; set; } = "";
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+
+    private string ComputedShortcut => !string.IsNullOrWhiteSpace(ShortcutKey)
+        ? $"{Platform.ModifierKeyLabel}+{ShortcutKey}"
+        : "";
+
+    private string ComputedTitle => !string.IsNullOrWhiteSpace(Title)
+        ? (!string.IsNullOrWhiteSpace(ComputedShortcut) ? $"{Title} ({ComputedShortcut})" : Title)
+        : "";
+
+    private string GetVariantClass() => Variant switch
+    {
+        ButtonVariant.Primary => "variant-primary",
+        ButtonVariant.Secondary => "variant-secondary",
+        ButtonVariant.Ghost => "variant-ghost",
+        ButtonVariant.Danger => "variant-danger",
+        _ => "variant-secondary"
+    };
+
+    private async Task HandleClick(MouseEventArgs e)
+    {
+        if (IsDisabled) return;
+
+        // Platform-specific action hooks:
+        // On macOS: Optional haptic feedback or sound
+        if (Platform.IsMacOS)
+        {
+            // Execute Mac-specific behavior if needed
+        }
+        else if (Platform.IsWindows)
+        {
+            // Execute Windows-specific behavior if needed
+        }
+
+        await OnClick.InvokeAsync(e);
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (IsDisabled) return;
+
+        // Space or Enter activates
+        if (e.Key is "Enter" or " ")
+        {
+            await OnClick.InvokeAsync(new MouseEventArgs());
+        }
+    }
+}

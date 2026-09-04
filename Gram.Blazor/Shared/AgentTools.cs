@@ -57,6 +57,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
     private readonly PresentationGenerationService? _presentationService;
     private readonly ITaskAndMemoryService? _taskAndMemoryService;
     private readonly HttpClient _httpClient;
+    private readonly ICapabilityIntentRouter? _capabilityRouter;
 
     public AgentToolRegistry(
         GitService gitService, 
@@ -68,7 +69,8 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         ISubagentEngine? subagentEngine = null,
         PresentationGenerationService? presentationService = null,
         ITaskAndMemoryService? taskAndMemoryService = null,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        ICapabilityIntentRouter? capabilityRouter = null)
     {
         _gitService = gitService;
         _securityService = securityService;
@@ -80,6 +82,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         _subagentEngine = subagentEngine;
         _taskAndMemoryService = taskAndMemoryService;
         _httpClient = httpClient ?? new HttpClient();
+        _capabilityRouter = capabilityRouter;
     }
 
     public List<AgentToolDefinition> GetAvailableTools(bool isLocalEnvironment, GitAccount? activeGitAccount = null, string? intent = null)
@@ -287,6 +290,18 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     ["query"] = new JsonObject { ["type"] = "string", ["description"] = "The search terms or question to look up online." }
                 },
                 ["required"] = new JsonArray { "query" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "resolve_capability",
+            Description = "Determine whether an existing Gram capability or connector can satisfy a request before generating a new connector.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject { ["request"] = new JsonObject { ["type"] = "string", ["description"] = "The user's requested operation." } },
+                ["required"] = new JsonArray { "request" }
             }
         });
 
@@ -700,6 +715,15 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
 
             switch (normalizedName)
             {
+                case "resolve_capability":
+                {
+                    var request = args?["request"]?.ToString() ?? "";
+                    result.Output = _capabilityRouter == null
+                        ? "Capability resolver is unavailable."
+                        : JsonSerializer.Serialize(_capabilityRouter.Resolve(request), BackendJson.Options);
+                    break;
+                }
+
                 case "view_file":
                 {
                     var filePath = args?["filePath"]?.ToString() ?? "";
@@ -741,6 +765,31 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         break;
                     }
 
+                    if (fileCheck.RequiresUserConfirmation)
+                    {
+                        var decision = await _securityService.RequestApprovalAsync(
+                            runId: callId,
+                            toolName: "write_file",
+                            command: null,
+                            filePath: filePath,
+                            workingDirectory: workspacePath,
+                            reason: fileCheck.Reason ?? $"Writing file '{filePath}' requires user confirmation.",
+                            operationType: fileCheck.OperationType,
+                            exactTarget: fileCheck.ExactTarget ?? filePath,
+                            workspaceRoot: fileCheck.WorkspaceRoot ?? workspacePath,
+                            isNetworkAccess: fileCheck.IsNetworkAccess,
+                            estimatedImpact: fileCheck.EstimatedImpact ?? $"Writes {content.Length} characters to '{filePath}'.",
+                            riskLevel: fileCheck.RiskLevel,
+                            ct: cancellationToken);
+
+                        if (!decision.Approved)
+                        {
+                            result.IsError = true;
+                            result.Output = $"File modification for '{filePath}' was denied by user.";
+                            break;
+                        }
+                    }
+
                     var fullPath = Path.GetFullPath(Path.Combine(workspacePath, filePath));
 
                     var dir = Path.GetDirectoryName(fullPath);
@@ -766,6 +815,31 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         result.IsError = true;
                         result.Output = fileCheck.Reason ?? "Access denied by security sandbox.";
                         break;
+                    }
+
+                    if (fileCheck.RequiresUserConfirmation)
+                    {
+                        var decision = await _securityService.RequestApprovalAsync(
+                            runId: callId,
+                            toolName: "edit_file",
+                            command: null,
+                            filePath: filePath,
+                            workingDirectory: workspacePath,
+                            reason: fileCheck.Reason ?? $"Editing file '{filePath}' requires user confirmation.",
+                            operationType: fileCheck.OperationType,
+                            exactTarget: fileCheck.ExactTarget ?? filePath,
+                            workspaceRoot: fileCheck.WorkspaceRoot ?? workspacePath,
+                            isNetworkAccess: fileCheck.IsNetworkAccess,
+                            estimatedImpact: fileCheck.EstimatedImpact ?? $"Replaces content in '{filePath}'.",
+                            riskLevel: fileCheck.RiskLevel,
+                            ct: cancellationToken);
+
+                        if (!decision.Approved)
+                        {
+                            result.IsError = true;
+                            result.Output = $"File edit for '{filePath}' was denied by user.";
+                            break;
+                        }
                     }
 
                     var fullPath = Path.GetFullPath(Path.Combine(workspacePath, filePath));
@@ -822,19 +896,30 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         break;
                     }
 
-                    var dirInfo = new DirectoryInfo(fullPath);
                     var sb = new StringBuilder();
-                    sb.AppendLine($"Directory contents of '{relDir}':");
+                    var displayDir = string.IsNullOrWhiteSpace(relDir) ? "." : relDir;
+                    sb.AppendLine($"Directory contents of '{displayDir}':");
 
-                    foreach (var sub in dirInfo.GetDirectories().OrderBy(d => d.Name).Take(50))
+                    void AppendTree(string currentDir, string indent, int depth)
                     {
-                        sb.AppendLine($"📁 {sub.Name}/");
-                    }
-                    foreach (var file in dirInfo.GetFiles().OrderBy(f => f.Name).Take(100))
-                    {
-                        sb.AppendLine($"📄 {file.Name} ({file.Length:N0} bytes)");
+                        var di = new DirectoryInfo(currentDir);
+                        foreach (var sub in di.GetDirectories().OrderBy(d => d.Name).Take(30))
+                        {
+                            var name = sub.Name;
+                            if (name is ".git" or "bin" or "obj" or "node_modules" or ".vs" or ".idea") continue;
+                            sb.AppendLine($"{indent}📁 {name}/");
+                            if (depth < 2)
+                            {
+                                AppendTree(sub.FullName, indent + "  ", depth + 1);
+                            }
+                        }
+                        foreach (var file in di.GetFiles().OrderBy(f => f.Name).Take(50))
+                        {
+                            sb.AppendLine($"{indent}📄 {file.Name} ({file.Length:N0} bytes)");
+                        }
                     }
 
+                    AppendTree(fullPath, "", 1);
                     result.Output = sb.ToString();
                     break;
                 }
@@ -849,7 +934,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
 
                     var matched = Directory.GetFiles(searchRoot, pattern, SearchOption.AllDirectories)
                         .Select(p => Path.GetRelativePath(workspacePath, p).Replace('\\', '/'))
-                        .Where(p => !p.Contains("/bin/") && !p.Contains("/obj/") && !p.Contains("/.git/"))
+                        .Where(p => !p.Contains("/bin/") && !p.Contains("/obj/") && !p.Contains("/.git/") && !p.Contains("/node_modules/"))
                         .Take(50)
                         .ToList();
 
@@ -871,7 +956,10 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     var searchPattern = string.IsNullOrWhiteSpace(ext) ? "*.*" : $"*.{ext.TrimStart('.')}";
 
                     var files = Directory.GetFiles(workspacePath, searchPattern, SearchOption.AllDirectories)
-                        .Where(p => !p.Contains("\\bin\\") && !p.Contains("\\obj\\") && !p.Contains("\\.git\\"))
+                        .Where(p => {
+                            var norm = p.Replace('\\', '/');
+                            return !norm.Contains("/bin/") && !norm.Contains("/obj/") && !norm.Contains("/.git/") && !norm.Contains("/node_modules/");
+                        })
                         .Take(250);
 
                     var matches = new List<string>();
@@ -916,9 +1004,49 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         break;
                     }
 
-                    var isWindows = OperatingSystem.IsWindows();
-                    var shell = isWindows ? "powershell.exe" : "/bin/bash";
-                    var shellArgs = isWindows ? $"-NoProfile -Command \"{cmd.Replace("\"", "\\\"")}\"" : $"-c \"{cmd.Replace("\"", "\\\"")}\"";
+                    if (permCheck.RequiresUserConfirmation)
+                    {
+                        var decision = await _securityService.RequestApprovalAsync(
+                            runId: callId,
+                            toolName: "run_command",
+                            command: cmd,
+                            filePath: null,
+                            workingDirectory: Directory.Exists(targetDir) ? targetDir : workspacePath,
+                            reason: permCheck.Reason ?? $"Executing terminal command '{cmd}' requires user confirmation.",
+                            operationType: permCheck.OperationType,
+                            exactTarget: permCheck.ExactTarget ?? cmd,
+                            workspaceRoot: permCheck.WorkspaceRoot ?? workspacePath,
+                            isNetworkAccess: permCheck.IsNetworkAccess,
+                            estimatedImpact: permCheck.EstimatedImpact,
+                            riskLevel: permCheck.RiskLevel,
+                            ct: cancellationToken);
+
+                        if (!decision.Approved)
+                        {
+                            result.IsError = true;
+                            result.Output = $"Command execution was denied by user: {cmd}";
+                            break;
+                        }
+                    }
+
+                    string shell;
+                    string shellArgs;
+
+                    if (OperatingSystem.IsWindows())
+                    {
+                        shell = "powershell.exe";
+                        shellArgs = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{cmd.Replace("\"", "\\\"")}\"";
+                    }
+                    else if (OperatingSystem.IsMacOS())
+                    {
+                        shell = File.Exists("/bin/zsh") ? "/bin/zsh" : (File.Exists("/bin/bash") ? "/bin/bash" : "sh");
+                        shellArgs = $"-c \"{cmd.Replace("\"", "\\\"")}\"";
+                    }
+                    else // Linux / BSD / generic Unix
+                    {
+                        shell = File.Exists("/bin/bash") ? "/bin/bash" : (File.Exists("/bin/sh") ? "/bin/sh" : "sh");
+                        shellArgs = $"-c \"{cmd.Replace("\"", "\\\"")}\"";
+                    }
 
                     var psi = new ProcessStartInfo
                     {
@@ -931,6 +1059,8 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         CreateNoWindow = true
                     };
 
+                    _securityService.ScrubEnvironment(psi);
+
                     using var proc = new Process { StartInfo = psi };
                     var stdout = new StringBuilder();
                     var stderr = new StringBuilder();
@@ -942,8 +1072,9 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     proc.BeginOutputReadLine();
                     proc.BeginErrorReadLine();
 
+                    var timeoutSecs = Math.Max(_securityService.Settings.CommandTimeoutSeconds, 30);
                     using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSecs));
 
                     try
                     {

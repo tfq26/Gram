@@ -1,0 +1,94 @@
+@namespace Gram.Desktop.Components.Platform
+@using Gram.Desktop.Services
+@inject IPlatformService Platform
+
+<span class="platform-badge @Platform.PlatformCssClass @GetToneClass() @CustomClass">
+    @if (Dot)
+    {
+        <span class="platform-badge-dot" aria-hidden="true"></span>
+    }
+    @ChildContent
+</span>
+
+<style>
+.platform-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+}
+.platform-badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* macOS: Pill rounded, subtle translucent glow */
+.platform-badge.os-macos {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.platform-badge.os-macos.tone-neutral { background: rgba(255, 255, 255, 0.08); color: #aeaeb2; }
+.platform-badge.os-macos.tone-success { background: rgba(52, 199, 89, 0.15); color: #34c759; border-color: rgba(52, 199, 89, 0.3); }
+.platform-badge.os-macos.tone-warning { background: rgba(255, 159, 10, 0.15); color: #ff9f0a; border-color: rgba(255, 159, 10, 0.3); }
+.platform-badge.os-macos.tone-danger  { background: rgba(255, 69, 58, 0.15); color: #ff453a; border-color: rgba(255, 69, 58, 0.3); }
+.platform-badge.os-macos.tone-info    { background: rgba(0, 122, 255, 0.15); color: #007aff; border-color: rgba(0, 122, 255, 0.3); }
+
+/* Windows: Fluent 3px border radius, crisp solid border */
+.platform-badge.os-windows {
+    font-family: "Segoe UI", sans-serif;
+    font-size: 11.5px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    border: 1px solid #383838;
+}
+.platform-badge.os-windows.tone-neutral { background: #262626; color: #cccccc; }
+.platform-badge.os-windows.tone-success { background: rgba(16, 124, 65, 0.2); color: #54b054; border-color: #107c41; }
+.platform-badge.os-windows.tone-warning { background: rgba(157, 93, 0, 0.2); color: #fce100; border-color: #9d5d00; }
+.platform-badge.os-windows.tone-danger  { background: rgba(196, 43, 28, 0.2); color: #ff99a4; border-color: #c42b1c; }
+.platform-badge.os-windows.tone-info    { background: rgba(0, 120, 212, 0.2); color: #60cdff; border-color: #0078d4; }
+
+/* Linux */
+.platform-badge.os-linux {
+    font-family: "Ubuntu", sans-serif;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+.platform-badge.os-linux.tone-neutral { background: #383838; color: #d0d0d0; }
+.platform-badge.os-linux.tone-success { background: #26a269; color: #ffffff; }
+.platform-badge.os-linux.tone-danger  { background: #c01c28; color: #ffffff; }
+.platform-badge.os-linux.tone-info    { background: #1c71d8; color: #ffffff; }
+</style>
+
+@code {
+    public enum BadgeTone
+    {
+        Neutral,
+        Success,
+        Warning,
+        Danger,
+        Info
+    }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public BadgeTone Tone { get; set; } = BadgeTone.Neutral;
+    [Parameter] public bool Dot { get; set; } = false;
+    [Parameter] public string CustomClass { get; set; } = "";
+
+    private string GetToneClass() => Tone switch
+    {
+        BadgeTone.Neutral => "tone-neutral",
+        BadgeTone.Success => "tone-success",
+        BadgeTone.Warning => "tone-warning",
+        BadgeTone.Danger => "tone-danger",
+        BadgeTone.Info => "tone-info",
+        _ => "tone-neutral"
+    };
+}

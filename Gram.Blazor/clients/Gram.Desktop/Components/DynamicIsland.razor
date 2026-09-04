@@ -1,0 +1,76 @@
+@namespace Gram.Desktop.Components
+@using Gram.Blazor.Shared
+
+<div class="dt-island @IslandClass" title="@IslandTooltip">
+    @if (IsStreaming)
+    {
+        <div class="dt-island-content streaming">
+            <span class="dt-island-pulse-ring"></span>
+            <span class="dt-island-label">@(string.IsNullOrWhiteSpace(CurrentTask) ? "Gram is thinking..." : CurrentTask)</span>
+            <div class="dt-island-wave">
+                <span class="dt-island-bar"></span>
+                <span class="dt-island-bar"></span>
+                <span class="dt-island-bar"></span>
+                <span class="dt-island-bar"></span>
+                <span class="dt-island-bar"></span>
+            </div>
+        </div>
+        <div class="dt-island-progress">
+            <div class="dt-island-progress-bar"></div>
+        </div>
+    }
+    else if (IsListening)
+    {
+        <div class="dt-island-content listening">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="dt-island-mic">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="22"></line>
+            </svg>
+            <span class="dt-island-label">Listening</span>
+            <div class="dt-island-wave user">
+                <span class="dt-island-bar"></span>
+                <span class="dt-island-bar"></span>
+                <span class="dt-island-bar"></span>
+                <span class="dt-island-bar"></span>
+            </div>
+        </div>
+    }
+    else if (IsLoading)
+    {
+        <div class="dt-island-content loading">
+            <div class="dt-island-spinner"></div>
+            <span class="dt-island-label">Syncing</span>
+        </div>
+    }
+    else
+    {
+        <div class="dt-island-content idle">
+            <span class="dt-island-status-dot"></span>
+            <span class="dt-island-label">Gram</span>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public bool IsStreaming { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public bool IsListening { get; set; }
+    [Parameter] public string? CurrentTask { get; set; }
+
+    private string IslandClass => IsStreaming
+        ? "is-streaming"
+        : IsListening
+            ? "is-listening"
+            : IsLoading
+                ? "is-loading"
+                : "is-idle";
+
+    private string IslandTooltip => IsStreaming
+        ? "Gram is generating a response"
+        : IsListening
+            ? "Microphone is active"
+            : IsLoading
+                ? "Connecting to local backend"
+                : "Gram is idle and ready";
+}

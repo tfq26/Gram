@@ -1,0 +1,1 @@
+Review the attached TenantUsageLedger.cs using the separate review context file. Find exactly four defects: two obvious, one subtle, and one context-dependent. Rank them by severity and explain the smallest safe fix. Do not modify code.

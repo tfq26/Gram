@@ -1,0 +1,513 @@
+@namespace Gram.Desktop.Components
+@using Gram.Desktop.Components.Platform
+@using Gram.Desktop.Services
+@using Gram.Blazor.Shared
+@using Microsoft.JSInterop
+@inject IPlatformService Platform
+@inject DesktopSession Session
+@inject WorkspaceTabService TabService
+@inject StorageService StorageService
+@inject IJSRuntime JSRuntime
+
+<aside class="dt-sidebar @(IsOpen ? "open" : "closed") @Platform.PlatformCssClass" data-ui-region="sidebar" role="navigation" aria-label="Conversations">
+    <!-- Header: Search + New Chat Button -->
+    <div class="dt-sidebar-header">
+        <div class="dt-search-input-wrap">
+            <svg class="dt-search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <textarea @ref="searchInputRef"
+                      class="dt-search-textarea"
+                      rows="1"
+                      placeholder="Search chats..."
+                      value="@searchQuery"
+                      @oninput="HandleSearch"
+                      @onkeydown="HandleSearchKeyDown"></textarea>
+            @if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                <button type="button"
+                        class="dt-search-clear-btn"
+                        @onclick="ClearSearch"
+                        title="Clear search">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            }
+        </div>
+
+        @if (string.IsNullOrWhiteSpace(searchQuery))
+        {
+            <button type="button"
+                    class="dt-icon-btn dt-sidebar-new-btn"
+                    @onclick="OnNewConversation"
+                    disabled="@(IsStreaming || IsLoading)"
+                    title="New Chat (@Platform.ModifierKeyLabel+N)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+            </button>
+        }
+    </div>
+
+    <!-- Scrollable Conversation List -->
+    <div class="dt-sidebar-list">
+        @if (IsLoading && (Conversations == null || Conversations.Count == 0))
+        {
+            <div style="display: flex; flex-direction: column; gap: 6px; padding: 8px;">
+                <div style="height: 28px; background: var(--dt-bg-surface); border-radius: var(--dt-radius-sm); opacity: 0.6;"></div>
+                <div style="height: 28px; background: var(--dt-bg-surface); border-radius: var(--dt-radius-sm); opacity: 0.4; width: 75%;"></div>
+            </div>
+        }
+        else if (FilteredConversations.Count == 0 && ArchivedConversations.Count == 0)
+        {
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 140px; text-align: center; color: var(--dt-text-muted); gap: 6px; padding: 16px;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <span style="font-size: 11.5px; font-weight: 500;">No chats found</span>
+            </div>
+        }
+        else
+        {
+            @foreach (var group in GroupedConversations)
+            {
+                <div class="dt-conv-group" style="display: flex; flex-direction: column; gap: 2px;">
+                    <div class="dt-group-label">
+                        @group.Key
+                    </div>
+                    @foreach (var conv in group.Value)
+                    {
+                        var isActive = ActiveConversationId == conv.Id;
+                        <div class="dt-conv-item @(isActive ? "active" : "")"
+                             @onclick="() => HandleSelectChat(conv.Id)"
+                             @oncontextmenu="e => HandleContextMenu(e, conv)"
+                             @oncontextmenu:preventDefault="true"
+                             role="button"
+                             tabindex="0">
+                            <div class="dt-conv-top">
+                                @if (renamingChatId == conv.Id)
+                                {
+                                    <div class="dt-rename-wrap" @onclick:stopPropagation="true">
+                                        <input class="dt-rename-input"
+                                               @bind="renameInput"
+                                               @bind:event="oninput"
+                                               @onkeydown="e => HandleRenameKeyDown(e, conv)"
+                                               @onblur="() => CommitRename(conv)"
+                                               autofocus />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="dt-conv-title">
+                                        @(string.IsNullOrWhiteSpace(conv.Title) ? "Untitled session" : conv.Title)
+                                    </span>
+                                }
+                            </div>
+                            <div class="dt-conv-meta">
+                                <span>@FormatRelativeTime(conv.Created)</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (ArchivedConversations.Count > 0)
+            {
+                <div class="dt-sidebar-archived-toggle" @onclick="() => isArchivedExpanded = !isArchivedExpanded">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(@(isArchivedExpanded ? "90deg" : "0deg")); transition: transform 0.15s ease;">
+                            <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                        <span>Archived</span>
+                    </div>
+                    <span class="dt-conv-badge">@ArchivedConversations.Count</span>
+                </div>
+
+                @if (isArchivedExpanded)
+                {
+                    <div class="dt-sidebar-archived-list">
+                        @foreach (var conv in ArchivedConversations)
+                        {
+                            var isActive = ActiveConversationId == conv.Id;
+                            <div class="dt-conv-item @(isActive ? "active" : "")"
+                                 @onclick="() => HandleSelectChat(conv.Id)"
+                                 @oncontextmenu="e => HandleContextMenu(e, conv)"
+                                 @oncontextmenu:preventDefault="true"
+                                 role="button"
+                                 tabindex="0">
+                                <div class="dt-conv-top">
+                                    @if (renamingChatId == conv.Id)
+                                    {
+                                        <div class="dt-rename-wrap" @onclick:stopPropagation="true">
+                                            <input class="dt-rename-input"
+                                                   @bind="renameInput"
+                                                   @bind:event="oninput"
+                                                   @onkeydown="e => HandleRenameKeyDown(e, conv)"
+                                                   @onblur="() => CommitRename(conv)"
+                                                   autofocus />
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="dt-conv-title">
+                                            @(string.IsNullOrWhiteSpace(conv.Title) ? "Untitled session" : conv.Title)
+                                        </span>
+                                    }
+                                </div>
+                                <div class="dt-conv-meta">
+                                    <span>@FormatRelativeTime(conv.Created)</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        }
+    </div>
+
+    <!-- Sidebar Footer -->
+    <div class="dt-sidebar-footer">
+        <div class="dt-footer-profile">
+            <div class="dt-footer-avatar">
+                <GramCharacter Size="16" State="idle" Interactive="false" AutoWaveOnLoad="false" />
+            </div>
+            <div class="dt-footer-info">
+                <span class="dt-footer-name">Gram</span>
+                <span class="dt-footer-sub">@Platform.PlatformName Native</span>
+            </div>
+        </div>
+        <span style="font-size: 10.5px; color: var(--dt-text-muted); font-variant-numeric: tabular-nums;">
+            @(FilteredConversations.Count) sessions
+        </span>
+    </div>
+
+    <!-- Chat Context Menu -->
+    @if (isContextMenuOpen && contextMenuChat != null)
+    {
+        <div class="dt-context-backdrop" @onclick="CloseContextMenu"></div>
+        <div class="dt-context-menu" style="left: @(contextMenuX)px; top: @(contextMenuY)px;" @onclick:stopPropagation="true">
+            <div class="dt-context-header">
+                <span class="dt-context-title">@(string.IsNullOrWhiteSpace(contextMenuChat.Title) ? "Untitled session" : contextMenuChat.Title)</span>
+            </div>
+            <div class="dt-context-separator"></div>
+
+            <button type="button" class="dt-context-item" @onclick="HandleAddRefToChat">
+                <span>Add to Chat</span>
+            </button>
+
+            <button type="button" class="dt-context-item" @onclick="HandleStartRename">
+                <span>Rename</span>
+            </button>
+
+            <button type="button" class="dt-context-item" @onclick="HandleCopyTitle">
+                <span>Copy Title</span>
+            </button>
+
+            <button type="button" class="dt-context-item" @onclick="HandleShare">
+                <span>Share</span>
+            </button>
+
+            <div class="dt-context-separator"></div>
+
+            <button type="button" class="dt-context-item" @onclick="HandleToggleArchive">
+                <span>@(archivedChatIds.Contains(contextMenuChat.Id) ? "Unarchive Chat" : "Archive Chat")</span>
+            </button>
+
+            <button type="button" class="dt-context-item destructive" @onclick="HandleDeleteChat">
+                <span>Delete Chat</span>
+            </button>
+        </div>
+    }
+</aside>
+
+@code {
+    [Parameter] public IReadOnlyList<ConversationSummary>? Conversations { get; set; }
+    [Parameter] public string? ActiveConversationId { get; set; }
+    [Parameter] public bool IsOpen { get; set; } = true;
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public bool IsStreaming { get; set; }
+    [Parameter] public EventCallback OnToggle { get; set; }
+    [Parameter] public EventCallback<string> OnSelectConversation { get; set; }
+    [Parameter] public EventCallback OnNewConversation { get; set; }
+    [Parameter] public EventCallback<ConversationSummary> OnAddReference { get; set; }
+
+    private string searchQuery = "";
+    private HashSet<string> archivedChatIds = new();
+    private bool isArchivedExpanded = false;
+
+    // Inline rename state
+    private string? renamingChatId;
+    private string renameInput = "";
+
+    // Context menu state
+    private bool isContextMenuOpen = false;
+    private ConversationSummary? contextMenuChat;
+    private double contextMenuX;
+    private double contextMenuY;
+
+    private const string ArchivedFileName = "desktop_archived_chats.json";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadArchivedStateAsync();
+    }
+
+    private ElementReference searchInputRef;
+
+    private async Task HandleSearch(ChangeEventArgs e)
+    {
+        searchQuery = e.Value?.ToString() ?? "";
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramDesktop.autoResizeTextarea", searchInputRef);
+        }
+        catch { }
+    }
+
+    private async Task HandleSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await ClearSearch();
+        }
+    }
+
+    private async Task ClearSearch()
+    {
+        searchQuery = "";
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramDesktop.autoResizeTextarea", searchInputRef);
+        }
+        catch { }
+    }
+
+    private List<ConversationSummary> FilteredConversations =>
+        Conversations == null ? new List<ConversationSummary>() :
+        Conversations
+            .Where(c => !archivedChatIds.Contains(c.Id))
+            .Where(c => string.IsNullOrWhiteSpace(searchQuery) || (c.Title ?? "").Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    private List<ConversationSummary> ArchivedConversations =>
+        Conversations == null ? new List<ConversationSummary>() :
+        Conversations
+            .Where(c => archivedChatIds.Contains(c.Id))
+            .Where(c => string.IsNullOrWhiteSpace(searchQuery) || (c.Title ?? "").Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    private Dictionary<string, List<ConversationSummary>> GroupedConversations
+    {
+        get
+        {
+            var dict = new Dictionary<string, List<ConversationSummary>>();
+            var now = DateTimeOffset.UtcNow;
+
+            foreach (var conv in FilteredConversations)
+            {
+                var days = (now - conv.Created).TotalDays;
+                var key = days < 1 ? "Today" :
+                          days < 7 ? "Previous 7 Days" :
+                          days < 30 ? "Previous 30 Days" : "Older";
+
+                if (!dict.TryGetValue(key, out var list))
+                {
+                    list = new List<ConversationSummary>();
+                    dict[key] = list;
+                }
+                list.Add(conv);
+            }
+            return dict;
+        }
+    }
+
+    private string FormatRelativeTime(DateTimeOffset dt)
+    {
+        var span = DateTimeOffset.UtcNow - dt;
+        if (span.TotalMinutes < 1) return "Just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays}d ago";
+        return dt.ToString("MMM d");
+    }
+
+    private async Task HandleSelectChat(string convId)
+    {
+        if (renamingChatId == convId) return;
+        CloseContextMenu();
+        await OnSelectConversation.InvokeAsync(convId);
+    }
+
+    private void HandleContextMenu(MouseEventArgs e, ConversationSummary conv)
+    {
+        contextMenuChat = conv;
+        contextMenuX = Math.Max(10, Math.Min(e.ClientX, 220));
+        contextMenuY = Math.Max(10, Math.Min(e.ClientY, 550));
+        isContextMenuOpen = true;
+    }
+
+    private void CloseContextMenu()
+    {
+        isContextMenuOpen = false;
+        contextMenuChat = null;
+    }
+
+    private async Task HandleAddRefToChat()
+    {
+        if (contextMenuChat == null) return;
+        var chat = contextMenuChat;
+        CloseContextMenu();
+        await OnAddReference.InvokeAsync(chat);
+    }
+
+    private void HandleStartRename()
+    {
+        if (contextMenuChat == null) return;
+        renamingChatId = contextMenuChat.Id;
+        renameInput = contextMenuChat.Title ?? "";
+        CloseContextMenu();
+    }
+
+    private async Task HandleRenameKeyDown(KeyboardEventArgs e, ConversationSummary conv)
+    {
+        if (e.Key == "Enter")
+        {
+            await CommitRename(conv);
+        }
+        else if (e.Key == "Escape")
+        {
+            renamingChatId = null;
+        }
+    }
+
+    private async Task CommitRename(ConversationSummary conv)
+    {
+        if (renamingChatId == null) return;
+        var newTitle = renameInput?.Trim();
+        renamingChatId = null;
+        if (!string.IsNullOrWhiteSpace(newTitle) && newTitle != conv.Title)
+        {
+            await Session.RenameConversationAsync(conv.Id, newTitle);
+            TabService.UpdateChatTabTitle(conv.Id, newTitle);
+        }
+    }
+
+    private async Task HandleCopyTitle()
+    {
+        if (contextMenuChat == null) return;
+        var title = contextMenuChat.Title;
+        CloseContextMenu();
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramDesktop.copyText", title);
+        }
+        catch {}
+    }
+
+    private async Task HandleShare()
+    {
+        if (contextMenuChat == null) return;
+        var chat = contextMenuChat;
+        CloseContextMenu();
+        var shareText = $"Gram Chat: {chat.Title}\nModel: {chat.ModelId ?? "Default"}\nMessages: {chat.MessageCount}\nCreated: {chat.Created.ToLocalTime():g}";
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramDesktop.copyText", shareText);
+        }
+        catch {}
+    }
+
+    private async Task HandleToggleArchive()
+    {
+        if (contextMenuChat == null) return;
+        var chatId = contextMenuChat.Id;
+        CloseContextMenu();
+
+        if (archivedChatIds.Contains(chatId))
+        {
+            archivedChatIds.Remove(chatId);
+        }
+        else
+        {
+            archivedChatIds.Add(chatId);
+            if (ActiveConversationId == chatId)
+            {
+                var next = Conversations?.FirstOrDefault(c => !archivedChatIds.Contains(c.Id) && c.Id != chatId);
+                if (next != null)
+                {
+                    await OnSelectConversation.InvokeAsync(next.Id);
+                }
+                else
+                {
+                    await OnNewConversation.InvokeAsync();
+                }
+            }
+        }
+        await SaveArchivedStateAsync();
+    }
+
+    private async Task HandleDeleteChat()
+    {
+        if (contextMenuChat == null) return;
+        var chat = contextMenuChat;
+        CloseContextMenu();
+
+        // Close open tab if exists
+        var openTab = TabService.OpenTabs.FirstOrDefault(t => t.ChatId == chat.Id);
+        if (openTab != null)
+        {
+            TabService.CloseTab(openTab.Id);
+        }
+
+        // If active, select next
+        if (ActiveConversationId == chat.Id)
+        {
+            var next = Conversations?.FirstOrDefault(c => c.Id != chat.Id && !archivedChatIds.Contains(c.Id));
+            if (next != null)
+            {
+                await OnSelectConversation.InvokeAsync(next.Id);
+            }
+            else
+            {
+                await OnNewConversation.InvokeAsync();
+            }
+        }
+
+        await Session.DeleteConversationAsync(chat.Id);
+        archivedChatIds.Remove(chat.Id);
+        await SaveArchivedStateAsync();
+    }
+
+    private async Task LoadArchivedStateAsync()
+    {
+        try
+        {
+            var filePath = Path.Combine(StorageService.DataDirectory, ArchivedFileName);
+            if (File.Exists(filePath))
+            {
+                var json = await File.ReadAllTextAsync(filePath);
+                var ids = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json);
+                if (ids != null)
+                {
+                    archivedChatIds = new HashSet<string>(ids);
+                }
+            }
+        }
+        catch {}
+    }
+
+    private async Task SaveArchivedStateAsync()
+    {
+        try
+        {
+            var filePath = Path.Combine(StorageService.DataDirectory, ArchivedFileName);
+            var json = System.Text.Json.JsonSerializer.Serialize(archivedChatIds.ToList());
+            await File.WriteAllTextAsync(filePath, json);
+        }
+        catch {}
+    }
+}

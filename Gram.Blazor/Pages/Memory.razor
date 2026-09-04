@@ -1,0 +1,105 @@
+@page "/memory"
+@rendermode InteractiveServer
+@using Gram.Blazor.Shared
+@inject IStructuredMemoryService MemoryService
+
+<PageTitle>Memory</PageTitle>
+
+<div class="memory-page">
+    <header class="memory-header">
+        <div>
+            <p class="eyebrow">Personalization</p>
+            <h1>Memory</h1>
+            <p>Review what Gram has learned. Candidate memories stay out of responses until you confirm them.</p>
+        </div>
+        <button class="refresh-button" @onclick="LoadAsync">Refresh</button>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="memory-error">@error</div>
+    }
+
+    @if (loading)
+    {
+        <div class="memory-empty">Loading memory…</div>
+    }
+    else if (memories.Count == 0)
+    {
+        <div class="memory-empty">No structured memories yet.</div>
+    }
+    else
+    {
+        <section class="memory-list" aria-label="Stored memories">
+            @foreach (var memory in memories)
+            {
+                <article class="memory-card @(memory.Status == StructuredMemoryStatuses.Candidate ? "candidate" : "")">
+                    <div class="memory-card-top">
+                        <span class="memory-kind">@memory.Kind</span>
+                        <span class="memory-status">@memory.Status</span>
+                    </div>
+                    <p class="memory-statement"><strong>@memory.Subject</strong> @memory.Predicate <strong>@memory.Value</strong></p>
+                    <p class="memory-meta">Confidence @string.Format("{0:0}%", memory.Confidence * 100) · Updated @memory.UpdatedAt.LocalDateTime.ToString("MMM d, yyyy")</p>
+                    @if (!string.IsNullOrWhiteSpace(memory.Evidence))
+                    {
+                        <p class="memory-evidence">“@memory.Evidence”</p>
+                    }
+                    <div class="memory-actions">
+                        @if (memory.Status == StructuredMemoryStatuses.Candidate)
+                        {
+                            <button @onclick="() => ConfirmAsync(memory.Id)">Confirm</button>
+                            <button class="quiet" @onclick="() => RejectAsync(memory.Id)">Dismiss</button>
+                        }
+                        else if (memory.Status == StructuredMemoryStatuses.Active)
+                        {
+                            <button class="quiet" @onclick="() => ForgetAsync(memory.Id)">Forget</button>
+                        }
+                    </div>
+                </article>
+            }
+        </section>
+    }
+</div>
+
+<style>
+.memory-page { max-width: 860px; margin: 0 auto; padding: 56px 28px 80px; color: var(--text-primary, #f4f4f5); }
+.memory-header { display:flex; justify-content:space-between; gap:24px; align-items:flex-start; margin-bottom:32px; }
+.eyebrow { margin:0 0 8px; color:var(--text-muted,#a1a1aa); text-transform:uppercase; letter-spacing:.12em; font-size:11px; }
+h1 { margin:0 0 8px; font-size:32px; letter-spacing:-.04em; }
+.memory-header p:not(.eyebrow) { margin:0; color:var(--text-secondary,#a1a1aa); max-width:600px; }
+.refresh-button, .memory-actions button { border:1px solid var(--border-color,#27272a); background:var(--surface,#18181b); color:inherit; border-radius:8px; padding:8px 12px; cursor:pointer; }
+.memory-list { display:grid; gap:12px; }
+.memory-card { border:1px solid var(--border-color,#27272a); border-radius:12px; padding:16px; background:var(--surface,#18181b); }
+.memory-card.candidate { border-color:#69551b; background:#211d12; }
+.memory-card-top { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+.memory-kind, .memory-status { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-muted,#a1a1aa); }
+.memory-status { margin-left:auto; }
+.memory-statement { margin:0; font-size:15px; line-height:1.5; }
+.memory-meta, .memory-evidence { color:var(--text-muted,#a1a1aa); font-size:12px; margin:9px 0 0; }
+.memory-evidence { font-style:italic; }
+.memory-actions { display:flex; gap:8px; margin-top:14px; }
+.memory-actions .quiet { background:transparent; color:var(--text-muted,#a1a1aa); }
+.memory-empty, .memory-error { border:1px dashed var(--border-color,#27272a); border-radius:12px; padding:28px; color:var(--text-muted,#a1a1aa); }
+.memory-error { color:#fca5a5; border-color:#7f1d1d; }
+</style>
+
+@code {
+    private List<StructuredMemory> memories = [];
+    private bool loading;
+    private string? error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        error = null;
+        try { memories = (await MemoryService.ListAsync(includeInactive: true)).Where(m => m.Status is StructuredMemoryStatuses.Active or StructuredMemoryStatuses.Candidate).ToList(); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { loading = false; }
+    }
+
+    private async Task ConfirmAsync(string id) { if (await MemoryService.ConfirmAsync(id)) await LoadAsync(); }
+    private async Task RejectAsync(string id) { if (await MemoryService.RejectAsync(id)) await LoadAsync(); }
+    private async Task ForgetAsync(string id) { if (await MemoryService.ForgetAsync(id)) await LoadAsync(); }
+}

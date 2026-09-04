@@ -17,11 +17,13 @@ public sealed class ToolExecutor : IToolExecutor
 {
     private readonly IAgentToolRegistry _registry;
     private readonly ILogger<ToolExecutor> _logger;
+    private readonly AgentSecurityService? _securityService;
 
-    public ToolExecutor(IAgentToolRegistry registry, ILogger<ToolExecutor> logger)
+    public ToolExecutor(IAgentToolRegistry registry, ILogger<ToolExecutor> logger, AgentSecurityService? securityService = null)
     {
         _registry = registry;
         _logger = logger;
+        _securityService = securityService;
     }
 
     public List<AgentToolDefinition> GetAvailableTools(bool isLocalEnvironment, GitAccount? activeGitAccount = null, string? intent = null) =>
@@ -30,6 +32,9 @@ public sealed class ToolExecutor : IToolExecutor
     public async Task<ToolExecutionResult> ExecuteAsync(string name, string callId, string argumentsJson, string workspacePath, GitAccount? activeGitAccount = null, CancellationToken cancellationToken = default)
     {
         var timer = Stopwatch.StartNew();
+        var permMode = _securityService?.Settings.PermissionMode.ToString() ?? "Default";
+        _logger.LogDebug("Executing tool {ToolName} [CallId: {CallId}] under security mode {PermissionMode}.", name, callId, permMode);
+
         try
         {
             var result = await _registry.ExecuteToolAsync(name, callId, argumentsJson, workspacePath, activeGitAccount, cancellationToken);

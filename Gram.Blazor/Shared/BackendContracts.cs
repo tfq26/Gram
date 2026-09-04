@@ -18,6 +18,12 @@ public sealed record ModelSummary(string Id, string Name, string Provider, strin
 public sealed record ProviderStatus(string Id, string Name, string Type, bool IsConnected, bool IsSystemManaged, DateTimeOffset? LastTested);
 public sealed record SearchRequest(string Query, int MaxResults = 10);
 public sealed record SearchResult(string Title, string Url, string? Snippet = null, DateTimeOffset? PublishedAt = null);
+public sealed record SingleSlideRequest(string Prompt = "", string ModelId = "gram-q-plus-plus", string? Context = null);
+public sealed record SingleSlideResponse(bool Success, string? OutputPath = null, string? ContentJson = null, string? ViewUrl = null, string? Error = null)
+{
+    // Compatibility alias for callers that use artifact terminology.
+    public string? ArtifactPath => OutputPath;
+}
 public sealed record SandboxCapability(string Name, bool Enabled, string? Description = null);
 public sealed record LocalAgentStatus(bool IsAvailable, string? Version = null, IReadOnlyList<SandboxCapability>? Capabilities = null);
 public sealed record ApiError(string Code, string Message, string? TraceId = null, IReadOnlyDictionary<string, string[]>? Details = null);
@@ -48,6 +54,15 @@ public interface IArtifactApi
 {
     Task<ArtifactSummary?> GetAsync(string id, CancellationToken cancellationToken = default);
     Task<ArtifactDetail?> GetContentAsync(string id, CancellationToken cancellationToken = default);
+}
+public interface IMemoryApi
+{
+    Task<IReadOnlyList<StructuredMemory>> ListAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<StructuredMemory>> SearchAsync(string query, string? projectId = null, CancellationToken cancellationToken = default);
+    Task<StructuredMemory> RememberAsync(RememberMemoryRequest request, CancellationToken cancellationToken = default);
+    Task<bool> ConfirmAsync(string id, CancellationToken cancellationToken = default);
+    Task<bool> RejectAsync(string id, CancellationToken cancellationToken = default);
+    Task<bool> ForgetAsync(string id, CancellationToken cancellationToken = default);
 }
 public interface ILocalAgentApi { LocalAgentStatus GetStatus(); }
 

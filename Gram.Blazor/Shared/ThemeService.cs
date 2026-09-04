@@ -105,18 +105,21 @@ public sealed class ThemeService
     public ThemeService()
     {
         var currentDir = AppContext.BaseDirectory;
-        var candidate1 = Path.Combine(Directory.GetCurrentDirectory(), "colors");
-        var candidate2 = Path.Combine(Directory.GetCurrentDirectory(), "..", "colors");
-        var candidate3 = Path.Combine(currentDir, "..", "..", "..", "..", "colors");
+        var candidates = new[]
+        {
+            Path.Combine(Directory.GetCurrentDirectory(), "colors"),
+            Path.Combine(Directory.GetCurrentDirectory(), "..", "colors"),
+            Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "colors"),
+            Path.Combine(currentDir, "colors"),
+            Path.Combine(currentDir, "..", "Resources", "colors"),
+            Path.Combine(currentDir, "..", "colors"),
+            Path.Combine(currentDir, "..", "..", "..", "colors"),
+            Path.Combine(currentDir, "..", "..", "..", "..", "colors"),
+            Path.Combine(currentDir, "..", "..", "..", "..", "..", "colors")
+        };
 
-        if (Directory.Exists(candidate1))
-            colorsDir = Path.GetFullPath(candidate1);
-        else if (Directory.Exists(candidate2))
-            colorsDir = Path.GetFullPath(candidate2);
-        else if (Directory.Exists(candidate3))
-            colorsDir = Path.GetFullPath(candidate3);
-        else
-            colorsDir = Path.GetFullPath(candidate1);
+        var found = candidates.FirstOrDefault(c => Directory.Exists(c) && File.Exists(Path.Combine(c, "colors.json")));
+        colorsDir = found != null ? Path.GetFullPath(found) : Path.GetFullPath(candidates[0]);
 
         colorsJsonPath = Path.Combine(colorsDir, "colors.json");
         userColorsJsonPath = Path.Combine(colorsDir, "user_colors.json");

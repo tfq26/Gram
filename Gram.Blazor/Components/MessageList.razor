@@ -84,6 +84,15 @@
                                     @foreach (var tool in message.ToolCalls.Where(tool => !IsPresentationTool(tool.ToolName))) { <ToolCallCard ToolCall="@tool" /> }
                                 </div>
                             }
+
+                            @{
+                                var detectedSandboxId = ExtractSandboxId(message);
+                            }
+                            @if (!string.IsNullOrWhiteSpace(detectedSandboxId))
+                            {
+                                <SandboxChatCard SandboxId="@detectedSandboxId" ActiveChatId="@ActiveChatId" OnOpenDiff="OnOpenDiff" OnMergeSandbox="OnMergeSandbox" />
+                            }
+
                             @if (string.IsNullOrEmpty(message.Text) && isLastGenerating && (message.ToolCalls is null || message.ToolCalls.Count == 0))
                             {
                                 <div class="assistant-thinking-indicator" role="status">
@@ -147,11 +156,40 @@
     [Parameter, EditorRequired] public HashSet<string> ExpandedErrors { get; set; } = [];
     [Parameter] public string? CopiedMessageId { get; set; }
     [Parameter] public string? SpeakingMessageId { get; set; }
+    [Parameter] public string? ActiveChatId { get; set; }
+    [Parameter] public EventCallback<string> OnOpenDiff { get; set; }
+    [Parameter] public EventCallback<string> OnMergeSandbox { get; set; }
     [Parameter] public EventCallback<Message> EditMessage { get; set; }
     [Parameter] public EventCallback<string> ToggleError { get; set; }
     [Parameter] public EventCallback<Message> CopyMessage { get; set; }
     [Parameter] public EventCallback<Message> ReadAloud { get; set; }
     [Parameter] public EventCallback<Message> RetryMessage { get; set; }
+
+    private static string? ExtractSandboxId(Message message)
+    {
+        if (!string.IsNullOrWhiteSpace(message.SandboxId)) return message.SandboxId;
+        if (message.ToolCalls != null)
+        {
+            foreach (var tool in message.ToolCalls)
+            {
+                if (tool.ToolName.Contains("sandbox", StringComparison.OrdinalIgnoreCase) ||
+                    tool.ToolName.Contains("grambox", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!string.IsNullOrWhiteSpace(tool.Arguments) && tool.Arguments.Contains("sandboxId", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(tool.Arguments, @"(?:sandbox_?id["":\s]+)(sb-[a-zA-Z0-9_-]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (match.Success) return match.Groups[1].Value;
+                    }
+                    if (!string.IsNullOrWhiteSpace(tool.Result) && tool.Result.Contains("sb-", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(tool.Result, @"(sb-[a-zA-Z0-9_-]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (match.Success) return match.Groups[1].Value;
+                    }
+                }
+            }
+        }
+        return null;
+    }
 
     public sealed record DayMessageChunk(DateTime Date, string Label, List<Message> Messages);
 

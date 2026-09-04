@@ -2,6 +2,14 @@ using System.Text.Json;
 
 namespace Gram.Blazor.Shared;
 
+public sealed class WorkspaceTabSessionState
+{
+    public List<WorkspaceTab> OpenTabs { get; set; } = new();
+    public string ActiveTabId { get; set; } = "";
+    public bool IsSplitView { get; set; }
+    public string? SecondaryTabId { get; set; }
+}
+
 public sealed class WorkspaceTabService
 {
     private readonly StorageService _storageService;
@@ -142,12 +150,30 @@ public sealed class WorkspaceTabService
             if (File.Exists(_tabsFilePath))
             {
                 var json = File.ReadAllText(_tabsFilePath);
-                var loaded = JsonSerializer.Deserialize<List<WorkspaceTab>>(json);
-                if (loaded != null && loaded.Count > 0)
+                var trimmed = json.TrimStart();
+                if (trimmed.StartsWith("{"))
                 {
-                    OpenTabs = loaded;
-                    ActiveTabId = OpenTabs[0].Id;
-                    return;
+                    var state = JsonSerializer.Deserialize<WorkspaceTabSessionState>(json);
+                    if (state?.OpenTabs != null && state.OpenTabs.Count > 0)
+                    {
+                        OpenTabs = state.OpenTabs;
+                        ActiveTabId = (!string.IsNullOrWhiteSpace(state.ActiveTabId) && OpenTabs.Any(t => t.Id == state.ActiveTabId))
+                            ? state.ActiveTabId
+                            : OpenTabs[0].Id;
+                        IsSplitView = state.IsSplitView && OpenTabs.Any(t => t.Id == state.SecondaryTabId);
+                        SecondaryTabId = IsSplitView ? state.SecondaryTabId : null;
+                        return;
+                    }
+                }
+                else if (trimmed.StartsWith("["))
+                {
+                    var loaded = JsonSerializer.Deserialize<List<WorkspaceTab>>(json);
+                    if (loaded != null && loaded.Count > 0)
+                    {
+                        OpenTabs = loaded;
+                        ActiveTabId = OpenTabs[0].Id;
+                        return;
+                    }
                 }
             }
         }
@@ -170,8 +196,17 @@ public sealed class WorkspaceTabService
     {
         try
         {
-            var json = JsonSerializer.Serialize(OpenTabs, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(_tabsFilePath, json);
+            var state = new WorkspaceTabSessionState
+            {
+                OpenTabs = OpenTabs,
+                ActiveTabId = ActiveTabId,
+                IsSplitView = IsSplitView,
+                SecondaryTabId = SecondaryTabId
+            };
+            var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
+            var tmpPath = _tabsFilePath + ".tmp";
+            File.WriteAllText(tmpPath, json);
+            File.Move(tmpPath, _tabsFilePath, overwrite: true);
         }
         catch {}
         OnTabsChanged?.Invoke();
@@ -182,7 +217,7 @@ public sealed class WorkspaceTabService
         if (OpenTabs.Any(t => t.Id == tabId))
         {
             ActiveTabId = tabId;
-            OnTabsChanged?.Invoke();
+            SaveTabs();
         }
     }
 
@@ -378,5 +413,142 @@ public sealed class WorkspaceTabService
             tab.Title = newTitle;
             SaveTabs();
         }
+    }
+
+    public void CloseOthers(string tabId)
+    {
+        var target = OpenTabs.FirstOrDefault(t => t.Id == tabId);
+        if (target == null) return;
+
+        OpenTabs.RemoveAll(t => t.Id != tabId && !t.IsPinned);
+        ActiveTabId = target.Id;
+        if (SecondaryTabId != null && !OpenTabs.Any(t => t.Id == SecondaryTabId))
+        {
+            SecondaryTabId = null;
+            IsSplitView = false;
+        }
+        SaveTabs();
+    }
+
+    public void CloseToTheRight(string tabId)
+    {
+        var index = OpenTabs.FindIndex(t => t.Id == tabId);
+        if (index < 0 || index >= OpenTabs.Count - 1) return;
+
+        var tabsToClose = OpenTabs.Skip(index + 1).Where(t => !t.IsPinned).ToList();
+        foreach (var tab in tabsToClose)
+        {
+            OpenTabs.Remove(tab);
+        }
+
+        if (!OpenTabs.Any(t => t.Id == ActiveTabId))
+        {
+            ActiveTabId = tabId;
+        }
+        if (SecondaryTabId != null && !OpenTabs.Any(t => t.Id == SecondaryTabId))
+        {
+            SecondaryTabId = null;
+            IsSplitView = false;
+        }
+        SaveTabs();
+    }
+
+    public void CloseAll()
+    {
+        var pinnedTabs = OpenTabs.Where(t => t.IsPinned).ToList();
+        OpenTabs.Clear();
+        if (pinnedTabs.Count > 0)
+        {
+            OpenTabs.AddRange(pinnedTabs);
+            ActiveTabId = OpenTabs[0].Id;
+        }
+        else
+        {
+            var defaultTab = new WorkspaceTab
+            {
+                Title = "New chat",
+                Type = WorkspaceTabType.Chat,
+                ChatId = "default",
+                Icon = null
+            };
+            OpenTabs.Add(defaultTab);
+            ActiveTabId = defaultTab.Id;
+        }
+        SecondaryTabId = null;
+        IsSplitView = false;
+        SaveTabs();
+    }
+
+    public void CloseTabs(IEnumerable<string> tabIds)
+    {
+        var idsSet = tabIds.ToHashSet();
+        if (idsSet.Count == 0) return;
+
+        var tabsToClose = OpenTabs.Where(t => idsSet.Contains(t.Id) && !t.IsPinned).ToList();
+        if (tabsToClose.Count == 0) return;
+
+        foreach (var tab in tabsToClose)
+        {
+            OpenTabs.Remove(tab);
+        }
+
+        if (SecondaryTabId != null && tabsToClose.Any(t => t.Id == SecondaryTabId))
+        {
+            SecondaryTabId = null;
+            IsSplitView = false;
+        }
+
+        if (OpenTabs.Count == 0)
+        {
+            var defaultTab = new WorkspaceTab
+            {
+                Title = "New chat",
+                Type = WorkspaceTabType.Chat,
+                ChatId = "default",
+                Icon = null
+            };
+            OpenTabs.Add(defaultTab);
+            ActiveTabId = defaultTab.Id;
+        }
+        else if (tabsToClose.Any(t => t.Id == ActiveTabId))
+        {
+            ActiveTabId = OpenTabs[0].Id;
+        }
+
+        SaveTabs();
+    }
+
+    public void TogglePinTab(string tabId)
+    {
+        var tab = OpenTabs.FirstOrDefault(t => t.Id == tabId);
+        if (tab != null)
+        {
+            tab.IsPinned = !tab.IsPinned;
+            SaveTabs();
+        }
+    }
+
+    public WorkspaceTab? DuplicateTab(string tabId)
+    {
+        var tab = OpenTabs.FirstOrDefault(t => t.Id == tabId);
+        if (tab == null) return null;
+
+        var index = OpenTabs.IndexOf(tab);
+        var copy = new WorkspaceTab
+        {
+            Title = tab.Title,
+            Type = tab.Type,
+            ChatId = tab.ChatId,
+            ToolId = tab.ToolId,
+            ProjectId = tab.ProjectId,
+            PresentationPath = tab.PresentationPath,
+            Icon = tab.Icon,
+            IsPinned = false
+        };
+
+        OpenTabs.Insert(index + 1, copy);
+        ActiveTabId = copy.Id;
+        SaveTabs();
+        return copy;
     }
 }

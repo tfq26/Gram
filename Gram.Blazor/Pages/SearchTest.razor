@@ -48,8 +48,8 @@
                 <div style="display: flex; gap: 8px; align-items: center;">
                     <span style="font-size: 12px; color: var(--text-muted, #94a3b8);">Test Engine:</span>
                     <select @bind="selectedModelOption" style="padding: 4px 10px; border-radius: 6px; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.15); font-size: 13px;">
-                        <option value="gram-q-plus">Gram Q+ (Gemini 3 Flash Preview)</option>
-                        <option value="gram-q">Gram Q (GPT OSS 120B / Groq)</option>
+                        <option value="gram-q-plus-plus">Gram Q++ (Gemini 3.1 Flash Lite)</option>
+                        <option value="gram-q-plus">Gram Q+ (GPT OSS 120B / Groq)</option>
                         <option value="both">Both (Side-by-Side Comparison)</option>
                     </select>
                 </div>
@@ -187,7 +187,7 @@
     private string customQuery = StandardPrompts[0];
     private string status = "Ready to test";
     private bool isRunning;
-    private string selectedModelOption = "gram-q-plus";
+    private string selectedModelOption = "gram-q-plus-plus";
 
     private long AverageLatencyMs => runs.Count == 0 ? 0 : (long)runs.Average(run => run.ElapsedMilliseconds);
 
@@ -210,7 +210,7 @@
         try
         {
             var targetModels = selectedModelOption == "both" 
-                ? new[] { "gram-q-plus", "gram-q" } 
+                ? new[] { "gram-q-plus-plus", "gram-q-plus" }
                 : new[] { selectedModelOption };
 
             foreach (var prompt in prompts)

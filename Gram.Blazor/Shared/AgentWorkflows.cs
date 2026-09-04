@@ -6,7 +6,7 @@ public sealed record AgentWorkflowRequest(
     List<Message> History,
     string WorkspacePath,
     string? SystemPrompt = null,
-    int MaxIterations = 8,
+    int MaxIterations = 25,
     string? RepositoryMap = null,
     IEnumerable<string>? AllowedToolNames = null,
     string? ForcedWebSearchQuery = null,
@@ -35,9 +35,10 @@ public sealed class ChatWorkflow : IAgentWorkflow
 
     public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
     {
+        var iterations = request.AllowLocalCapabilities ? Math.Max(request.MaxIterations, 25) : request.MaxIterations;
         await foreach (var update in _orchestrator.RunAgentLoopAsync(
             request.ModelId, request.History, request.WorkspacePath, request.SystemPrompt,
-            request.MaxIterations, request.RepositoryMap, request.AllowedToolNames,
+            iterations, request.RepositoryMap, request.AllowedToolNames,
             cancellationToken: request.CancellationToken, allowLocalCapabilities: request.AllowLocalCapabilities)) yield return update;
     }
 }
@@ -51,9 +52,10 @@ public sealed class ResearchWorkflow : IAgentWorkflow
 
     public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
     {
+        var iterations = request.AllowLocalCapabilities ? Math.Max(request.MaxIterations, 25) : request.MaxIterations;
         await foreach (var update in _orchestrator.RunAgentLoopAsync(
             request.ModelId, request.History, request.WorkspacePath, request.SystemPrompt,
-            request.MaxIterations, request.RepositoryMap, request.AllowedToolNames,
+            iterations, request.RepositoryMap, request.AllowedToolNames,
             request.ForcedWebSearchQuery ?? request.UserPrompt,
             cancellationToken: request.CancellationToken, allowLocalCapabilities: request.AllowLocalCapabilities)) yield return update;
     }
@@ -70,7 +72,7 @@ public sealed class PresentationWorkflow : IAgentWorkflow
     private readonly AgentOrchestrator _orchestrator;
     public PresentationWorkflow(AgentOrchestrator orchestrator) => _orchestrator = orchestrator;
     public string Name => "presentation";
-    public bool CanHandle(AgentWorkflowRequest request) => request.IsPresentationMode || PresentationGenerationService.IsPresentationRequest(request.UserPrompt);
+    public bool CanHandle(AgentWorkflowRequest request) => FeatureFlags.PresentationsEnabled && (request.IsPresentationMode || PresentationGenerationService.IsPresentationRequest(request.UserPrompt));
 
     public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
     {
@@ -86,9 +88,12 @@ public sealed class CodingWorkflow : IAgentWorkflow
     private readonly AgentOrchestrator _orchestrator;
     public CodingWorkflow(AgentOrchestrator orchestrator) => _orchestrator = orchestrator;
     public string Name => "coding";
-    public bool CanHandle(AgentWorkflowRequest request) => request.AllowLocalCapabilities && (request.UserPrompt.Contains("code", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("bug", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("implement", StringComparison.OrdinalIgnoreCase));
+    public bool CanHandle(AgentWorkflowRequest request) => request.AllowLocalCapabilities && (request.UserPrompt.Contains("code", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("bug", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("implement", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("test", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("fix", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("refactor", StringComparison.OrdinalIgnoreCase));
     public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
-    { await foreach (var update in _orchestrator.RunAgentLoopAsync(request.ModelId, request.History, request.WorkspacePath, request.SystemPrompt, request.MaxIterations, request.RepositoryMap, request.AllowedToolNames, cancellationToken: request.CancellationToken, allowLocalCapabilities: request.AllowLocalCapabilities)) yield return update; }
+    {
+        var iterations = Math.Max(request.MaxIterations, 25);
+        await foreach (var update in _orchestrator.RunAgentLoopAsync(request.ModelId, request.History, request.WorkspacePath, request.SystemPrompt, iterations, request.RepositoryMap, request.AllowedToolNames, cancellationToken: request.CancellationToken, allowLocalCapabilities: request.AllowLocalCapabilities)) yield return update;
+    }
 }
 
 public sealed class VoiceWorkflow : IAgentWorkflow

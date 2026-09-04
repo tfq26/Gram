@@ -14,7 +14,7 @@
             var vendorKey = (Vendor ?? "").Trim().ToLowerInvariant();
 
             // 1. Gram flagship models (Gram Q, Gram Q+) and any Gram model ALWAYS display the Gram logo
-            if (modelKey.StartsWith("gram") || modelKey.Contains("gram-q") || modelKey.Contains("gram-q-plus") || 
+            if (modelKey.StartsWith("gram") || modelKey.Contains("gram-q") || modelKey.Contains("gram-q-plus") ||
                 vendorKey.StartsWith("gram") || (string.IsNullOrWhiteSpace(modelKey) && string.IsNullOrWhiteSpace(vendorKey)))
             {
                 return "icons/gram-logo.svg";

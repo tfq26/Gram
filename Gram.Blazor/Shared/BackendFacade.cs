@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Gram.Blazor.Shared;
@@ -8,145 +7,67 @@ public sealed class BackendFacade : IConversationApi, IRunApi, IModelApi, ISearc
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IAgentRunTracker _tracker;
     private readonly ModelService _models;
+    private readonly RunManager _runManager;
+    private readonly IConversationRepository _conversations;
 
-    public BackendFacade(IServiceScopeFactory scopeFactory, IAgentRunTracker tracker, ModelService models)
-    { _scopeFactory = scopeFactory; _tracker = tracker; _models = models; }
+    public BackendFacade(IServiceScopeFactory scopeFactory, IAgentRunTracker tracker, ModelService models, RunManager runManager, IConversationRepository conversations)
+    { _scopeFactory = scopeFactory; _tracker = tracker; _models = models; _runManager = runManager; _conversations = conversations; }
 
     public async Task<IReadOnlyList<ConversationSummary>> ListAsync(CancellationToken cancellationToken = default)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<ConversationService>();
-        await service.InitializeAsync();
-        return service.Conversations.Select(ToSummary).ToList();
+        var conversations = await _conversations.ListAsync(cancellationToken);
+        return conversations.Select(ToSummary).ToList();
     }
 
     public async Task<ConversationDetail?> GetAsync(string id, CancellationToken cancellationToken = default)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<ConversationService>();
-        await service.InitializeAsync();
-        var conversation = service.Conversations.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+        var conversation = await _conversations.GetAsync(id, cancellationToken);
         if (conversation is null && id.Equals("default", StringComparison.OrdinalIgnoreCase))
         {
             conversation = new Conversation("default", "New chat", DateTimeOffset.UtcNow);
-            service.Conversations.Insert(0, conversation);
-            await service.SaveConversationAsync(conversation);
+            conversation = await _conversations.CreateAsync(new CreateConversationRequest("New chat"), cancellationToken);
         }
         return conversation is null ? null : ToDetail(conversation);
     }
 
     public async Task<ConversationDetail> CreateAsync(CreateConversationRequest request, CancellationToken cancellationToken = default)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<ConversationService>();
-        await service.InitializeAsync();
-        var conversation = new Conversation { Title = string.IsNullOrWhiteSpace(request.Title) ? "New chat" : request.Title.Trim(), ModelId = request.ModelId };
-        service.Conversations.Add(conversation);
-        await service.SaveConversationAsync(conversation);
+        var conversation = await _conversations.CreateAsync(request, cancellationToken);
         return ToDetail(conversation);
     }
 
     public async Task<ConversationDetail?> SaveAsync(string id, SaveConversationRequest request, CancellationToken cancellationToken = default)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<ConversationService>();
-        await service.InitializeAsync();
-        var conversation = service.Conversations.FirstOrDefault(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
-        if (conversation is null)
-        {
-            conversation = new Conversation(id, string.IsNullOrWhiteSpace(request.Title) ? "New chat" : request.Title.Trim(), DateTimeOffset.UtcNow)
-            {
-                ModelId = request.ModelId,
-                Messages = request.Messages?.ToList() ?? new List<Message>()
-            };
-            service.Conversations.Insert(0, conversation);
-        }
-        else
-        {
-            if (request.Title is not null) conversation.Title = request.Title.Trim();
-            if (request.ModelId is not null) conversation.ModelId = request.ModelId;
-            if (request.Messages is not null) conversation.Messages = request.Messages.ToList();
-        }
-        conversation.Updated = DateTimeOffset.UtcNow;
-        await service.SaveConversationAsync(conversation);
-        return ToDetail(conversation);
+        var conversation = await _conversations.SaveAsync(id, request, cancellationToken);
+        return conversation is null ? null : ToDetail(conversation);
     }
 
     public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<ConversationService>();
-        await service.InitializeAsync();
-        if (!service.Conversations.Any(x => x.Id.Equals(id, StringComparison.OrdinalIgnoreCase))) return false;
-        await service.DeleteConversationAsync(id);
-        return true;
+        return await _conversations.DeleteAsync(id, cancellationToken);
     }
 
     public async Task<RunSummary> StartAsync(string conversationId, SendMessageRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.Text)) throw new ArgumentException("Text is required.", nameof(request));
-        using var scope = _scopeFactory.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<ConversationService>();
-        await service.InitializeAsync();
-        var conversation = service.Conversations.FirstOrDefault(x => x.Id.Equals(conversationId, StringComparison.OrdinalIgnoreCase));
+        var conversation = await _conversations.GetAsync(conversationId, cancellationToken);
         if (conversation is null)
         {
             conversation = new Conversation(conversationId, "New chat", DateTimeOffset.UtcNow)
             {
                 ModelId = request.ModelId
             };
-            service.Conversations.Insert(0, conversation);
+            conversation = await _conversations.CreateAsync(new CreateConversationRequest("New chat", request.ModelId), cancellationToken);
         }
 
-        var modelId = request.ModelId ?? conversation.ModelId ?? _models.Models.FirstOrDefault(x => x.IsFavorite)?.Id ?? _models.Models.FirstOrDefault()?.Id ?? "gram-q-plus";
+        var modelId = request.ModelId ?? conversation.ModelId ?? _models.Models.FirstOrDefault(x => x.Id.Equals(GramModelIds.GramQ, StringComparison.OrdinalIgnoreCase))?.Id ?? _models.Models.FirstOrDefault(x => x.IsFavorite)?.Id ?? _models.Models.FirstOrDefault()?.Id ?? GramModelIds.GramQ;
         conversation.ModelId = modelId;
         if (conversation.Messages.LastOrDefault(x => x.Role.Equals("user", StringComparison.OrdinalIgnoreCase))?.Text != request.Text)
             conversation.Messages.Add(new Message("user", request.Text));
         conversation.Updated = DateTimeOffset.UtcNow;
-        await service.SaveConversationAsync(conversation);
-        var run = _tracker.Start(conversation.Id, modelId);
-        _ = ExecuteRunAsync(run.Id, conversation, request, cancellationToken);
+        await _conversations.SaveAsync(conversation.Id, new SaveConversationRequest(conversation.Title, conversation.ModelId, conversation.Messages, conversation.Version), cancellationToken);
+        var run = _runManager.Start(conversation, modelId, request);
         return ToSummary(run);
-    }
-
-    private async Task ExecuteRunAsync(string runId, Conversation conversation, SendMessageRequest request, CancellationToken callerToken)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var router = scope.ServiceProvider.GetRequiredService<IAgentWorkflowRouter>();
-            var presentationService = scope.ServiceProvider.GetRequiredService<PresentationGenerationService>();
-            var run = _tracker.Get(runId)!;
-            // The POST request may finish before this durable run does. Cancellation is
-            // therefore owned by the run tracker, not by the HTTP request lifetime.
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(_tracker.GetCancellationToken(runId));
-            var workspace = string.IsNullOrWhiteSpace(request.WorkspacePath) ? Environment.CurrentDirectory : request.WorkspacePath!;
-            var history = request.ContextMessages?.ToList() ?? conversation.Messages;
-            void ForwardPresentationUpdate(ContentProject project) => _tracker.EmitPayload(runId, "run.presentation", JsonSerializer.Serialize(project, BackendJson.Options));
-            presentationService.ProjectUpdated += ForwardPresentationUpdate;
-            try
-            {
-                await foreach (var step in router.RunAsync(new AgentWorkflowRequest(run.ModelId, request.Text, history, workspace, request.SystemPrompt, RepositoryMap: request.RepositoryMap, AllowedToolNames: request.AllowedToolNames, IsPresentationMode: request.PresentationMode, ForcedWebSearchQuery: request.ForcedSearchQuery, CancellationToken: linked.Token, AllowLocalCapabilities: request.AllowLocalCapabilities)))
-                {
-                    if (step.ContentDelta is { Length: > 0 } delta) _tracker.AppendOutput(runId, delta);
-                    _tracker.Update(runId, AgentRunStatus.Executing, step.ToolCall is null ? "Generating response" : $"Using {ToolNameHelper.GetDisplayName(step.ToolCall.ToolName)}", toolName: step.ToolCall?.ToolName);
-                    _tracker.EmitPayload(runId, "run.step", JsonSerializer.Serialize(new { step.ContentDelta, step.ThinkingDelta, step.ToolCall, step.ErrorMessage, step.IsComplete }, BackendJson.Options));
-                    if (step.ErrorMessage is not null) _tracker.Complete(runId, AgentRunStatus.Failed, step.ErrorMessage);
-                }
-            }
-            finally
-            {
-                presentationService.ProjectUpdated -= ForwardPresentationUpdate;
-            }
-            _tracker.Complete(runId);
-            using var saveScope = _scopeFactory.CreateScope();
-            var service = saveScope.ServiceProvider.GetRequiredService<ConversationService>();
-            await service.InitializeAsync();
-            var saved = service.Conversations.FirstOrDefault(x => x.Id == conversation.Id);
-            if (saved is not null) { saved.Messages.Add(new Message("assistant", _tracker.GetOutput(runId) ?? "")); await service.SaveConversationAsync(saved); }
-        }
-        catch (OperationCanceledException) { _tracker.Complete(runId, AgentRunStatus.Cancelled, "Generation cancelled."); }
-        catch (Exception ex) { _tracker.Complete(runId, AgentRunStatus.Failed, ex.Message); }
     }
 
     public RunSummary? Get(string runId) => _tracker.Get(runId) is { } run ? ToSummary(run) : null;

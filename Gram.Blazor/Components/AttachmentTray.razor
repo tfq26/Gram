@@ -7,10 +7,10 @@
         {
             var attachment = Attachments.FirstOrDefault(a => a.FileName == fileName);
             var isImage = attachment?.IsImage ?? fileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".svg", StringComparison.OrdinalIgnoreCase);
-            <div class="attachment-pill">
+            <div class="attachment-pill" @onclick="() => OnClick.InvokeAsync(fileName)" style="cursor: pointer;" title="Inspect @fileName">
                 <span class="attachment-icon" aria-hidden="true">@(isImage ? "▧" : "▤")</span>
                 <span class="attachment-name">@fileName</span>
-                <button type="button" class="btn-remove-attachment" @onclick="() => Remove.InvokeAsync(fileName)" title="Remove @fileName" aria-label="Remove @fileName">✕</button>
+                <button type="button" class="btn-remove-attachment" @onclick:stopPropagation="true" @onclick="() => Remove.InvokeAsync(fileName)" title="Remove @fileName" aria-label="Remove @fileName">✕</button>
             </div>
         }
     </div>
@@ -20,4 +20,5 @@
     [Parameter, EditorRequired] public IReadOnlyList<string> FileNames { get; set; } = [];
     [Parameter, EditorRequired] public IReadOnlyList<AttachmentInfo> Attachments { get; set; } = [];
     [Parameter] public EventCallback<string> Remove { get; set; }
+    [Parameter] public EventCallback<string> OnClick { get; set; }
 }

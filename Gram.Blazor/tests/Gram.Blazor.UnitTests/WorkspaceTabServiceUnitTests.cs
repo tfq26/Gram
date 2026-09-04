@@ -290,4 +290,50 @@ public sealed class WorkspaceTabServiceUnitTests : IDisposable
         Assert.False(tabService.IsSplitView);
         Assert.Null(tabService.SecondaryTabId);
     }
+
+    [Fact]
+    public void SessionStateRestoration_PreservesActiveTabAndSplitStateAcrossRestarts()
+    {
+        // 1. First session opens tabs, sets specific active tab, and enables split view
+        var tabService1 = new WorkspaceTabService(_storageService);
+        tabService1.OpenChatTab("chat-1", "Chat 1");
+        tabService1.OpenChatTab("chat-2", "Chat 2");
+        tabService1.OpenChatTab("chat-3", "Chat 3");
+
+        var tab2 = tabService1.OpenTabs.First(t => t.ChatId == "chat-2");
+        var tab3 = tabService1.OpenTabs.First(t => t.ChatId == "chat-3");
+
+        // Select tab-2 as active tab
+        tabService1.SelectTab(tab2.Id);
+        Assert.Equal(tab2.Id, tabService1.ActiveTabId);
+
+        // Split with tab-3 as secondary
+        tabService1.ToggleSplitView(tab3.Id);
+        Assert.True(tabService1.IsSplitView);
+        Assert.Equal(tab3.Id, tabService1.SecondaryTabId);
+
+        // 2. Second session (simulating restart / reopening after crash)
+        var tabService2 = new WorkspaceTabService(_storageService);
+
+        Assert.Equal(tabService1.OpenTabs.Count, tabService2.OpenTabs.Count);
+        Assert.Equal(tab2.Id, tabService2.ActiveTabId);
+        Assert.True(tabService2.IsSplitView);
+        Assert.Equal(tab3.Id, tabService2.SecondaryTabId);
+    }
+
+    [Fact]
+    public void SessionStateRestoration_HandlesLegacyJsonArrayBackwardsCompatibly()
+    {
+        // Write raw JSON array to open_tabs.json (older storage format)
+        var tabsFilePath = _storageService.GetFilePath("open_tabs.json");
+        var legacyJson = "[{\"Id\":\"legacy-1\",\"Title\":\"Legacy Chat 1\",\"Type\":0,\"ChatId\":\"c-1\"},{\"Id\":\"legacy-2\",\"Title\":\"Legacy Chat 2\",\"Type\":0,\"ChatId\":\"c-2\"}]";
+        File.WriteAllText(tabsFilePath, legacyJson);
+
+        var tabService = new WorkspaceTabService(_storageService);
+
+        Assert.Equal(2, tabService.OpenTabs.Count);
+        Assert.Equal("legacy-1", tabService.ActiveTabId);
+        Assert.Equal("Legacy Chat 1", tabService.OpenTabs[0].Title);
+        Assert.Equal("Legacy Chat 2", tabService.OpenTabs[1].Title);
+    }
 }

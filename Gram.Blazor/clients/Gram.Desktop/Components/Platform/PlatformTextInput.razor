@@ -1,0 +1,167 @@
+@namespace Gram.Desktop.Components.Platform
+@using Gram.Desktop.Services
+@inject IPlatformService Platform
+
+<div class="platform-input-wrap @Platform.PlatformCssClass @CustomClass @(IsFocused ? "focused" : "") @(IsDisabled ? "disabled" : "")">
+    @if (IsMultiline)
+    {
+        <textarea class="platform-textarea @Platform.PlatformCssClass"
+                  value="@Value"
+                  placeholder="@ComputedPlaceholder"
+                  disabled="@IsDisabled"
+                  rows="@Rows"
+                  @oninput="HandleInput"
+                  @onkeydown="HandleKeyDown"
+                  @onfocus="() => IsFocused = true"
+                  @onblur="() => IsFocused = false"></textarea>
+    }
+    else
+    {
+        <input type="@Type"
+               class="platform-input @Platform.PlatformCssClass"
+               value="@Value"
+               placeholder="@ComputedPlaceholder"
+               disabled="@IsDisabled"
+               @oninput="HandleInput"
+               @onkeydown="HandleKeyDown"
+               @onfocus="() => IsFocused = true"
+               @onblur="() => IsFocused = false" />
+    }
+</div>
+
+<style>
+/* Base input container */
+.platform-input-wrap {
+    width: 100%;
+    position: relative;
+    display: flex;
+    transition: all 0.15s ease;
+}
+
+/* 1. MACOS INPUT STYLES (SF Pro, Subtle Translucency, Blue Glow Ring) */
+.platform-input-wrap.os-macos {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.platform-input-wrap.os-macos.focused {
+    border-color: #007aff;
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.35), inset 0 1px 2px rgba(0, 0, 0, 0.2);
+    background: rgba(255, 255, 255, 0.07);
+}
+.platform-input.os-macos, .platform-textarea.os-macos {
+    font-family: inherit;
+    font-size: 13px;
+    color: #f2f2f7;
+    background: transparent;
+    border: none;
+    outline: none;
+    width: 100%;
+    padding: 8px 12px;
+    line-height: 1.5;
+    resize: none;
+}
+.platform-input.os-macos::placeholder, .platform-textarea.os-macos::placeholder {
+    color: #8e8e93;
+}
+
+/* 2. WINDOWS FLUENT INPUT STYLES (Segoe UI, 4px Radius, Bottom Accent Line) */
+.platform-input-wrap.os-windows {
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    border-radius: 4px;
+    background: #202020;
+    border: 1px solid #383838;
+    border-bottom: 2px solid #8a8a8a;
+}
+.platform-input-wrap.os-windows.focused {
+    border-color: #383838;
+    border-bottom: 2px solid #60cdff;
+    background: #181818;
+}
+.platform-input.os-windows, .platform-textarea.os-windows {
+    font-family: inherit;
+    font-size: 13.5px;
+    color: #ffffff;
+    background: transparent;
+    border: none;
+    outline: none;
+    width: 100%;
+    padding: 7px 10px;
+    line-height: 1.4;
+    resize: none;
+}
+.platform-input.os-windows::placeholder, .platform-textarea.os-windows::placeholder {
+    color: #a0a0a0;
+}
+
+/* 3. LINUX ADWAITA STYLES */
+.platform-input-wrap.os-linux {
+    font-family: "Ubuntu", sans-serif;
+    border-radius: 5px;
+    background: #282828;
+    border: 1px solid #404040;
+}
+.platform-input-wrap.os-linux.focused {
+    border-color: #3584e4;
+    box-shadow: 0 0 0 2px rgba(53, 132, 228, 0.4);
+}
+.platform-input.os-linux, .platform-textarea.os-linux {
+    font-family: inherit;
+    font-size: 13px;
+    color: #ffffff;
+    background: transparent;
+    border: none;
+    outline: none;
+    width: 100%;
+    padding: 7px 11px;
+    line-height: 1.4;
+}
+</style>
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "";
+    [Parameter] public string Type { get; set; } = "text";
+    [Parameter] public bool IsMultiline { get; set; } = false;
+    [Parameter] public int Rows { get; set; } = 3;
+    [Parameter] public bool IsDisabled { get; set; } = false;
+    [Parameter] public bool AppendShortcutHint { get; set; } = true;
+    [Parameter] public string CustomClass { get; set; } = "";
+    [Parameter] public EventCallback OnSubmit { get; set; }
+
+    private bool IsFocused = false;
+
+    private string ComputedPlaceholder => AppendShortcutHint && IsMultiline
+        ? $"{Placeholder} ({Platform.SubmitShortcutLabel} to send)"
+        : Placeholder;
+
+    private async Task HandleInput(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString() ?? "";
+        Value = val;
+        await ValueChanged.InvokeAsync(val);
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (IsDisabled) return;
+
+        // OS-adaptive submit detection:
+        // On macOS: Command+Enter (MetaKey)
+        // On Windows/Linux: Ctrl+Enter (CtrlKey)
+        // Or if single-line Enter without Shift
+        bool isSubmitKey = Platform.IsSubmitKeyPressed(e.CtrlKey, e.MetaKey) && e.Key == "Enter";
+        if (!IsMultiline && e.Key == "Enter" && !e.ShiftKey)
+        {
+            isSubmitKey = true;
+        }
+
+        if (isSubmitKey)
+        {
+            await OnSubmit.InvokeAsync();
+        }
+    }
+}

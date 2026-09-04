@@ -16,17 +16,26 @@ public sealed class ContextBuilder
     private readonly SettingsService _settingsService;
     private readonly RepositoryMapService _repositoryMapService;
     private readonly ITaskAndMemoryService? _taskAndMemoryService;
+    private readonly IStructuredMemoryService? _structuredMemoryService;
+    private readonly ProjectService? _projectService;
+    private readonly DocumentParserService _documentParser;
 
     public ContextBuilder(
         SessionStorageService sessionStorage, 
         SettingsService settingsService, 
         RepositoryMapService repositoryMapService,
-        ITaskAndMemoryService? taskAndMemoryService = null)
+        ITaskAndMemoryService? taskAndMemoryService = null,
+        ProjectService? projectService = null,
+        DocumentParserService? documentParser = null,
+        IStructuredMemoryService? structuredMemoryService = null)
     {
         _sessionStorage = sessionStorage;
         _settingsService = settingsService;
         _repositoryMapService = repositoryMapService;
         _taskAndMemoryService = taskAndMemoryService;
+        _structuredMemoryService = structuredMemoryService;
+        _projectService = projectService;
+        _documentParser = documentParser ?? new DocumentParserService();
     }
 
     public async Task<ContextAssemblyResult> AssembleContextAsync(
@@ -80,6 +89,71 @@ public sealed class ContextBuilder
             }
         }
 
+        if (_structuredMemoryService != null && !string.IsNullOrWhiteSpace(relevanceQuery))
+        {
+            var structuredContext = await _structuredMemoryService.BuildContextAsync(relevanceQuery, projectId: conversation.ProjectId);
+            if (!string.IsNullOrWhiteSpace(structuredContext))
+            {
+                sbSystem.AppendLine();
+                sbSystem.AppendLine(structuredContext);
+            }
+        }
+
+        // 2c. Scoped Project Context & Knowledge Base (if attached to a Project)
+        Project? activeProject = null;
+        if (_projectService != null && !string.IsNullOrWhiteSpace(conversation.ProjectId))
+        {
+            activeProject = _projectService.GetProject(conversation.ProjectId);
+            if (activeProject != null)
+            {
+                sbSystem.AppendLine();
+                sbSystem.AppendLine($"<project_context id=\"{activeProject.Id}\" name=\"{activeProject.Name}\">");
+                if (!string.IsNullOrWhiteSpace(activeProject.Description))
+                {
+                    sbSystem.AppendLine($"<description>{activeProject.Description.Trim()}</description>");
+                }
+                if (!string.IsNullOrWhiteSpace(activeProject.CustomInstructions))
+                {
+                    sbSystem.AppendLine("<project_instructions>");
+                    sbSystem.AppendLine(activeProject.CustomInstructions.Trim());
+                    sbSystem.AppendLine("</project_instructions>");
+                }
+
+                if (activeProject.Files.Count > 0)
+                {
+                    sbSystem.AppendLine("<project_knowledge_base>");
+                    sbSystem.AppendLine("The user has attached the following knowledge documents and reference files to this project folder. Ground all analysis and answers on this knowledge base:");
+                    foreach (var pFile in activeProject.Files)
+                    {
+                        if (pFile.IsText)
+                        {
+                            var fileText = await _projectService.ReadProjectFileTextAsync(activeProject.Id, pFile.FileName);
+                            if (!string.IsNullOrWhiteSpace(fileText))
+                            {
+                                var safeText = fileText.Length > 30000 ? fileText[..30000] + "\n...[truncated]" : fileText;
+                                sbSystem.AppendLine($"<file name=\"{pFile.FileName}\" size=\"{pFile.SizeBytes}B\">");
+                                sbSystem.AppendLine(safeText);
+                                sbSystem.AppendLine("</file>");
+                            }
+                        }
+                        else
+                        {
+                            sbSystem.AppendLine($"<file name=\"{pFile.FileName}\" type=\"{pFile.ContentType}\" size=\"{pFile.SizeBytes}B\" />");
+                        }
+                    }
+                    sbSystem.AppendLine("</project_knowledge_base>");
+                }
+
+                if (activeProject.StrictContextOnly)
+                {
+                    sbSystem.AppendLine("<strict_context_isolation>");
+                    sbSystem.AppendLine("Strict Project Context Active: Confine all reasoning and responses strictly to this project's instructions and attached knowledge base documents. Do not assume or hallucinate external workspace structures.");
+                    sbSystem.AppendLine("</strict_context_isolation>");
+                }
+                sbSystem.AppendLine("</project_context>");
+            }
+        }
+
         // 3. Chat-specific Rules
         if (!string.IsNullOrWhiteSpace(conversation.Rules))
         {
@@ -111,28 +185,29 @@ public sealed class ContextBuilder
             sbSystem.AppendLine("</context_summary>");
         }
 
-        // 5. Attached Files Context Injection
+        // 5. Attached Files Context Injection (Hybrid Multimodal & Document Extraction)
         if (conversation.Attachments.Count > 0)
         {
             sbSystem.AppendLine();
             sbSystem.AppendLine("<workspace_attachments>");
             foreach (var att in conversation.Attachments)
             {
-                if (att.IsImage)
+                var attPath = _sessionStorage.GetAttachmentPath(conversation.Id, att.FileName);
+                if (File.Exists(attPath))
+                {
+                    var parsed = await _documentParser.ParseDocumentAsync(attPath, att.FileName, att.ContentType);
+                    if (!string.IsNullOrWhiteSpace(parsed.FormattedContextText))
+                    {
+                        sbSystem.AppendLine(parsed.FormattedContextText.Trim());
+                    }
+                    else
+                    {
+                        sbSystem.AppendLine($"<file name=\"{att.FileName}\" type=\"{att.ContentType}\" size=\"{att.SizeBytes}B\" />");
+                    }
+                }
+                else if (att.IsImage)
                 {
                     sbSystem.AppendLine($"<image_attachment name=\"{att.FileName}\" format=\"{att.ContentType}\" size=\"{att.SizeBytes}B\" note=\"Visual image / screenshot attached by user for UI, diagram, or vision inspection.\" />");
-                }
-                else if (att.IsText)
-                {
-                    var text = await _sessionStorage.ReadAttachmentTextAsync(conversation.Id, att.FileName);
-                    if (!string.IsNullOrWhiteSpace(text))
-                    {
-                        // Cap individual file inject to 30,000 characters for token protection
-                        var safeText = text.Length > 30000 ? text[..30000] + "\n...[truncated]" : text;
-                        sbSystem.AppendLine($"<file name=\"{att.FileName}\" size=\"{att.SizeBytes}B\">");
-                        sbSystem.AppendLine(safeText);
-                        sbSystem.AppendLine("</file>");
-                    }
                 }
                 else
                 {
@@ -161,7 +236,7 @@ public sealed class ContextBuilder
             : historyMessages.ToList();
 
         var systemPromptFinal = sbSystem.ToString().Trim();
-        var repositoryMap = !string.IsNullOrWhiteSpace(workspacePath)
+        var repositoryMap = (!string.IsNullOrWhiteSpace(workspacePath) && (activeProject == null || !activeProject.StrictContextOnly))
             ? await _repositoryMapService.BuildRelevantMapAsync(workspacePath, relevanceQuery)
             : null;
         var estimatedTokens = (systemPromptFinal.Length + (repositoryMap?.Length ?? 0) + recentMessages.Sum(m => m.Text.Length)) / 4;
@@ -214,6 +289,23 @@ public sealed class ContextBuilder
         return true;
     }
 
+    public async Task<string> CompactForArchiveAsync(Conversation conversation)
+    {
+        if (conversation.Messages.Count == 0) return "";
+
+        var checkpoint = BuildDeterministicCheckpoint(
+            conversation.ContextSummary,
+            conversation.Messages,
+            0,
+            conversation.Messages.Count);
+
+        var persisted = $"<!-- gram-compacted-through:{conversation.Messages.Count} -->\n{checkpoint}";
+        await _sessionStorage.SaveContextSummaryAsync(conversation.Id, persisted);
+        conversation.ContextSummary = checkpoint;
+        conversation.ContextSummaryMessageCount = conversation.Messages.Count;
+        return checkpoint;
+    }
+
     public string BuildSummarizationPrompt(Conversation conversation)
     {
         var sb = new StringBuilder();
@@ -233,31 +325,123 @@ public sealed class ContextBuilder
         int endIndex)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Rolling conversation memory. Preserve these facts when continuing:");
+        sb.AppendLine("## Conversation Memory Summary");
 
         if (!string.IsNullOrWhiteSpace(existingSummary))
         {
+            var cleanedExisting = TrimForContext(existingSummary, 1200);
             sb.AppendLine();
-            sb.AppendLine("Earlier checkpoint:");
-            sb.AppendLine(TrimForContext(existingSummary, 2400));
+            sb.AppendLine("### Prior Context:");
+            sb.AppendLine(cleanedExisting);
         }
 
         sb.AppendLine();
-        sb.AppendLine($"Checkpointed messages: 1-{endIndex}");
-        foreach (var message in messages.Skip(startIndex).Take(Math.Max(0, endIndex - startIndex)))
-        {
-            var role = message.Role.Equals("user", StringComparison.OrdinalIgnoreCase) ? "User" : "Gram";
-            var text = string.IsNullOrWhiteSpace(message.Text)
-                ? (message.ToolCalls?.Count > 0 ? $"Completed {message.ToolCalls.Count} tool call(s)." : "")
-                : message.Text;
+        sb.AppendLine("### Key Discussion & Decisions:");
 
-            if (!string.IsNullOrWhiteSpace(text))
+        var slice = messages.Skip(startIndex).Take(Math.Max(0, endIndex - startIndex)).ToList();
+        for (var i = 0; i < slice.Count; i++)
+        {
+            var message = slice[i];
+            var isUser = message.Role.Equals("user", StringComparison.OrdinalIgnoreCase);
+            var rawText = message.Text?.Trim() ?? "";
+
+            if (string.IsNullOrWhiteSpace(rawText))
             {
-                sb.AppendLine($"- {role}: {TrimForContext(text, 700)}");
+                if (message.ToolCalls?.Count > 0)
+                {
+                    sb.AppendLine($"- Executed {message.ToolCalls.Count} tool call(s).");
+                }
+                continue;
+            }
+
+            if (isUser)
+            {
+                var userIntent = CondenseUserIntent(rawText);
+                sb.AppendLine($"- User asked: {userIntent}");
+            }
+            else
+            {
+                var assistantDecisions = CondenseAssistantResponse(rawText);
+                if (!string.IsNullOrWhiteSpace(assistantDecisions))
+                {
+                    sb.AppendLine($"  - Decided/Implemented: {assistantDecisions}");
+                }
             }
         }
 
-        return TrimForContext(sb.ToString(), 5600);
+        return TrimForContext(sb.ToString(), 2800);
+    }
+
+    private static string CondenseUserIntent(string text)
+    {
+        var cleaned = text.Replace("\r\n", " ").Replace("\n", " ").Trim();
+        var periodIdx = cleaned.IndexOf('.');
+        var questionIdx = cleaned.IndexOf('?');
+        var endIdx = -1;
+
+        if (periodIdx > 0 && questionIdx > 0) endIdx = Math.Min(periodIdx, questionIdx);
+        else if (periodIdx > 0) endIdx = periodIdx;
+        else if (questionIdx > 0) endIdx = questionIdx;
+
+        if (endIdx > 0 && endIdx <= 140)
+        {
+            return cleaned[..(endIdx + 1)];
+        }
+        return cleaned.Length <= 140 ? cleaned : cleaned[..140] + "...";
+    }
+
+    private static string CondenseAssistantResponse(string text)
+    {
+        var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(l => l.Trim())
+                        .Where(l => !string.IsNullOrWhiteSpace(l))
+                        .ToList();
+
+        if (lines.Count == 0) return "";
+
+        var keyPoints = new List<string>();
+        foreach (var line in lines)
+        {
+            if (line.StartsWith("Understood", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Certainly", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Sure", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Here is", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Okay", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("I have", StringComparison.OrdinalIgnoreCase))
+            {
+                var colonIdx = line.IndexOf(':');
+                if (colonIdx > 0 && colonIdx < line.Length - 5)
+                {
+                    keyPoints.Add(line[(colonIdx + 1)..].Trim());
+                }
+                continue;
+            }
+
+            if (line.StartsWith('-') || line.StartsWith('*') || line.StartsWith("•") || (line.Length > 2 && char.IsDigit(line[0]) && (line[1] == '.' || line[1] == ')')))
+            {
+                keyPoints.Add(line.TrimStart('-', '*', '•', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '.', ')', ' '));
+            }
+            else if (line.Contains("CREATE TABLE", StringComparison.OrdinalIgnoreCase) ||
+                     line.Contains("class ", StringComparison.OrdinalIgnoreCase) ||
+                     line.Contains("decision", StringComparison.OrdinalIgnoreCase) ||
+                     line.Contains("implemented", StringComparison.OrdinalIgnoreCase) ||
+                     line.Contains("table", StringComparison.OrdinalIgnoreCase))
+            {
+                keyPoints.Add(line);
+            }
+            else if (keyPoints.Count < 2)
+            {
+                keyPoints.Add(line);
+            }
+        }
+
+        if (keyPoints.Count == 0)
+        {
+            keyPoints.Add(lines[0]);
+        }
+
+        var result = string.Join("; ", keyPoints.Take(3));
+        return result.Length <= 220 ? result : result[..220] + "...";
     }
 
     private static string StripCompactionMarker(string summary, out int compactedThrough)

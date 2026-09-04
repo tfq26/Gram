@@ -8,6 +8,7 @@ public sealed class SessionStorageService
 {
     private readonly StorageService _storageService;
     private readonly string _conversationsBaseDir;
+    private readonly string _projectsBaseDir;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -20,7 +21,9 @@ public sealed class SessionStorageService
     {
         _storageService = storageService;
         _conversationsBaseDir = Path.Combine(_storageService.DataDirectory, "conversations");
+        _projectsBaseDir = Path.Combine(_storageService.DataDirectory, "projects");
         Directory.CreateDirectory(_conversationsBaseDir);
+        Directory.CreateDirectory(_projectsBaseDir);
     }
 
     private SemaphoreSlim GetLock(string conversationId) =>
@@ -32,8 +35,14 @@ public sealed class SessionStorageService
     public string GetAttachmentsDirectory(string conversationId) =>
         Path.Combine(GetConversationDirectory(conversationId), "attachments");
 
+    public string GetAttachmentPath(string conversationId, string fileName) =>
+        Path.Combine(GetAttachmentsDirectory(conversationId), SanitizeFileName(fileName));
+
     public string GetArtifactsDirectory(string conversationId) =>
         Path.Combine(GetConversationDirectory(conversationId), "artifacts");
+
+    public string GetArtifactPath(string conversationId, string fileName) =>
+        Path.Combine(GetArtifactsDirectory(conversationId), SanitizeFileName(fileName));
 
     public void EnsureConversationDirectories(string conversationId)
     {
@@ -53,6 +62,8 @@ public sealed class SessionStorageService
             Created = conv.Created,
             Updated = conv.Updated,
             ModelId = conv.ModelId,
+            ProjectId = conv.ProjectId,
+            IsArchived = conv.IsArchived,
             SystemPromptOverride = conv.SystemPromptOverride,
             Rules = conv.Rules,
             MessageCount = conv.Messages.Count,
@@ -185,6 +196,8 @@ public sealed class SessionStorageService
             Created = meta?.Created ?? DateTimeOffset.UtcNow,
             Updated = meta?.Updated ?? DateTimeOffset.UtcNow,
             ModelId = meta?.ModelId,
+            ProjectId = meta?.ProjectId,
+            IsArchived = meta?.IsArchived ?? false,
             SystemPromptOverride = meta?.SystemPromptOverride ?? "",
             Rules = meta?.Rules ?? "",
             Version = meta?.Version ?? 1
@@ -204,6 +217,8 @@ public sealed class SessionStorageService
                     conv.SystemPromptOverride = full.SystemPromptOverride ?? conv.SystemPromptOverride;
                     conv.Rules = full.Rules ?? conv.Rules;
                     conv.ModelId = full.ModelId ?? conv.ModelId;
+                    conv.ProjectId = full.ProjectId ?? conv.ProjectId;
+                    conv.IsArchived = full.IsArchived;
                     conv.Title = full.Title ?? conv.Title;
                     conv.Version = full.Version;
                     conv.Updated = full.Updated;
@@ -381,6 +396,137 @@ public sealed class SessionStorageService
             sem.Release();
             _sessionLocks.TryRemove(conversationId, out _);
         }
+    }
+
+    public string GetProjectDirectory(string projectId) =>
+        Path.Combine(_projectsBaseDir, SanitizeFileName(projectId));
+
+    public string GetProjectFilesDirectory(string projectId) =>
+        Path.Combine(GetProjectDirectory(projectId), "files");
+
+    public void EnsureProjectDirectories(string projectId)
+    {
+        var projDir = GetProjectDirectory(projectId);
+        Directory.CreateDirectory(projDir);
+        Directory.CreateDirectory(GetProjectFilesDirectory(projectId));
+    }
+
+    public async Task SaveProjectAsync(Project project)
+    {
+        EnsureProjectDirectories(project.Id);
+        var projectPath = Path.Combine(GetProjectDirectory(project.Id), "project.json");
+        var json = JsonSerializer.Serialize(project, JsonOptions);
+        await File.WriteAllTextAsync(projectPath, json, Encoding.UTF8);
+    }
+
+    public async Task<Project?> LoadProjectAsync(string projectId)
+    {
+        var projectPath = Path.Combine(GetProjectDirectory(projectId), "project.json");
+        if (!File.Exists(projectPath)) return null;
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(projectPath, Encoding.UTF8);
+            var project = JsonSerializer.Deserialize<Project>(json, JsonOptions);
+            if (project != null)
+            {
+                var filesDir = GetProjectFilesDirectory(projectId);
+                if (Directory.Exists(filesDir))
+                {
+                    project.Files.Clear();
+                    foreach (var file in Directory.GetFiles(filesDir))
+                    {
+                        var fi = new FileInfo(file);
+                        project.Files.Add(new ProjectFileInfo
+                        {
+                            FileName = fi.Name,
+                            SizeBytes = fi.Length,
+                            CreatedAt = fi.CreationTimeUtc,
+                            RelativePath = Path.Combine("files", fi.Name),
+                            IsText = IsTextFile(fi.Name)
+                        });
+                    }
+                }
+            }
+            return project;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionStorage] Error loading project {projectId}: {ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<List<Project>> ListAllProjectsAsync()
+    {
+        var list = new List<Project>();
+        if (!Directory.Exists(_projectsBaseDir)) return list;
+
+        var dirs = Directory.GetDirectories(_projectsBaseDir);
+        foreach (var dir in dirs)
+        {
+            var id = Path.GetFileName(dir);
+            var project = await LoadProjectAsync(id);
+            if (project != null) list.Add(project);
+        }
+        return list.OrderByDescending(p => p.Updated).ToList();
+    }
+
+    public async Task<ProjectFileInfo> SaveProjectFileAsync(string projectId, string fileName, Stream contentStream, string contentType = "text/plain")
+    {
+        EnsureProjectDirectories(projectId);
+        var safeName = SanitizeFileName(fileName);
+        var targetPath = Path.Combine(GetProjectFilesDirectory(projectId), safeName);
+
+        await using var fs = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        await contentStream.CopyToAsync(fs);
+
+        var fi = new FileInfo(targetPath);
+        return new ProjectFileInfo
+        {
+            FileName = safeName,
+            ContentType = contentType,
+            SizeBytes = fi.Length,
+            CreatedAt = DateTimeOffset.UtcNow,
+            RelativePath = Path.Combine("files", safeName),
+            IsText = IsTextFile(safeName)
+        };
+    }
+
+    public async Task<string?> ReadProjectFileTextAsync(string projectId, string fileName)
+    {
+        var targetPath = Path.Combine(GetProjectFilesDirectory(projectId), SanitizeFileName(fileName));
+        if (!File.Exists(targetPath) || !IsTextFile(fileName)) return null;
+
+        return await File.ReadAllTextAsync(targetPath, Encoding.UTF8);
+    }
+
+    public Task<bool> DeleteProjectFileAsync(string projectId, string fileName)
+    {
+        var targetPath = Path.Combine(GetProjectFilesDirectory(projectId), SanitizeFileName(fileName));
+        if (File.Exists(targetPath))
+        {
+            File.Delete(targetPath);
+            return Task.FromResult(true);
+        }
+        return Task.FromResult(false);
+    }
+
+    public Task DeleteProjectAsync(string projectId)
+    {
+        var projDir = GetProjectDirectory(projectId);
+        try
+        {
+            if (Directory.Exists(projDir))
+            {
+                Directory.Delete(projDir, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionStorage] Error deleting project {projectId}: {ex.Message}");
+        }
+        return Task.CompletedTask;
     }
 
     public async Task MigrateLegacyConversationsAsync(string legacyJsonPath)

@@ -93,6 +93,11 @@ public sealed class ModelService
                 if (list != null && list.Count > 0)
                 {
                     Providers = list;
+                    if (!Providers.Any(p => p.Id.Equals("vercel", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        Providers.Add(new ProviderConfig { Id = "vercel", Type = ProviderType.CustomOpenAI, Name = "Vercel AI Gateway", BaseUrl = "https://ai-gateway.vercel.sh/v1" });
+                        SaveProviders();
+                    }
                     return;
                 }
             }
@@ -106,6 +111,7 @@ public sealed class ModelService
         Providers =
         [
             new ProviderConfig { Id = "groq", Type = ProviderType.OpenAI, Name = "Groq", BaseUrl = "https://api.groq.com/openai/v1" },
+            new ProviderConfig { Id = "vercel", Type = ProviderType.CustomOpenAI, Name = "Vercel AI Gateway", BaseUrl = "https://ai-gateway.vercel.sh/v1" },
             new ProviderConfig { Id = "google", Type = ProviderType.Google, Name = "Google Gemini", BaseUrl = "https://generativelanguage.googleapis.com/v1beta/openai" },
             new ProviderConfig { Id = "cloudflare", Type = ProviderType.CustomOpenAI, Name = "Cloudflare Workers AI", BaseUrl = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1" },
             new ProviderConfig { Id = "openai", Type = ProviderType.OpenAI, Name = "OpenAI", BaseUrl = "https://api.openai.com/v1" },
@@ -128,22 +134,24 @@ public sealed class ModelService
                 if (list != null && list.Count > 0)
                 {
                     // Ensure canonical descriptions for default engines
-                    var qModel = list.FirstOrDefault(m => m.Id.Equals("gram-q", StringComparison.OrdinalIgnoreCase));
+                    var qModel = list.FirstOrDefault(m => m.Id.Equals(GramModelIds.GramQ, StringComparison.OrdinalIgnoreCase));
                     if (qModel != null)
                     {
                         qModel.Name = "Gram Q";
-                        qModel.Provider = "Groq";
-                        qModel.Description = "Ultra-fast daily intelligence · Powered by GPT OSS 120B on Groq LPU (131K context)";
-                        qModel.ContextLength = 131072;
+                        qModel.Provider = "Google";
+                        qModel.Description = "Fast everyday intelligence · Powered by Gemini 3.1 Flash Lite";
+                        qModel.ContextLength = 1000000;
                     }
-                    var qPlusModel = list.FirstOrDefault(m => m.Id.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase));
+                    var qPlusModel = list.FirstOrDefault(m => m.Id.Equals(GramModelIds.GramQPlus, StringComparison.OrdinalIgnoreCase));
                     if (qPlusModel != null)
                     {
                         qPlusModel.Name = "Gram Q+";
-                        qPlusModel.Provider = "Google";
-                        qPlusModel.Description = "Deep-context reasoning flagship · Powered by Google Gemini 3 Flash Preview (1M context)";
+                        qPlusModel.Provider = "Vercel";
+                        qPlusModel.Description = "Agentic coding and structured-output model · Powered by Muse Spark Contributor";
                         qPlusModel.ContextLength = 1000000;
                     }
+                    EnsureRoleModel(list, GramModelIds.GramQPlusPlus, "Gram Q++", "Google", "Compatibility model · Powered by Gemini 3.1 Flash Lite", 1000000, false);
+                        EnsureRoleModel(list, GramModelIds.LingTinyFree, "Ling Free", "Vercel", "Free lightweight model for testing and simple tasks", 256000, false);
 
                     Models = list;
                     SaveModels();
@@ -159,23 +167,40 @@ public sealed class ModelService
         // Default seed models (Gram Q, Gram Q+, and BYOK models)
         Models =
         [
-            new GramModel 
+            new GramModel
             { 
-                Id = "gram-q", 
-                Name = "Gram Q", 
-                Provider = "Groq", 
-                Description = "Ultra-fast daily intelligence · Powered by GPT OSS 120B on Groq LPU (131K context)", 
-                ContextLength = 131072, 
+                Id = GramModelIds.GramQ,
+                Name = "Gram Q",
+                Provider = "Google",
+                Description = "Fast everyday intelligence · Powered by Gemini 3.1 Flash Lite",
+                ContextLength = 1000000,
                 IsFavorite = true 
             },
             new GramModel 
             { 
-                Id = "gram-q-plus", 
+                Id = GramModelIds.GramQPlus,
                 Name = "Gram Q+", 
-                Provider = "Google", 
-                Description = "Deep-context reasoning flagship · Powered by Google Gemini 3 Flash Preview (1M context)", 
-                ContextLength = 1000000, 
+                Provider = "Vercel",
+                Description = "Agentic coding and structured-output model · Powered by Muse Spark Contributor",
+                ContextLength = 1000000,
                 IsFavorite = true 
+            },
+            new GramModel
+            {
+                Id = GramModelIds.GramQPlusPlus,
+                Name = "Gram Q++",
+                Provider = "Google",
+                Description = "Compatibility model · Powered by Gemini 3.1 Flash Lite",
+                ContextLength = 1000000,
+                IsFavorite = false
+            },
+            new GramModel
+            {
+                Id = GramModelIds.LingTinyFree,
+                Name = "Ling Free",
+                Provider = "Vercel",
+                Description = "Free lightweight model for testing and simple tasks",
+                ContextLength = 256000
             },
             new GramModel 
             { 
@@ -196,6 +221,23 @@ public sealed class ModelService
                 IsFavorite = false 
             }
         ];
+    }
+
+    private static void EnsureRoleModel(List<GramModel> models, string id, string name, string provider, string description, int contextLength, bool favorite)
+    {
+        var model = models.FirstOrDefault(m => m.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+        if (model == null)
+        {
+            models.Add(new GramModel { Id = id, Name = name, Provider = provider, Description = description, ContextLength = contextLength, IsFavorite = favorite });
+            return;
+        }
+
+        model.Name = name;
+        model.Provider = provider;
+        model.Description = description;
+        model.ContextLength = contextLength;
+        model.IsFavorite = favorite;
+        model.IsEnabled = true;
     }
 
     private void LoadSecureKeys()
@@ -229,9 +271,10 @@ public sealed class ModelService
     {
         systemKeys.Clear();
 
-        // System keys are strictly reserved for Gram Q and Gram Q+
+        // System keys are reserved for the Gram platform roles.
         RegisterSystemKey("groq", "GROQ_API_KEY", "GRAM_GROQ_KEY");
         RegisterSystemKey("google", "GEMINI_API_KEY", "GOOGLE_API_KEY");
+        RegisterSystemKey("vercel", "VERCEL_AI_GATEWAY_API_KEY", "AI_GATEWAY_API_KEY", "GRAM_VERCEL_KEY");
 
         // Fall back to secure key storage if environment variables are not set
         if (!systemKeys.ContainsKey("groq") && secureKeys.TryGetValue("groq", out var groqKey) && !string.IsNullOrWhiteSpace(groqKey))
@@ -241,6 +284,10 @@ public sealed class ModelService
         if (!systemKeys.ContainsKey("google") && secureKeys.TryGetValue("google", out var googleKey) && !string.IsNullOrWhiteSpace(googleKey))
         {
             systemKeys["google"] = googleKey;
+        }
+        if (!systemKeys.ContainsKey("vercel") && secureKeys.TryGetValue("vercel", out var vercelKey) && !string.IsNullOrWhiteSpace(vercelKey))
+        {
+            systemKeys["vercel"] = vercelKey;
         }
 
         // Refresh connected states for providers
@@ -291,7 +338,7 @@ public sealed class ModelService
 
     /// <summary>
     /// Returns the active API key for backend execution.
-    /// User BYOK keys are used for any provider. System keys are ONLY allowed for groq and google.
+    /// User BYOK keys are used for any provider. Platform system keys are allowed for Gram roles.
     /// </summary>
     public string? GetApiKey(string providerId)
     {
@@ -303,8 +350,8 @@ public sealed class ModelService
             return userKey;
         }
 
-        // 2. System keys are strictly scoped to groq and google (for Gram Q / Q+)
-        if ((normId == "groq" || normId == "google") && systemKeys.TryGetValue(normId, out var sysKey) && !string.IsNullOrWhiteSpace(sysKey))
+        // 2. System keys are scoped to supported platform providers.
+        if ((normId == "groq" || normId == "google" || normId == "vercel") && systemKeys.TryGetValue(normId, out var sysKey) && !string.IsNullOrWhiteSpace(sysKey))
         {
             return sysKey;
         }
@@ -960,8 +1007,9 @@ public sealed class ModelService
         string? systemPrompt = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var isGramQ = modelId.Equals("gram-q", StringComparison.OrdinalIgnoreCase);
-        var isGramQPlus = modelId.Equals("gram-q-plus", StringComparison.OrdinalIgnoreCase);
+        var isGramQ = modelId.Equals(GramModelIds.GramQ, StringComparison.OrdinalIgnoreCase);
+        var isGramQPlus = modelId.Equals(GramModelIds.GramQPlus, StringComparison.OrdinalIgnoreCase);
+        var isGramQPlusPlus = modelId.Equals(GramModelIds.GramQPlusPlus, StringComparison.OrdinalIgnoreCase);
 
         var model = Models.FirstOrDefault(m => m.Id.Equals(modelId, StringComparison.OrdinalIgnoreCase))
                     ?? new GramModel { Id = modelId, Name = modelId, Provider = "OpenRouter" };
@@ -970,15 +1018,15 @@ public sealed class ModelService
         var provider = Providers.FirstOrDefault(p => p.Id.Equals(providerId, StringComparison.OrdinalIgnoreCase) || p.Name.Equals(model.Provider, StringComparison.OrdinalIgnoreCase));
         
         string? apiKey;
-        if (isGramQ)
-        {
-            apiKey = GetSystemApiKey("groq") ?? GetUserApiKey("groq");
-            providerId = "groq";
-        }
-        else if (isGramQPlus)
+        if (isGramQ || isGramQPlusPlus)
         {
             apiKey = GetSystemApiKey("google") ?? GetUserApiKey("google");
             providerId = "google";
+        }
+        else if (isGramQPlus)
+        {
+            apiKey = GetSystemApiKey("vercel") ?? GetUserApiKey("vercel");
+            providerId = "vercel";
         }
         else
         {
@@ -1016,7 +1064,7 @@ public sealed class ModelService
         }
         else
         {
-            var actualModel = isGramQ ? "openai/gpt-oss-120b" : (isGramQPlus ? "gemini-2.5-flash" : modelId);
+            var actualModel = (isGramQ || isGramQPlusPlus) ? GramModelIds.GoogleGeminiFlashLite : (isGramQPlus ? GramModelIds.MuseSparkContributor : (modelId.Equals(GramModelIds.LingTinyFree, StringComparison.OrdinalIgnoreCase) ? GramModelIds.VercelLingTinyFree : modelId));
             var endpoint = providerId switch
             {
                 "groq" => "https://api.groq.com/openai/v1/chat/completions",
@@ -1024,6 +1072,7 @@ public sealed class ModelService
                 "openai" => $"{provider?.BaseUrl ?? "https://api.openai.com/v1"}/chat/completions",
                 "xai" => $"{provider?.BaseUrl ?? "https://api.x.ai/v1"}/chat/completions",
                 "deepseek" => $"{provider?.BaseUrl ?? "https://api.deepseek.com/v1"}/chat/completions",
+                "vercel" => $"{provider?.BaseUrl ?? "https://ai-gateway.vercel.sh/v1"}/chat/completions",
                 _ => $"{provider?.BaseUrl ?? "https://openrouter.ai/api/v1"}/chat/completions"
             };
 
@@ -1140,10 +1189,13 @@ public sealed class ModelService
         {
             model = modelId,
             messages,
-            stream = true
+            stream = true,
+            // Muse can spend the entire completion budget on hidden reasoning;
+            // Gram Q+ is intended for concise, directly usable coding output.
+            reasoning_effort = modelId.Equals(GramModelIds.MuseSparkContributor, StringComparison.OrdinalIgnoreCase) ? "none" : null
         };
 
-        var json = JsonSerializer.Serialize(payload);
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
         using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")

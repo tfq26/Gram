@@ -1,0 +1,195 @@
+@namespace Gram.Blazor.Components
+@using Gram.Blazor.Shared
+@using Gram.Blazor.Components.ShadCn
+@inject IGramBoxService GramBox
+@inject NavigationManager Navigation
+@inject ISonnerService SonnerService
+@implements IDisposable
+
+@{
+    var session = GramBox.GetSandbox(SandboxId);
+}
+
+@if (session != null)
+{
+    <div class="sandbox-chat-card" style="margin: 8px 0; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-panel-subtle); overflow: hidden; font-family: inherit;">
+        <!-- Header -->
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border-color); gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                <span style="font-size: 13px;">📦</span>
+                <span style="font-size: 12.5px; font-weight: 600; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                    @(!string.IsNullOrWhiteSpace(session.Name) ? session.Name : $"Sandbox {session.Id}")
+                </span>
+                <span style="font-size: 10px; font-family: monospace; color: var(--text-muted); background: var(--bg-hover); padding: 1px 6px; border-radius: 4px;">
+                    @session.BranchName
+                </span>
+            </div>
+
+            <!-- Major State Pill -->
+            <div style="display: flex; align-items: center; gap: 6px;">
+                @switch (session.MajorState)
+                {
+                    case SandboxMajorState.Preparing:
+                        <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #eab308; font-weight: 500;">
+                            <span class="pulse-dot" style="width: 6px; height: 6px; border-radius: 50%; background: #eab308; animation: pulse 1.5s infinite;"></span>
+                            Preparing
+                        </span>
+                        break;
+                    case SandboxMajorState.RunningCommand:
+                        <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--accent); font-weight: 600;">
+                            <span class="pulse-dot" style="width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite;"></span>
+                            Running Command
+                        </span>
+                        break;
+                    case SandboxMajorState.Ready:
+                        <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #22c55e; font-weight: 500;">
+                            <span style="width: 6px; height: 6px; border-radius: 50%; background: #22c55e;"></span>
+                            Ready
+                        </span>
+                        break;
+                    case SandboxMajorState.Merging:
+                        <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #a855f7; font-weight: 500;">
+                            <span class="pulse-dot" style="width: 6px; height: 6px; border-radius: 50%; background: #a855f7; animation: pulse 1.2s infinite;"></span>
+                            Merging
+                        </span>
+                        break;
+                    case SandboxMajorState.Merged:
+                        <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #3b82f6; font-weight: 500;">
+                            <span style="width: 6px; height: 6px; border-radius: 50%; background: #3b82f6;"></span>
+                            Merged
+                        </span>
+                        break;
+                    case SandboxMajorState.Conflict:
+                        <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #f97316; font-weight: 600;">
+                            ⚠️ Conflict
+                        </span>
+                        break;
+                    case SandboxMajorState.Error:
+                        <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #ef4444; font-weight: 500;">
+                            ❌ Error
+                        </span>
+                        break;
+                    case SandboxMajorState.Disposed:
+                        <span style="font-size: 11px; color: var(--text-muted);">
+                            Disposed
+                        </span>
+                        break;
+                    default:
+                        <span style="font-size: 11px; color: var(--text-muted);">
+                            Created
+                        </span>
+                        break;
+                }
+            </div>
+        </div>
+
+        <!-- Body -->
+        <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;">
+            @if (!string.IsNullOrWhiteSpace(session.TaskDescription))
+            {
+                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">
+                    @session.TaskDescription
+                </div>
+            }
+
+            @if (session.MajorState == SandboxMajorState.RunningCommand && !string.IsNullOrWhiteSpace(session.CurrentCommand))
+            {
+                <div style="font-size: 11.5px; font-family: monospace; color: var(--text-muted); background: var(--bg-hover); padding: 4px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); overflow-x: auto;">
+                    $ @session.CurrentCommand
+                </div>
+            }
+
+            <!-- Telemetry Meta -->
+            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span>📁 @session.ModifiedFiles.Count files modified</span>
+                    @if (session.Insertions > 0 || session.Deletions > 0)
+                    {
+                        <span style="color: #22c55e;">+@session.Insertions</span>
+                        <span style="color: #ef4444;">-@session.Deletions</span>
+                    }
+                </div>
+                <div>
+                    <span>RAM: @(session.PeakWorkingSetBytes > 0 ? $"{session.PeakWorkingSetBytes / (1024 * 1024)}MB" : "0MB")</span>
+                    <span style="margin: 0 4px;">·</span>
+                    <span>CPU: @(session.CpuTimeMs)ms</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Footer -->
+        @if (session.MajorState != SandboxMajorState.Disposed)
+        {
+            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 6px 12px; background: var(--bg-panel); border-top: 1px solid var(--border-color);">
+                <button type="button" class="btn-secondary" style="margin: 0; padding: 3px 8px; font-size: 11px;" @onclick="HandleViewDiff">
+                    Review Diff
+                </button>
+                @if (session.MajorState == SandboxMajorState.Ready && session.ModifiedFiles.Count > 0)
+                {
+                    <button type="button" class="btn-primary" style="margin: 0; padding: 3px 10px; font-size: 11px;" @onclick="HandleMerge">
+                        Merge Changes
+                    </button>
+                }
+                <button type="button" class="btn-subtle" style="margin: 0; padding: 3px 6px; font-size: 11px; color: var(--text-muted);" @onclick="HandleInspect">
+                    Open Inspector ↗
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string SandboxId { get; set; } = "";
+    [Parameter] public string? ActiveChatId { get; set; }
+    [Parameter] public EventCallback<string> OnOpenDiff { get; set; }
+    [Parameter] public EventCallback<string> OnMergeSandbox { get; set; }
+
+    protected override void OnInitialized()
+    {
+        GramBox.OnSandboxStateChanged += HandleSandboxStateChanged;
+        if (!string.IsNullOrWhiteSpace(ActiveChatId))
+        {
+            GramBox.SubscribeChat(SandboxId, ActiveChatId);
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrWhiteSpace(ActiveChatId))
+        {
+            GramBox.SubscribeChat(SandboxId, ActiveChatId);
+        }
+    }
+
+    private void HandleSandboxStateChanged(GramBoxSandboxSession session, SandboxMajorState state)
+    {
+        if (session.Id == SandboxId)
+        {
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task HandleViewDiff()
+    {
+        await OnOpenDiff.InvokeAsync(SandboxId);
+    }
+
+    private async Task HandleMerge()
+    {
+        await OnMergeSandbox.InvokeAsync(SandboxId);
+    }
+
+    private void HandleInspect()
+    {
+        Navigation.NavigateTo($"/sandboxes?id={SandboxId}");
+    }
+
+    public void Dispose()
+    {
+        GramBox.OnSandboxStateChanged -= HandleSandboxStateChanged;
+        if (!string.IsNullOrWhiteSpace(ActiveChatId))
+        {
+            GramBox.UnsubscribeChat(SandboxId, ActiveChatId);
+        }
+    }
+}

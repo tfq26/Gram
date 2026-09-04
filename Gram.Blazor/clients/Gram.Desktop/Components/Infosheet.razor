@@ -1,0 +1,196 @@
+@namespace Gram.Desktop.Components
+@using Gram.Desktop.Components.Platform
+@using Gram.Desktop.Services
+@using Gram.Blazor.Shared
+@inject IPlatformService Platform
+
+<aside class="dt-infosheet @(IsOpen ? "open" : "closed") @Platform.PlatformCssClass" data-ui-region="infosheet" role="complementary" aria-label="Chat info">
+    <!-- Header -->
+    <div class="dt-infosheet-header">
+        <span class="dt-infosheet-title">Chat info</span>
+        <button type="button"
+                class="dt-icon-btn"
+                @onclick="OnClose"
+                title="Close">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+        </button>
+    </div>
+
+    <!-- Scrollable Body (Clean, flat, un-boxed layout) -->
+    <div class="dt-infosheet-body">
+        <!-- Model Specifications -->
+        <div class="dt-info-group">
+            <div class="dt-info-group-title">Model</div>
+            @if (CurrentModel != null)
+            {
+                <div class="dt-info-rows">
+                    <div class="dt-info-row">
+                        <span class="dt-info-label">Name</span>
+                        <span class="dt-info-value">@CurrentModel.Name</span>
+                    </div>
+                    <div class="dt-info-row">
+                        <span class="dt-info-label">Provider</span>
+                        <span class="dt-info-value">@CurrentModel.Provider</span>
+                    </div>
+                    <div class="dt-context-meter-group">
+                        <div class="dt-info-row">
+                            <span class="dt-info-label">Context used</span>
+                            <span class="dt-info-value mono">@($"{PercentContextUsed:0.#}%")</span>
+                        </div>
+                        <div class="dt-context-meter-track" title="@($"{EstimatedTokensUsed:N0} / {ContextLimit:N0} tokens ({PercentContextUsed:0.#}%)")">
+                            <div class="dt-context-meter-fill @(PercentContextUsed > 85 ? "high" : "")" style="width: @($"{Math.Max(1, PercentContextUsed):0.#}%");"></div>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(CurrentModel.Description))
+                    {
+                        <div class="dt-info-desc">
+                            @CurrentModel.Description
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="dt-info-empty">No active model</div>
+            }
+        </div>
+
+        @if (RelevantMemories.Count > 0 || MemoryCandidates.Count > 0)
+        {
+            <div class="dt-info-group">
+                <div class="dt-info-group-title">Memory</div>
+                @foreach (var memory in RelevantMemories.Take(5))
+                {
+                    <div class="dt-memory-item"><strong>@memory.Subject</strong> @memory.Predicate @memory.Value</div>
+                }
+                @if (MemoryCandidates.Count > 0)
+                {
+                    <div class="dt-info-desc">@MemoryCandidates.Count candidate memory @(MemoryCandidates.Count == 1 ? "is" : "are") ready for review.</div>
+                    @foreach (var candidate in MemoryCandidates.Take(3))
+                    {
+                        <div class="dt-memory-candidate">
+                            <div><strong>@candidate.Subject</strong> @candidate.Predicate @candidate.Value</div>
+                            <div class="dt-memory-actions">
+                                <button type="button" @onclick="() => OnConfirmMemory.InvokeAsync(candidate.Id)">Confirm</button>
+                                <button type="button" @onclick="() => OnRejectMemory.InvokeAsync(candidate.Id)">Dismiss</button>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+
+        <!-- Execution Diagnostics -->
+        <div class="dt-info-group">
+            <div class="dt-info-group-title">Status</div>
+            <div class="dt-info-rows">
+                <div class="dt-info-row">
+                    <span class="dt-info-label">Engine state</span>
+                    @if (IsStreaming)
+                    {
+                        <span class="dt-info-value" style="color: var(--dt-warning);">
+                            Streaming
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="dt-info-value" style="color: var(--dt-success);">Ready</span>
+                    }
+                </div>
+                @if (ActiveRun != null)
+                {
+                    <div class="dt-info-row">
+                        <span class="dt-info-label">Started</span>
+                        <span class="dt-info-value mono">@ActiveRun.StartedAt.ToString("HH:mm:ss")</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Session Parameters -->
+        @if (Conversation != null)
+        {
+            <div class="dt-info-group">
+                <div class="dt-info-group-title">Details</div>
+                <div class="dt-info-rows">
+                    <div class="dt-info-row">
+                        <span class="dt-info-label">Messages</span>
+                        <span class="dt-info-value mono">@(Conversation.Messages?.Count ?? 0)</span>
+                    </div>
+                    <div class="dt-info-row">
+                        <span class="dt-info-label">Created</span>
+                        <span class="dt-info-value">@Conversation.Created.ToString("MMM d, yyyy")</span>
+                    </div>
+                    <div class="dt-info-row">
+                        <span class="dt-info-label">Session ID</span>
+                        <span class="dt-info-value mono" title="@Conversation.Id" style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            @Conversation.Id
+                        </span>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Alerts / Runtime Errors -->
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="dt-info-group">
+                <div class="dt-info-group-title" style="color: var(--dt-danger);">Notice</div>
+                <div class="dt-info-error">
+                    @Error
+                </div>
+            </div>
+        }
+    </div>
+</aside>
+
+@code {
+    [Parameter] public ModelSummary? CurrentModel { get; set; }
+    [Parameter] public RunSummary? ActiveRun { get; set; }
+    [Parameter] public IReadOnlyList<StructuredMemory> RelevantMemories { get; set; } = [];
+    [Parameter] public IReadOnlyList<StructuredMemory> MemoryCandidates { get; set; } = [];
+    [Parameter] public EventCallback<string> OnConfirmMemory { get; set; }
+    [Parameter] public EventCallback<string> OnRejectMemory { get; set; }
+    [Parameter] public EventCallback<string> OnForgetMemory { get; set; }
+    [Parameter] public ConversationDetail? Conversation { get; set; }
+    [Parameter] public string DraftResponse { get; set; } = "";
+    [Parameter] public bool IsOpen { get; set; } = true;
+    [Parameter] public bool IsStreaming { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private int ContextLimit => CurrentModel?.ContextLength ?? 128_000;
+
+    private int EstimatedTokensUsed
+    {
+        get
+        {
+            int totalChars = 0;
+            if (Conversation?.Messages != null)
+            {
+                foreach (var msg in Conversation.Messages)
+                {
+                    totalChars += msg.Text.Length;
+                }
+            }
+            if (!string.IsNullOrEmpty(DraftResponse))
+            {
+                totalChars += DraftResponse.Length;
+            }
+            return Math.Max(0, (totalChars / 4) + (Conversation?.Messages?.Count > 0 ? 250 : 0));
+        }
+    }
+
+    private double PercentContextUsed
+    {
+        get
+        {
+            if (ContextLimit <= 0) return 0;
+            var pct = (double)EstimatedTokensUsed / ContextLimit * 100.0;
+            return Math.Clamp(pct, 0.0, 100.0);
+        }
+    }
+}
