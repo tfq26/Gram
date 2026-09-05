@@ -131,16 +131,25 @@ Avoid dumping walls of raw terminal logs into the conversation:
   - Hardened core agent iteration budget (25 turns), recursive subtree listing (depth 2), and cross-platform path normalization.
 - [x] **Step 1: Permission Engine & Approval State (Completed)**
   - Local agent-enforced security kernel, command risk classifier, environment scrubbing, and session approval state.
-- [ ] **Step 2: Workspace-Scoped File Operations (Active Next Step)**
-  - Path-traversal jailing, pre-write snapshot/checkpoint engine with instant rollback.
-- [ ] **Step 3: Native Process Runner with Cancellation**
-  - Cross-platform process tree cancellation, hard timeouts, bounded output buffers, and structured audit logs.
-- [ ] **Step 4: Checkpoints & Surgical Patching**
-  - Multi-tier matching (exact $\to$ indentation-normalized $\to$ backup-protected fallback).
-- [ ] **Step 5: Validation & Self-Healing Loop**
-  - Project manifest auto-detection, bounded 3-turn repair cycle, error repetition breaker.
-- [ ] **Step 6: Tool-Card & Permission UI Polish**
-  - Compact status summaries, detailed permission modal (network, impact, duration), and expandable diagnostic drawer.
+- [x] **Step 2: Workspace-Scoped File Operations (Completed)**
+  - Path-traversal jailing (`EnsureWithinWorkspace` canonical checks, path normalization, escape rejection across `view_file`, `write_file`, `edit_file`, `list_directory`, `find_files`, `grep_search`).
+  - Pre-write snapshot / checkpoint engine (`WorkspaceCheckpointService`) with durable metadata persistence and instant rollback/undo (`rollback_checkpoint`).
+- [x] **Step 3: Native Process Runner with Cancellation (Completed)**
+  - Hardened `NativeProcessRunner` featuring cross-platform shell resolution (Windows PowerShell, macOS zsh, Linux bash/sh).
+  - Cross-platform process tree cancellation via `Process.Kill(entireProcessTree: true)`.
+  - Configurable timeouts and bounded 64KB output buffers preserving head and tail with truncation markers.
+  - Environment scrubbing and structured JSONL audit logs (`.gram/audit_logs/process_audit.jsonl`).
+- [x] **Step 4: Tiered Surgical Patching Engine (Completed)**
+  - `SurgicalPatchEngine` with Tier 1 (exact matching), Tier 2 (line-ending and indentation-tolerant matching with original whitespace preservation), and Tier 3 (anchor-based chunk replacement).
+  - Detailed diagnostic reporting on failure with line number references and nearest matches.
+- [x] **Step 5: Validation & Bounded Self-Healing Loop (Completed)**
+  - Project manifest auto-detection across .NET, Node.js, Rust, Python, and Go via `ProjectValidationDetector`.
+  - Structured compiler diagnostic parser (`CompilerDiagnosticParser`) extracting diagnostic tokens (`file`, `line`, `col`, `code`, `message`) and computing deterministic SHA256 error hashes.
+  - `SelfHealingLoopCoordinator` enforcing strict 3-attempt ceilings, 90-second cumulative time budgets, automatic error repetition breakers, and pre-repair checkpoint rollback.
+- [x] **Step 6: Tool-Card & Permission UI Polish (Completed)**
+  - Interactive permission cards in `Canvas.razor` displaying Operation badges, Network access indicators, Risk profile pills, Estimated Impact, Exact Targets, and Session Approvals.
+  - Compact tool status in `DesktopToolCard.razor` supporting `Terminal`, `File`, `Search`, `Rollback`, and `Validate` tool categories.
+  - Expandable Diagnostic Drawer with error/warning counts, error codes (`CS1002`, `TS2304`), file links, and line numbers.
 
 ---
 

@@ -42,6 +42,20 @@
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
                 }
+                else if (targetKind == "rollback")
+                {
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="1 4 1 10 7 10"></polyline>
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                    </svg>
+                }
+                else if (targetKind == "validate")
+                {
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                        <polyline points="9 12 11 14 15 10"></polyline>
+                    </svg>
+                }
                 else
                 {
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -115,6 +129,47 @@
 
             @if (!string.IsNullOrWhiteSpace(ToolCall.Result))
             {
+                var diagnostics = CompilerDiagnosticParser.Parse(ToolCall.Result);
+                @if (diagnostics.Count > 0)
+                {
+                    var errorCount = diagnostics.Count(d => d.Severity == "ERROR");
+                    var warnCount = diagnostics.Count(d => d.Severity == "WARNING");
+                    <div class="dt-tool-section" style="border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); padding-top: 8px;">
+                        <div class="dt-tool-section-header" @onclick="() => showDiagnostics = !showDiagnostics" style="cursor: pointer;">
+                            <span class="dt-tool-section-title" style="display: flex; align-items: center; gap: 6px;">
+                                <span>Diagnostics</span>
+                                @if (errorCount > 0)
+                                {
+                                    <span style="background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 1px 6px; border-radius: 4px; font-size: 10px;">@errorCount error@(errorCount > 1 ? "s" : "")</span>
+                                }
+                                @if (warnCount > 0)
+                                {
+                                    <span style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; padding: 1px 6px; border-radius: 4px; font-size: 10px;">@warnCount warning@(warnCount > 1 ? "s" : "")</span>
+                                }
+                            </span>
+                            <span style="font-size: 10px; color: var(--text-muted, #9ca3af);">@(showDiagnostics ? "Hide" : "Expand")</span>
+                        </div>
+                        @if (showDiagnostics)
+                        {
+                            <div style="margin-top: 6px; display: flex; flex-direction: column; gap: 4px;">
+                                @foreach (var diag in diagnostics.Take(15))
+                                {
+                                    <div style="font-family: var(--font-mono, monospace); font-size: 11px; padding: 4px 8px; background: rgba(0,0,0,0.2); border-radius: 4px; border-left: 3px solid @(diag.Severity == "ERROR" ? "#ef4444" : "#f59e0b");">
+                                        <div style="display: flex; gap: 6px; align-items: center;">
+                                            <span style="font-weight: 600; color: @(diag.Severity == "ERROR" ? "#f87171" : "#fbbf24");">@diag.Code</span>
+                                            @if (!string.IsNullOrWhiteSpace(diag.FilePath))
+                                            {
+                                                <span style="color: var(--text-muted, #9ca3af);">@diag.FilePath@(diag.Line.HasValue ? $":{diag.Line}" : "")</span>
+                                            }
+                                        </div>
+                                        <div style="color: var(--text-normal, #e5e7eb);">@diag.Message</div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
                 <div class="dt-tool-section">
                     <div class="dt-tool-section-header">
                         <span class="dt-tool-section-title">Output</span>
@@ -136,6 +191,7 @@
 @code {
     [Parameter] public ToolCallInfo ToolCall { get; set; } = new();
     private bool isExpanded = false;
+    private bool showDiagnostics = true;
 
     private void ToggleExpand() => isExpanded = !isExpanded;
 
@@ -169,6 +225,18 @@
         var name = ToolCall.ToolName.ToLowerInvariant();
         var args = ParsedArguments;
         var displayName = ToolNameHelper.GetDisplayName(ToolCall.ToolName);
+
+        if (name.Contains("rollback") || name.Contains("undo"))
+        {
+            var id = args.GetValueOrDefault("checkpointId") ?? "";
+            return ("Rollback", string.IsNullOrWhiteSpace(id) ? "Latest file change" : id, "rollback");
+        }
+
+        if (name.Contains("validate"))
+        {
+            var mode = args.GetValueOrDefault("mode") ?? "test";
+            return ("Validate", mode == "build" ? "Build suite" : "Test suite", "validate");
+        }
 
         if (name.Contains("run_command") || name.Contains("bash") || name.Contains("exec") || name.Contains("cmd"))
         {

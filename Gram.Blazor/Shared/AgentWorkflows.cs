@@ -92,7 +92,23 @@ public sealed class CodingWorkflow : IAgentWorkflow
     public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
     {
         var iterations = Math.Max(request.MaxIterations, 25);
-        await foreach (var update in _orchestrator.RunAgentLoopAsync(request.ModelId, request.History, request.WorkspacePath, request.SystemPrompt, iterations, request.RepositoryMap, request.AllowedToolNames, cancellationToken: request.CancellationToken, allowLocalCapabilities: request.AllowLocalCapabilities)) yield return update;
+        var detected = ProjectValidationDetector.Detect(request.WorkspacePath);
+        var prompt = request.SystemPrompt;
+        if (detected != null)
+        {
+            var guidance = $"\n## Autonomous Coding Engine Guidance\n" +
+                           $"- Project Ecosystem: {detected.Ecosystem} (Manifest: {detected.ManifestFileName})\n" +
+                           $"- Build Command: `{detected.BuildCommand}`, Test Command: `{detected.TestCommand}`\n" +
+                           $"- Use `validate_project` to automatically run build/test validation with compiler diagnostic parsing.\n" +
+                           $"- Surgical patching (`edit_file`) automatically captures pre-write snapshots and supports multi-tier indentation and anchor matching.\n" +
+                           $"- If a patch or build causes errors, use `rollback_checkpoint` to instantly restore prior state.";
+            prompt = string.IsNullOrWhiteSpace(prompt) ? guidance : $"{prompt}\n{guidance}";
+        }
+
+        await foreach (var update in _orchestrator.RunAgentLoopAsync(request.ModelId, request.History, request.WorkspacePath, prompt, iterations, request.RepositoryMap, request.AllowedToolNames, cancellationToken: request.CancellationToken, allowLocalCapabilities: request.AllowLocalCapabilities))
+        {
+            yield return update;
+        }
     }
 }
 

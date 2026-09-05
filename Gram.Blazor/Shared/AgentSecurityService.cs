@@ -760,36 +760,48 @@ public sealed class AgentSecurityService
         return result;
     }
 
-    public PermissionCheckResult EvaluateFileAccess(string filePath, string workspaceRoot, bool isWrite)
+    public static bool TryResolveWithinWorkspace(string workspaceRoot, string targetPath, out string fullTargetPath, out string? errorMessage)
     {
-        var cleanPath = (filePath ?? "").Trim().Replace('\\', '/');
-        var fullTarget = "";
-        var isEscape = false;
+        fullTargetPath = string.Empty;
+        errorMessage = null;
 
-        if (!string.IsNullOrWhiteSpace(workspaceRoot))
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
         {
-            try
-            {
-                fullTarget = Path.GetFullPath(Path.Combine(workspaceRoot, cleanPath));
-                var fullRoot = Path.GetFullPath(workspaceRoot);
-                isEscape = !fullTarget.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase);
-            }
-            catch (Exception ex)
-            {
-                return new PermissionCheckResult
-                {
-                    IsAllowed = false,
-                    IsBlockedBySecurityPolicy = true,
-                    Reason = $"Invalid path: {ex.Message}",
-                    RiskLevel = CommandRiskLevel.Critical,
-                    OperationType = isWrite ? "Out-of-Workspace Write" : "Read File",
-                    ExactTarget = cleanPath,
-                    WorkspaceRoot = workspaceRoot
-                };
-            }
+            errorMessage = "Workspace root path is not defined.";
+            return false;
         }
 
-        if (isEscape)
+        var clean = (targetPath ?? "").Trim();
+        try
+        {
+            var canonicalRoot = Path.GetFullPath(workspaceRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var combined = Path.IsPathRooted(clean)
+                ? Path.GetFullPath(clean)
+                : Path.GetFullPath(Path.Combine(canonicalRoot, clean.TrimStart('\\', '/')));
+
+            var normalizedTarget = combined.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (!normalizedTarget.Equals(canonicalRoot, StringComparison.OrdinalIgnoreCase) &&
+                !normalizedTarget.StartsWith(canonicalRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+                !normalizedTarget.StartsWith(canonicalRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                errorMessage = $"Path traversal blocked: '{targetPath}' escapes workspace root.";
+                return false;
+            }
+
+            fullTargetPath = combined;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Invalid path format '{targetPath}': {ex.Message}";
+            return false;
+        }
+    }
+
+    public PermissionCheckResult EvaluateDirectoryAccess(string directoryPath, string workspaceRoot)
+    {
+        var cleanPath = (directoryPath ?? "").Trim().Replace('\\', '/');
+        if (!TryResolveWithinWorkspace(workspaceRoot, cleanPath, out var fullTarget, out var err))
         {
             if (Settings.EnforceWorkspaceSandboxing)
             {
@@ -797,7 +809,49 @@ public sealed class AgentSecurityService
                 {
                     IsAllowed = false,
                     IsBlockedBySecurityPolicy = true,
-                    Reason = $"Path traversal blocked: '{cleanPath}' escapes workspace root.",
+                    Reason = err ?? $"Directory traversal blocked: '{cleanPath}' escapes workspace root.",
+                    RiskLevel = CommandRiskLevel.Critical,
+                    OperationType = "Read Directory",
+                    ExactTarget = cleanPath,
+                    WorkspaceRoot = workspaceRoot
+                };
+            }
+
+            return new PermissionCheckResult
+            {
+                IsAllowed = true,
+                RequiresUserConfirmation = true,
+                Reason = $"Directory '{cleanPath}' is outside the authorized workspace root (Jailbreak alert).",
+                RiskLevel = CommandRiskLevel.Critical,
+                OperationType = "Read Directory",
+                ExactTarget = cleanPath,
+                WorkspaceRoot = workspaceRoot
+            };
+        }
+
+        return new PermissionCheckResult
+        {
+            IsAllowed = true,
+            RequiresUserConfirmation = false,
+            RiskLevel = CommandRiskLevel.Low,
+            OperationType = "Read Directory",
+            ExactTarget = cleanPath,
+            WorkspaceRoot = workspaceRoot
+        };
+    }
+
+    public PermissionCheckResult EvaluateFileAccess(string filePath, string workspaceRoot, bool isWrite)
+    {
+        var cleanPath = (filePath ?? "").Trim().Replace('\\', '/');
+        if (!TryResolveWithinWorkspace(workspaceRoot, cleanPath, out var fullTarget, out var err))
+        {
+            if (Settings.EnforceWorkspaceSandboxing)
+            {
+                return new PermissionCheckResult
+                {
+                    IsAllowed = false,
+                    IsBlockedBySecurityPolicy = true,
+                    Reason = err ?? $"Path traversal blocked: '{cleanPath}' escapes workspace root.",
                     RiskLevel = CommandRiskLevel.Critical,
                     OperationType = isWrite ? "Out-of-Workspace Write" : "Read File",
                     ExactTarget = cleanPath,

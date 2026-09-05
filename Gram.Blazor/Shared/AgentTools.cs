@@ -58,6 +58,11 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
     private readonly ITaskAndMemoryService? _taskAndMemoryService;
     private readonly HttpClient _httpClient;
     private readonly ICapabilityIntentRouter? _capabilityRouter;
+    private readonly IWorkspaceCheckpointService _checkpointService;
+    private readonly INativeProcessRunner _processRunner;
+
+    public IWorkspaceCheckpointService CheckpointService => _checkpointService;
+    public INativeProcessRunner ProcessRunner => _processRunner;
 
     public AgentToolRegistry(
         GitService gitService, 
@@ -70,7 +75,9 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         PresentationGenerationService? presentationService = null,
         ITaskAndMemoryService? taskAndMemoryService = null,
         HttpClient? httpClient = null,
-        ICapabilityIntentRouter? capabilityRouter = null)
+        ICapabilityIntentRouter? capabilityRouter = null,
+        IWorkspaceCheckpointService? checkpointService = null,
+        INativeProcessRunner? processRunner = null)
     {
         _gitService = gitService;
         _securityService = securityService;
@@ -83,6 +90,8 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         _taskAndMemoryService = taskAndMemoryService;
         _httpClient = httpClient ?? new HttpClient();
         _capabilityRouter = capabilityRouter;
+        _checkpointService = checkpointService ?? new WorkspaceCheckpointService();
+        _processRunner = processRunner ?? new NativeProcessRunner();
     }
 
     public List<AgentToolDefinition> GetAvailableTools(bool isLocalEnvironment, GitAccount? activeGitAccount = null, string? intent = null)
@@ -207,6 +216,36 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         ["workingDirectory"] = new JsonObject { ["type"] = "string", ["description"] = "Optional relative working directory for the command." }
                     },
                     ["required"] = new JsonArray { "command" }
+                }
+            });
+
+            // 8. rollback_checkpoint
+            tools.Add(new AgentToolDefinition
+            {
+                Name = "rollback_checkpoint",
+                Description = "Instantly revert a file or the latest file change in the workspace to its pre-write/pre-edit state.",
+                Parameters = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["checkpointId"] = new JsonObject { ["type"] = "string", ["description"] = "Optional specific checkpoint ID to revert (leave empty to revert the latest change)." }
+                    }
+                }
+            });
+
+            // 9. validate_project
+            tools.Add(new AgentToolDefinition
+            {
+                Name = "validate_project",
+                Description = "Automatically detect the workspace project type (.NET, Node, Rust, Python, Go) and run its build or test validation suite with diagnostic token extraction.",
+                Parameters = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["mode"] = new JsonObject { ["type"] = "string", ["description"] = "'build' or 'test' (defaults to 'test')." }
+                    }
                 }
             });
         }
@@ -727,7 +766,21 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                 case "view_file":
                 {
                     var filePath = args?["filePath"]?.ToString() ?? "";
-                    var fullPath = Path.GetFullPath(Path.Combine(workspacePath, filePath));
+                    var fileCheck = _securityService.EvaluateFileAccess(filePath, workspacePath, isWrite: false);
+                    if (!fileCheck.IsAllowed)
+                    {
+                        result.IsError = true;
+                        result.Output = fileCheck.Reason ?? "Access denied by workspace security perimeter.";
+                        break;
+                    }
+
+                    if (!AgentSecurityService.TryResolveWithinWorkspace(workspacePath, filePath, out var fullPath, out var err))
+                    {
+                        result.IsError = true;
+                        result.Output = err ?? $"File path '{filePath}' escapes workspace root.";
+                        break;
+                    }
+
                     if (!File.Exists(fullPath))
                     {
                         result.IsError = true;
@@ -790,7 +843,15 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         }
                     }
 
-                    var fullPath = Path.GetFullPath(Path.Combine(workspacePath, filePath));
+                    if (!AgentSecurityService.TryResolveWithinWorkspace(workspacePath, filePath, out var fullPath, out var err))
+                    {
+                        result.IsError = true;
+                        result.Output = err ?? $"File path '{filePath}' escapes workspace root.";
+                        break;
+                    }
+
+                    // Capture pre-write snapshot / checkpoint for instant undo
+                    var cp = await _checkpointService.CapturePreWriteSnapshotAsync(workspacePath, filePath, "write_file", callId, cancellationToken);
 
                     var dir = Path.GetDirectoryName(fullPath);
                     if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
@@ -799,7 +860,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     }
 
                     await File.WriteAllTextAsync(fullPath, content, cancellationToken);
-                    result.Output = $"Successfully wrote {content.Length} characters to {filePath}.";
+                    result.Output = $"Successfully wrote {content.Length} characters to {filePath} [Checkpoint: {cp.Id}].";
                     break;
                 }
 
@@ -842,7 +903,12 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         }
                     }
 
-                    var fullPath = Path.GetFullPath(Path.Combine(workspacePath, filePath));
+                    if (!AgentSecurityService.TryResolveWithinWorkspace(workspacePath, filePath, out var fullPath, out var err))
+                    {
+                        result.IsError = true;
+                        result.Output = err ?? $"File path '{filePath}' escapes workspace root.";
+                        break;
+                    }
 
                     if (!File.Exists(fullPath))
                     {
@@ -852,42 +918,41 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     }
 
                     var existing = await File.ReadAllTextAsync(fullPath, cancellationToken);
-                    var updated = existing;
 
-                    if (existing.Contains(targetContent))
-                    {
-                        updated = existing.Replace(targetContent, replacementContent);
-                    }
-                    else
-                    {
-                        // Fallback: Normalize line endings (\r\n vs \n)
-                        var normalizedExisting = existing.Replace("\r\n", "\n");
-                        var normalizedTarget = targetContent.Replace("\r\n", "\n");
-                        var normalizedReplacement = replacementContent.Replace("\r\n", "\n");
+                    // Capture pre-edit snapshot / checkpoint
+                    var cp = await _checkpointService.CapturePreWriteSnapshotAsync(workspacePath, filePath, "edit_file", callId, cancellationToken);
 
-                        if (normalizedExisting.Contains(normalizedTarget))
-                        {
-                            var isCrlf = existing.Contains("\r\n");
-                            var replaced = normalizedExisting.Replace(normalizedTarget, normalizedReplacement);
-                            updated = isCrlf ? replaced.Replace("\n", "\r\n") : replaced;
-                        }
-                        else
-                        {
-                            result.IsError = true;
-                            result.Output = $"Target content was not found in {filePath}. Please verify the exact lines before editing.";
-                            break;
-                        }
+                    var patchResult = SurgicalPatchEngine.ApplyPatch(existing, targetContent, replacementContent);
+                    if (!patchResult.Success)
+                    {
+                        result.IsError = true;
+                        result.Output = patchResult.ErrorMessage ?? $"Target content was not found in {filePath}.";
+                        break;
                     }
 
-                    await File.WriteAllTextAsync(fullPath, updated, cancellationToken);
-                    result.Output = $"Successfully edited {filePath}.";
+                    await File.WriteAllTextAsync(fullPath, patchResult.PatchedText, cancellationToken);
+                    var tierNote = patchResult.AppliedTier > 1 ? $" (via Tier {patchResult.AppliedTier}: {patchResult.DiagnosticDetails})" : "";
+                    result.Output = $"Successfully edited {filePath}{tierNote} [Checkpoint: {cp.Id}].";
                     break;
                 }
 
                 case "list_directory":
                 {
                     var relDir = args?["directoryPath"]?.ToString() ?? "";
-                    var fullPath = Path.GetFullPath(Path.Combine(workspacePath, relDir));
+                    var dirCheck = _securityService.EvaluateDirectoryAccess(relDir, workspacePath);
+                    if (!dirCheck.IsAllowed)
+                    {
+                        result.IsError = true;
+                        result.Output = dirCheck.Reason ?? "Access denied by workspace security perimeter.";
+                        break;
+                    }
+
+                    if (!AgentSecurityService.TryResolveWithinWorkspace(workspacePath, relDir, out var fullPath, out var err))
+                    {
+                        result.IsError = true;
+                        result.Output = err ?? $"Directory '{relDir}' escapes workspace root.";
+                        break;
+                    }
 
                     if (!Directory.Exists(fullPath))
                     {
@@ -928,7 +993,12 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                 {
                     var pattern = args?["pattern"]?.ToString() ?? "*";
                     var relDir = args?["directoryPath"]?.ToString() ?? "";
-                    var searchRoot = Path.GetFullPath(Path.Combine(workspacePath, relDir));
+                    if (!AgentSecurityService.TryResolveWithinWorkspace(workspacePath, relDir, out var searchRoot, out var err))
+                    {
+                        result.IsError = true;
+                        result.Output = err ?? $"Directory '{relDir}' escapes workspace root.";
+                        break;
+                    }
 
                     if (!Directory.Exists(searchRoot)) searchRoot = workspacePath;
 
@@ -993,7 +1063,10 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                 {
                     var cmd = args?["command"]?.ToString() ?? "";
                     var relWorkDir = args?["workingDirectory"]?.ToString() ?? "";
-                    var targetDir = Path.GetFullPath(Path.Combine(workspacePath, relWorkDir));
+                    if (!AgentSecurityService.TryResolveWithinWorkspace(workspacePath, relWorkDir, out var targetDir, out var err))
+                    {
+                        targetDir = workspacePath;
+                    }
 
                     // Evaluate Security Policy & Permissions
                     var permCheck = _securityService.EvaluateCommand(cmd, targetDir, workspacePath);
@@ -1029,78 +1102,123 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         }
                     }
 
-                    string shell;
-                    string shellArgs;
-
-                    if (OperatingSystem.IsWindows())
+                    var procResult = await _processRunner.ExecuteAsync(new ProcessExecutionOptions
                     {
-                        shell = "powershell.exe";
-                        shellArgs = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{cmd.Replace("\"", "\\\"")}\"";
-                    }
-                    else if (OperatingSystem.IsMacOS())
+                        CommandLine = cmd,
+                        WorkingDirectory = targetDir,
+                        WorkspaceRoot = workspacePath,
+                        TimeoutSeconds = Math.Max(_securityService.Settings.CommandTimeoutSeconds, 30),
+                        RunId = callId
+                    }, cancellationToken);
+
+                    if (procResult.TimedOut)
                     {
-                        shell = File.Exists("/bin/zsh") ? "/bin/zsh" : (File.Exists("/bin/bash") ? "/bin/bash" : "sh");
-                        shellArgs = $"-c \"{cmd.Replace("\"", "\\\"")}\"";
-                    }
-                    else // Linux / BSD / generic Unix
-                    {
-                        shell = File.Exists("/bin/bash") ? "/bin/bash" : (File.Exists("/bin/sh") ? "/bin/sh" : "sh");
-                        shellArgs = $"-c \"{cmd.Replace("\"", "\\\"")}\"";
-                    }
-
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = shell,
-                        Arguments = shellArgs,
-                        WorkingDirectory = Directory.Exists(targetDir) ? targetDir : workspacePath,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-
-                    _securityService.ScrubEnvironment(psi);
-
-                    using var proc = new Process { StartInfo = psi };
-                    var stdout = new StringBuilder();
-                    var stderr = new StringBuilder();
-
-                    proc.OutputDataReceived += (_, e) => { if (e.Data != null) stdout.AppendLine(e.Data); };
-                    proc.ErrorDataReceived += (_, e) => { if (e.Data != null) stderr.AppendLine(e.Data); };
-
-                    proc.Start();
-                    proc.BeginOutputReadLine();
-                    proc.BeginErrorReadLine();
-
-                    var timeoutSecs = Math.Max(_securityService.Settings.CommandTimeoutSeconds, 30);
-                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSecs));
-
-                    try
-                    {
-                        await proc.WaitForExitAsync(timeoutCts.Token);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        try { proc.Kill(true); } catch {}
                         result.IsError = true;
-                        result.Output = $"Command timed out after 30 seconds: {cmd}\nPartial output:\n{stdout}\n{stderr}";
+                        result.Output = $"Command timed out: {cmd}\nOutput:\n{procResult.CombinedOutput}";
                         break;
                     }
 
-                    var exitCode = proc.ExitCode;
-                    var fullOut = stdout.ToString().Trim();
-                    var fullErr = stderr.ToString().Trim();
-
-                    if (exitCode != 0)
+                    if (procResult.ExitCode != 0)
                     {
                         result.IsError = true;
-                        result.Output = $"Command failed with exit code {exitCode}:\n{fullErr}\n{fullOut}";
+                        result.Output = $"Command failed with exit code {procResult.ExitCode}:\n{procResult.CombinedOutput}";
                     }
                     else
                     {
-                        result.Output = string.IsNullOrWhiteSpace(fullOut) ? (string.IsNullOrWhiteSpace(fullErr) ? "Command completed successfully with 0 output." : fullErr) : fullOut;
+                        result.Output = string.IsNullOrWhiteSpace(procResult.CombinedOutput) ? "Command completed successfully with 0 output." : procResult.CombinedOutput;
                     }
+                    break;
+                }
+
+                case "rollback_checkpoint":
+                {
+                    var cpId = args?["checkpointId"]?.ToString();
+                    bool rolledBack;
+                    if (!string.IsNullOrWhiteSpace(cpId))
+                    {
+                        rolledBack = await _checkpointService.RollbackCheckpointAsync(cpId, cancellationToken);
+                    }
+                    else
+                    {
+                        rolledBack = await _checkpointService.RollbackLatestAsync(workspacePath, cancellationToken);
+                    }
+
+                    if (rolledBack)
+                    {
+                        result.Output = !string.IsNullOrWhiteSpace(cpId)
+                            ? $"Successfully rolled back checkpoint '{cpId}'."
+                            : "Successfully rolled back the latest workspace file change.";
+                    }
+                    else
+                    {
+                        result.IsError = true;
+                        result.Output = !string.IsNullOrWhiteSpace(cpId)
+                            ? $"Failed to roll back: checkpoint '{cpId}' was not found."
+                            : "No checkpoints available to roll back in this workspace.";
+                    }
+                    break;
+                }
+
+                case "validate_project":
+                {
+                    var mode = args?["mode"]?.ToString()?.ToLowerInvariant() ?? "test";
+                    var detected = ProjectValidationDetector.Detect(workspacePath);
+                    if (detected == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "No supported project manifest (.sln, .csproj, package.json, Cargo.toml, pytest, go.mod) detected in workspace.";
+                        break;
+                    }
+
+                    var cmdToRun = mode == "build" ? detected.BuildCommand : detected.TestCommand;
+                    var procResult = await _processRunner.ExecuteAsync(new ProcessExecutionOptions
+                    {
+                        CommandLine = cmdToRun,
+                        WorkingDirectory = workspacePath,
+                        WorkspaceRoot = workspacePath,
+                        TimeoutSeconds = 60,
+                        RunId = callId
+                    }, cancellationToken);
+
+                    var diagnostics = CompilerDiagnosticParser.Parse(procResult.CombinedOutput);
+                    var errHash = CompilerDiagnosticParser.ComputeErrorHash(diagnostics);
+
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"Project Ecosystem: {detected.Ecosystem} ({detected.ManifestFileName})");
+                    sb.AppendLine($"Command: {cmdToRun} (Exit Code: {procResult.ExitCode}, Duration: {procResult.DurationMs}ms)");
+
+                    if (procResult.ExitCode == 0)
+                    {
+                        sb.AppendLine("Status: PASSED");
+                        if (diagnostics.Count > 0)
+                        {
+                            sb.AppendLine($"Warnings ({diagnostics.Count}):");
+                            foreach (var d in diagnostics.Take(10))
+                            {
+                                sb.AppendLine($"  {d.FilePath}({d.Line},{d.Column}): {d.Severity} {d.Code}: {d.Message}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        sb.AppendLine($"Status: FAILED (Error Hash: {errHash})");
+                        var errors = diagnostics.Where(d => d.Severity == "ERROR").ToList();
+                        if (errors.Count > 0)
+                        {
+                            sb.AppendLine($"Errors ({errors.Count}):");
+                            foreach (var err in errors.Take(15))
+                            {
+                                sb.AppendLine($"  {err.FilePath}({err.Line},{err.Column}): {err.Code}: {err.Message}");
+                            }
+                        }
+                        else
+                        {
+                            sb.AppendLine("Raw Output:\n" + procResult.CombinedOutput);
+                        }
+                    }
+
+                    result.IsError = procResult.ExitCode != 0;
+                    result.Output = sb.ToString().Trim();
                     break;
                 }
 
