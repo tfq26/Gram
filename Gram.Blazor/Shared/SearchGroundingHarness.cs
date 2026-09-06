@@ -56,7 +56,7 @@ public sealed class SearchGroundingHarness
 
                 if (fetchedPages < maxFetchedPages && Uri.TryCreate(result.Url, UriKind.Absolute, out _))
                 {
-                    var page = await _webContentService.ScrapeUrlAsync(result.Url, cancellationToken);
+                    var page = await _webContentService.ScrapeUrlAsync(result.Url, cancellationToken, plan.PreferredDomains);
                     if (page.IsSuccess && !string.IsNullOrWhiteSpace(page.ContentMarkdown))
                     {
                         var excerpt = page.ContentMarkdown.Length > 1000 ? page.ContentMarkdown[..1000] + "..." : page.ContentMarkdown;

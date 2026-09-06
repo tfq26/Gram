@@ -8,14 +8,26 @@ namespace Gram.Desktop;
 public sealed class DesktopSession
 {
     private readonly GramBackendClient _backend;
+    private readonly DesktopOfflineCache _offlineCache;
+    private readonly DesktopLocalAgent _localAgent;
     private CancellationTokenSource? _runCancellation;
     private CancellationTokenSource? _selectConversationCts;
 
-    public DesktopSession(GramBackendClient backend, string? backendUrl = null)
+    public DesktopSession(GramBackendClient backend, string? backendUrl = null, DesktopOfflineCache? offlineCache = null, DesktopLocalAgent? localAgent = null)
     {
         _backend = backend;
         BackendUrl = backendUrl ?? "http://localhost:7337";
         WorkspacePath = Environment.CurrentDirectory;
+        _offlineCache = offlineCache ?? new DesktopOfflineCache();
+        _localAgent = localAgent ?? new DesktopLocalAgent();
+        var cached = _offlineCache.Read();
+        Conversations = cached.SafeConversations;
+        Models = cached.SafeModels;
+        if (cached.ActiveRun is { } recovery)
+        {
+            ActiveRun = new RunSummary(recovery.RunId, recovery.ConversationId, "", "recoverable", "Run can be resumed", recovery.SavedAt, recovery.SavedAt, null, null);
+            _lastProcessedSequence = recovery.LastSequence;
+        }
     }
 
     public string BackendUrl { get; }
@@ -34,8 +46,16 @@ public sealed class DesktopSession
     public ExecutionPermissionMode CurrentPermissionMode { get; private set; } = ExecutionPermissionMode.SafeAutoApprove;
     public bool IsLoading { get; private set; }
     public bool IsStreaming { get; private set; }
+    public bool IsUnauthorized { get; private set; }
+    public bool BackendUnavailable { get; private set; }
+    public bool IsOffline { get; private set; }
+    public LocalAgentStatus LocalAgentStatus { get; private set; } = new(false, Capabilities: []);
+    public bool CanResumeActiveRun => ActiveRun is { Status: "recoverable" };
     public string DraftResponse { get; private set; } = "";
     public string? Error { get; private set; }
+
+    private long _lastProcessedSequence = 0;
+    private readonly HashSet<long> _seenEventSequences = new();
 
     public event Action? StateChanged;
     public event Action<RunEvent>? RunEventReceived;
@@ -52,6 +72,8 @@ public sealed class DesktopSession
     {
         IsLoading = true;
         Error = null;
+        IsUnauthorized = false;
+        BackendUnavailable = false;
         Notify();
         try
         {
@@ -61,16 +83,28 @@ public sealed class DesktopSession
             await Task.WhenAll(conversationsTask, modelsTask, securityTask);
             Conversations = await conversationsTask;
             Models = await modelsTask;
+            IsOffline = false;
+            PersistCache();
         }
         catch (Exception ex)
         {
-            Error = ex.Message;
+            HandleClientException(ex);
+            IsOffline = Conversations.Count > 0 || Models.Count > 0;
         }
         finally
         {
+            await RefreshLocalAgentAsync(cancellationToken);
             IsLoading = false;
             Notify();
         }
+    }
+
+    public async Task RefreshLocalAgentAsync(CancellationToken cancellationToken = default)
+    {
+        LocalAgentStatus = LocalCapabilitiesEnabled
+            ? await _localAgent.GetStatusAsync(cancellationToken)
+            : new(false, Capabilities: []);
+        Notify();
     }
 
     public async Task LoadSecuritySettingsAsync()
@@ -145,6 +179,7 @@ public sealed class DesktopSession
 
             ActiveConversation = latest;
             DraftResponse = "";
+            PersistCache();
 
             // Synchronize Conversations summary list with latest title and version
             if (Conversations.Any(c => c.Id == conversationId))
@@ -164,6 +199,13 @@ public sealed class DesktopSession
         catch (Exception ex)
         {
             Error = ex.Message;
+            var cached = _offlineCache.Read().SafeConversationDetails.FirstOrDefault(c => c.Id == conversationId);
+            if (cached != null)
+            {
+                ActiveConversation = cached;
+                IsOffline = true;
+                Error = "Backend unavailable. Showing the last cached conversation.";
+            }
         }
         finally
         {
@@ -186,6 +228,7 @@ public sealed class DesktopSession
             if (fresh != null && fresh.Version >= ActiveConversation.Version)
             {
                 ActiveConversation = fresh;
+                PersistCache();
                 Notify();
             }
         }
@@ -199,6 +242,8 @@ public sealed class DesktopSession
         {
             ActiveConversation = await _backend.PostAsync<ConversationDetail>("/api/v1/conversations", new CreateConversationRequest(ModelId: modelId), cancellationToken);
             Conversations = await _backend.GetAsync<IReadOnlyList<ConversationSummary>>("/api/v1/conversations", cancellationToken);
+            IsOffline = false;
+            PersistCache();
         }
         catch (Exception ex)
         {
@@ -276,7 +321,11 @@ public sealed class DesktopSession
         if (ActiveConversation is null || string.IsNullOrWhiteSpace(text) || IsStreaming) return;
 
         Error = null;
+        IsUnauthorized = false;
+        BackendUnavailable = false;
         DraftResponse = "";
+        _lastProcessedSequence = 0;
+        _seenEventSequences.Clear();
         CurrentStreamingToolCalls.Clear();
         ActivePermissionRequest = null;
         IsStreaming = true;
@@ -290,10 +339,19 @@ public sealed class DesktopSession
                 $"/api/v1/conversations/{Uri.EscapeDataString(ActiveConversation.Id)}/runs",
                 new SendMessageRequest(text.Trim(), modelId, WorkspacePath: WorkspacePath, AllowLocalCapabilities: LocalCapabilitiesEnabled),
                 _runCancellation.Token);
+            PersistCache();
             Notify();
 
-            await foreach (var item in _backend.SubscribeToRunAsync(ActiveRun.Id, ct: _runCancellation.Token))
+            await foreach (var item in _backend.SubscribeToRunAsync(ActiveRun.Id, afterSequence: _lastProcessedSequence, ct: _runCancellation.Token))
             {
+                // Sequence deduplication: do not process duplicate events replayed across SSE reconnects
+                if (item.Sequence > 0 && !_seenEventSequences.Add(item.Sequence))
+                {
+                    continue;
+                }
+                _lastProcessedSequence = Math.Max(_lastProcessedSequence, item.Sequence);
+                PersistCache();
+
                 RunEventReceived?.Invoke(item);
                 if (item.EventType.Equals("text.delta", StringComparison.OrdinalIgnoreCase))
                 {
@@ -329,7 +387,10 @@ public sealed class DesktopSession
                 }
                 else if (item.EventType is "run.completed" or "run.failed" or "run.cancelled")
                 {
+                    ClearRecoveredRun();
                     ActivePermissionRequest = null;
+                    Notify();
+                    break; // Terminal event reached - halt streaming and prevent reconnect attempts
                 }
                 Notify();
             }
@@ -339,6 +400,7 @@ public sealed class DesktopSession
                 $"/api/v1/conversations/{Uri.EscapeDataString(ActiveConversation.Id)}",
                 cancellationToken);
             ActiveConversation = fresh;
+            PersistCache();
             if (Conversations.Any(c => c.Id == fresh.Id))
             {
                 Conversations = Conversations.Select(c => c.Id == fresh.Id
@@ -353,7 +415,7 @@ public sealed class DesktopSession
         }
         catch (Exception ex)
         {
-            Error = ex.Message;
+            HandleClientException(ex);
         }
         finally
         {
@@ -364,6 +426,31 @@ public sealed class DesktopSession
         }
     }
 
+    private void HandleClientException(Exception ex)
+    {
+        if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized } ||
+            ex.Message.Contains("401", StringComparison.OrdinalIgnoreCase) ||
+            ex.Message.Contains("unauthorized", StringComparison.OrdinalIgnoreCase))
+        {
+            IsUnauthorized = true;
+            BackendUnavailable = false;
+            Error = "Reauthorization required. Please sign in again.";
+        }
+        else if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.ServiceUnavailable or System.Net.HttpStatusCode.BadGateway or System.Net.HttpStatusCode.GatewayTimeout } ||
+                 ex.Message.Contains("503", StringComparison.OrdinalIgnoreCase) ||
+                 ex.Message.Contains("unavailable", StringComparison.OrdinalIgnoreCase) ||
+                 ex.InnerException is System.Net.Sockets.SocketException)
+        {
+            BackendUnavailable = true;
+            IsUnauthorized = false;
+            Error = "Backend service unavailable. Please check connection.";
+        }
+        else
+        {
+            Error = ex.Message;
+        }
+    }
+
     public async Task CancelAsync()
     {
         if (ActiveRun is null) return;
@@ -371,6 +458,38 @@ public sealed class DesktopSession
         try { await _backend.PostAsync<object>($"/api/v1/runs/{Uri.EscapeDataString(ActiveRun.Id)}/cancel", new CancelRunRequest("Cancelled from desktop")); }
         catch (Exception ex) { Error = ex.Message; }
         Notify();
+    }
+
+    public Task ResumeActiveRunAsync(CancellationToken cancellationToken = default)
+    {
+        if (ActiveRun is not { Status: "recoverable" } run) return Task.CompletedTask;
+        return ResumeRunAsync(run, cancellationToken);
+    }
+
+    private async Task ResumeRunAsync(RunSummary run, CancellationToken cancellationToken)
+    {
+        IsStreaming = true;
+        IsOffline = false;
+        Error = null;
+        Notify();
+        try
+        {
+            await foreach (var item in _backend.SubscribeToRunAsync(run.Id, _lastProcessedSequence, cancellationToken))
+            {
+                if (item.Sequence <= _lastProcessedSequence) continue;
+                _lastProcessedSequence = item.Sequence;
+                if (item.EventType.Equals("text.delta", StringComparison.OrdinalIgnoreCase)) DraftResponse += item.Payload;
+                PersistCache();
+                if (item.EventType is "run.completed" or "run.failed" or "run.cancelled")
+                {
+                    ClearRecoveredRun();
+                    break;
+                }
+                Notify();
+            }
+        }
+        catch (Exception ex) { HandleClientException(ex); }
+        finally { IsStreaming = false; Notify(); }
     }
 
     public async Task ConfirmMemoryAsync(string memoryId)
@@ -392,6 +511,30 @@ public sealed class DesktopSession
     }
 
     private void Notify() => StateChanged?.Invoke();
+
+    private void PersistCache()
+    {
+        try
+        {
+            var cachedDetails = _offlineCache.Read().SafeConversationDetails
+                .Where(c => Conversations.Any(summary => summary.Id == c.Id) || c.Id == ActiveConversation?.Id)
+                .Where(c => c.Id != ActiveConversation?.Id)
+                .ToList();
+            if (ActiveConversation != null) cachedDetails.Add(ActiveConversation);
+
+            var recovery = ActiveRun is { } run
+                ? new RunRecoveryState(run.Id, run.ConversationId, _lastProcessedSequence, DateTimeOffset.UtcNow)
+                : null;
+            _offlineCache.Write(new DesktopCacheSnapshot(Conversations, Models, cachedDetails, recovery, DateTimeOffset.UtcNow));
+        }
+        catch { }
+    }
+
+    private void ClearRecoveredRun()
+    {
+        ActiveRun = null;
+        PersistCache();
+    }
 
     private async Task LoadMemoryAsync(string? query, CancellationToken cancellationToken)
     {

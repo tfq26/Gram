@@ -76,10 +76,99 @@ public sealed class GramBackendClient : IMemoryApi
 
     public async IAsyncEnumerable<RunEvent> SubscribeToRunAsync(string runId, long afterSequence = 0, [EnumeratorCancellation] CancellationToken ct = default)
     {
-        await foreach (var item in ReadEventConnectionAsync(runId, afterSequence, ct))
+        var currentSequence = afterSequence;
+        const int maxReconnectAttempts = 5;
+        var attempt = 0;
+
+        while (!ct.IsCancellationRequested)
         {
-            if (item.Sequence > afterSequence) yield return item;
+            IAsyncEnumerator<RunEvent>? enumerator = null;
+            try
+            {
+                enumerator = ReadEventConnectionAsync(runId, currentSequence, ct).GetAsyncEnumerator(ct);
+            }
+            catch (Exception ex) when (IsTransientException(ex) && attempt < maxReconnectAttempts)
+            {
+                attempt++;
+                await Task.Delay(TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt)), ct);
+                continue;
+            }
+
+            var terminalReceived = false;
+            var cleanDisconnect = false;
+
+            try
+            {
+                while (true)
+                {
+                    bool hasNext;
+                    try
+                    {
+                        hasNext = await enumerator.MoveNextAsync();
+                    }
+                    catch (Exception ex) when (IsTransientException(ex) && attempt < maxReconnectAttempts)
+                    {
+                        break; // Trigger reconnect loop with currentSequence
+                    }
+
+                    if (!hasNext)
+                    {
+                        cleanDisconnect = true;
+                        break;
+                    }
+
+                    var item = enumerator.Current;
+                    if (item.Sequence > currentSequence)
+                    {
+                        currentSequence = item.Sequence;
+                        attempt = 0; // Reset backoff on successful event delivery
+                        yield return item;
+
+                        if (item.EventType is "run.completed" or "run.failed" or "run.cancelled")
+                        {
+                            terminalReceived = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (enumerator != null)
+                {
+                    await enumerator.DisposeAsync();
+                }
+            }
+
+            if (terminalReceived || ct.IsCancellationRequested)
+            {
+                yield break;
+            }
+
+            if (cleanDisconnect && attempt == 0)
+            {
+                // Clean end of stream without terminal event (e.g. backend closed connection)
+                yield break;
+            }
+
+            attempt++;
+            if (attempt >= maxReconnectAttempts)
+            {
+                break;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt)), ct);
         }
+    }
+
+    private static bool IsTransientException(Exception ex)
+    {
+        if (ex is HttpRequestException httpEx)
+        {
+            if (httpEx.StatusCode.HasValue)
+                return IsTransient(httpEx.StatusCode.Value);
+            return true;
+        }
+        return ex is IOException or System.Net.Sockets.SocketException or TimeoutException;
     }
 
     private async IAsyncEnumerable<RunEvent> ReadEventConnectionAsync(string runId, long lastSequence, [EnumeratorCancellation] CancellationToken ct)
@@ -126,5 +215,5 @@ public sealed class GramBackendClient : IMemoryApi
     private static async Task<T> ReadAsync<T>(HttpResponseMessage response, CancellationToken ct)
     { await EnsureSuccessAsync(response, ct); return await response.Content.ReadFromJsonAsync<T>(BackendJson.Options, ct) ?? throw new InvalidOperationException("Backend returned an empty response."); }
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken ct)
-    { if (response.IsSuccessStatusCode) return; var error = await response.Content.ReadAsStringAsync(ct); throw new HttpRequestException($"Backend request failed ({(int)response.StatusCode}): {error}"); }
+    { if (response.IsSuccessStatusCode) return; var error = await response.Content.ReadAsStringAsync(ct); throw new HttpRequestException($"Backend request failed ({(int)response.StatusCode}): {error}", null, response.StatusCode); }
 }

@@ -13,7 +13,7 @@ public sealed record ConnectorAction(string Id, string ConnectorId, string Name,
 public sealed record ConnectorConnectionRegistrationRequest(string ConnectorId, string DisplayName, IReadOnlyList<string> Scopes, string AuthenticationType = "oauth", DateTimeOffset? ExpiresAt = null, string? ClientId = null);
 public sealed record ConnectorActionRequest(string ConnectorId, string ActionId, JsonElement Parameters, string? ConnectionId = null, string? RunId = null, string? IdempotencyKey = null, string? UserId = null);
 public sealed record ConnectorActionResult(bool Success, string Status, string? Message = null, JsonElement? Data = null, bool RequiresApproval = false, string? ApprovalId = null);
-public sealed record ActionApproval(string Id, string UserId, string ConnectorId, string ActionId, ApprovalDecision Decision, ApprovalScope Scope, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, string? RunId = null);
+public sealed record ActionApproval(string Id, string UserId, string ConnectorId, string ActionId, ApprovalDecision Decision, ApprovalScope Scope, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, string? RunId = null, string? ConnectionId = null, string? ParameterHash = null);
 public sealed record RecordActionApprovalRequest(ConnectorActionRequest Request, ApprovalDecision Decision, ApprovalScope Scope);
 public sealed record ActionAuditEvent(string Id, string UserId, string ConnectorId, string ActionId, ActionRiskLevel RiskLevel, string Status, DateTimeOffset CreatedAt, string? RunId = null, string? Error = null);
 public sealed record WebhookEvent(string Id, string ConnectorId, string EventType, string UserId, JsonElement Payload, DateTimeOffset ReceivedAt, string IdempotencyKey);
@@ -38,6 +38,10 @@ public interface IConnectorRegistry
 public interface IActionPermissionService
 {
     ActionRiskLevel Classify(ConnectorAction action);
+    bool RequiresApproval(ConnectorAction action);
     Task<ActionApproval?> GetApprovalAsync(string userId, ConnectorActionRequest request, CancellationToken cancellationToken = default);
+    Task<ActionApproval?> TryConsumeApprovalAsync(string userId, ConnectorActionRequest request, CancellationToken cancellationToken = default);
+    Task<ActionApproval?> PeekApprovalAsync(string userId, ConnectorActionRequest request, CancellationToken cancellationToken = default);
     Task<ActionApproval> RecordApprovalAsync(string userId, ConnectorActionRequest request, ApprovalDecision decision, ApprovalScope scope, CancellationToken cancellationToken = default);
+    Task<bool> RevokeApprovalAsync(string userId, ConnectorActionRequest request, CancellationToken cancellationToken = default);
 }

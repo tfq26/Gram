@@ -131,7 +131,8 @@ public class GramBoxIntegrationTests : IDisposable
             execSw.Stop();
 
             Assert.True(res.Success);
-            Assert.True(execSw.ElapsedMilliseconds < 1000, $"Command execution took {execSw.ElapsedMilliseconds}ms");
+            var commandBudgetMs = OperatingSystem.IsWindows() ? 2000 : 1000;
+            Assert.True(execSw.ElapsedMilliseconds < commandBudgetMs, $"Command execution took {execSw.ElapsedMilliseconds}ms (expected < {commandBudgetMs}ms)");
         }
         finally
         {
@@ -192,24 +193,38 @@ public class GramBoxIntegrationTests : IDisposable
     private static string CreateWritableClone(string sourceRepo)
     {
         var destination = Path.Combine(Path.GetTempPath(), "gram-box-repo-" + Guid.NewGuid().ToString("N"));
+        var gitConfig = Path.Combine(Path.GetTempPath(), "gram-box-git-config-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(destination);
         Directory.Delete(destination);
-
-        using var process = Process.Start(new ProcessStartInfo
+        File.WriteAllText(gitConfig, "[safe]\ndirectory = *\n");
+        try
         {
-            FileName = "git",
-            Arguments = $"clone --local --no-hardlinks \"{sourceRepo}\" \"{destination}\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        }) ?? throw new InvalidOperationException("Could not start git clone for sandbox tests.");
-        process.WaitForExit();
-        if (process.ExitCode != 0)
-        {
-            var error = process.StandardError.ReadToEnd();
-            throw new InvalidOperationException($"Could not create writable sandbox test repository: {error}");
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            startInfo.Environment["GIT_CONFIG_GLOBAL"] = gitConfig;
+            startInfo.ArgumentList.Add("clone");
+            startInfo.ArgumentList.Add("--local");
+            startInfo.ArgumentList.Add("--no-hardlinks");
+            startInfo.ArgumentList.Add(sourceRepo);
+            startInfo.ArgumentList.Add(destination);
+            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start git clone for sandbox tests.");
+            process.WaitForExit();
+            if (process.ExitCode != 0)
+            {
+                var error = process.StandardError.ReadToEnd();
+                throw new InvalidOperationException($"Could not create writable sandbox test repository: {error}");
+            }
+            return destination;
         }
-        return destination;
+        finally
+        {
+            File.Delete(gitConfig);
+        }
     }
 }

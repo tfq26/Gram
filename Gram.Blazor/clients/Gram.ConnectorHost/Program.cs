@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Gram.ConnectorHost;
 using Gram.Blazor.Shared;
 
 var secret = Environment.GetEnvironmentVariable("GRAM_CONNECTOR_HOST_SECRET");
@@ -82,10 +83,16 @@ app.MapPost("/v1/execute", async (ConnectorHostExecuteRequest request, Cancellat
     try
     {
         process.Start();
+        using var isolation = WindowsProcessIsolation.TryAssign(process, manifest.ExecutionPolicy.MemoryLimitMb * 1024L * 1024L);
+        if (isolation is null)
+        {
+            try { process.Kill(true); } catch { }
+            return Results.Json(new ConnectorActionResult(false, "isolation_unavailable", "Windows worker isolation could not be established."), statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
         await process.StandardInput.WriteAsync(JsonSerializer.Serialize(request, BackendJson.Options));
         process.StandardInput.Close();
-        var outputTask = process.StandardOutput.ReadToEndAsync(timeout.Token);
-        var errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
+        var outputTask = ReadBoundedAsync(process.StandardOutput, Math.Clamp(manifest.ExecutionPolicy.MaxOutputBytes, 1024, 10_000_000), timeout.Token);
+        var errorTask = ReadBoundedAsync(process.StandardError, 4000, timeout.Token);
         while (!process.HasExited)
         {
             timeout.Token.ThrowIfCancellationRequested();
@@ -99,9 +106,9 @@ app.MapPost("/v1/execute", async (ConnectorHostExecuteRequest request, Cancellat
         }
         var output = await outputTask;
         var error = await errorTask;
-        if (Encoding.UTF8.GetByteCount(output) > manifest.ExecutionPolicy.MaxOutputBytes) return Results.Json(new ConnectorActionResult(false, "output_limit"), statusCode: StatusCodes.Status413PayloadTooLarge);
-        if (process.ExitCode != 0) return Results.Json(new ConnectorActionResult(false, "worker_failed", error.Length > 500 ? error[..500] : error), statusCode: StatusCodes.Status502BadGateway);
-        return Results.Ok(JsonSerializer.Deserialize<ConnectorActionResult>(output, BackendJson.Options) ?? new ConnectorActionResult(false, "worker_empty"));
+        if (output.Truncated) return Results.Json(new ConnectorActionResult(false, "output_limit"), statusCode: StatusCodes.Status413PayloadTooLarge);
+        if (process.ExitCode != 0) return Results.Json(new ConnectorActionResult(false, "worker_failed", error.Text.Length > 500 ? error.Text[..500] : error.Text), statusCode: StatusCodes.Status502BadGateway);
+        return Results.Ok(JsonSerializer.Deserialize<ConnectorActionResult>(output.Text, BackendJson.Options) ?? new ConnectorActionResult(false, "worker_empty"));
     }
     catch (OperationCanceledException) { try { if (!process.HasExited) process.Kill(true); } catch { } return Results.Json(new ConnectorActionResult(false, "timeout"), statusCode: StatusCodes.Status408RequestTimeout); }
     catch (Exception ex) { try { if (!process.HasExited) process.Kill(true); } catch { } return Results.Json(new ConnectorActionResult(false, "worker_error", ex.GetType().Name), statusCode: StatusCodes.Status500InternalServerError); }
@@ -118,7 +125,7 @@ app.MapPost("/v1/egress", async (HttpContext context, ConnectorEgressRequest req
     var manifest = JsonSerializer.Deserialize<ConnectorManifest>(await File.ReadAllTextAsync(manifestPath, cancellationToken), BackendJson.Options);
     if (manifest?.ExecutionPolicy is null) return Results.BadRequest(new ConnectorEgressResponse(false, 400, "", "Execution policy missing."));
     if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri)) return Results.BadRequest(new ConnectorEgressResponse(false, 400, "", "Invalid URL."));
-    var policyError = await ConnectorEgressPolicy.ValidateAsync(uri, manifest.ExecutionPolicy.AllowedDomains, cancellationToken);
+    var (policyError, pinnedAddress) = await ConnectorEgressPolicy.ValidateAndResolveAsync(uri, manifest.ExecutionPolicy.AllowedDomains, cancellationToken);
     if (policyError != null) return Results.Json(new ConnectorEgressResponse(false, 403, "", policyError), statusCode: 403);
     if (request.Method is not ("GET" or "POST" or "PUT" or "PATCH" or "DELETE")) return Results.BadRequest(new ConnectorEgressResponse(false, 400, "", "HTTP method is not allowed."));
 
@@ -129,10 +136,12 @@ app.MapPost("/v1/egress", async (HttpContext context, ConnectorEgressRequest req
         var value = await credentialVault.ResolveAsync(new ConnectorCredentialReference(request.UserId, manifest.Id, request.ConnectionId, binding.Name), manifest.CredentialNames ?? [], cancellationToken);
         if (!string.IsNullOrWhiteSpace(value)) message.Headers.TryAddWithoutValidation(binding.HeaderName, binding.Prefix + value);
     }
-    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(Math.Clamp(manifest.ExecutionPolicy.TimeoutSeconds, 1, 300)) };
+    using var handler = ConnectorEgressPolicy.CreateSecureHandler(manifest.ExecutionPolicy.AllowedDomains, pinnedAddress!);
+    using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(Math.Clamp(manifest.ExecutionPolicy.TimeoutSeconds, 1, 300)) };
     using var response = await client.SendAsync(message, cancellationToken);
-    var body = await response.Content.ReadAsStringAsync(cancellationToken);
-    if (Encoding.UTF8.GetByteCount(body) > manifest.ExecutionPolicy.MaxOutputBytes) body = body[..Math.Min(body.Length, manifest.ExecutionPolicy.MaxOutputBytes)] + "…";
+    if ((int)response.StatusCode is >= 300 and < 400)
+        return Results.Ok(new ConnectorEgressResponse(false, (int)response.StatusCode, "", "Redirects require explicit destination revalidation."));
+    var body = await ReadBoundedContentAsync(response.Content, manifest.ExecutionPolicy.MaxOutputBytes, cancellationToken);
     return Results.Ok(new ConnectorEgressResponse(response.IsSuccessStatusCode, (int)response.StatusCode, body));
 });
 
@@ -162,4 +171,46 @@ static bool ValidateExecutionToken(string secret, string token, string packageId
     using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
     var expected = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(payload)));
     return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(expected), Encoding.ASCII.GetBytes(parts[1].ToUpperInvariant()));
+}
+
+static async Task<(string Text, bool Truncated)> ReadBoundedAsync(StreamReader reader, int maxCharacters, CancellationToken cancellationToken)
+{
+    var buffer = new char[4096];
+    var output = new StringBuilder(Math.Min(maxCharacters, 64 * 1024));
+    var truncated = false;
+    while (true)
+    {
+        var read = await reader.ReadAsync(buffer.AsMemory(), cancellationToken);
+        if (read == 0) break;
+        if (output.Length < maxCharacters)
+        {
+            var take = Math.Min(read, maxCharacters - output.Length);
+            output.Append(buffer, 0, take);
+            if (take < read) truncated = true;
+        }
+        else truncated = true;
+    }
+    return (output.ToString(), truncated);
+}
+
+static async Task<string> ReadBoundedContentAsync(HttpContent content, int maxBytes, CancellationToken cancellationToken)
+{
+    await using var stream = await content.ReadAsStreamAsync(cancellationToken);
+    await using var output = new MemoryStream();
+    var buffer = new byte[8192];
+    var truncated = false;
+    while (true)
+    {
+        var read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken);
+        if (read == 0) break;
+        if (output.Length < maxBytes)
+        {
+            var take = (int)Math.Min(read, maxBytes - output.Length);
+            await output.WriteAsync(buffer.AsMemory(0, take), cancellationToken);
+            if (take < read) truncated = true;
+        }
+        else truncated = true;
+    }
+    var text = Encoding.UTF8.GetString(output.ToArray());
+    return truncated ? text + "…" : text;
 }

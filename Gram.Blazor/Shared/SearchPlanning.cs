@@ -49,15 +49,22 @@ public static class GroundingPolicy
     private static readonly string[] LiveSignals = ["latest", "current", "today", "yesterday", "recent", "as of", "news", "price", "release", "announced", "standings", "weather", "what happened", "this year"];
     private static readonly string[] PrimarySignals = ["law", "legal", "regulation", "regulatory", "tariff", "tax", "credit", "compliance", "policy", "official", "requirement", "eligibility", "safety", "medical", "financial"];
 
+    private static bool HasSignal(string text, string signal)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(signal)) return false;
+        if (signal.Contains(' ')) return text.Contains(signal, StringComparison.OrdinalIgnoreCase);
+        return System.Text.RegularExpressions.Regex.IsMatch(text, $@"\b{System.Text.RegularExpressions.Regex.Escape(signal)}\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
     public static GroundingDecision Decide(string question)
     {
         var text = question?.Trim() ?? "";
         var lower = text.ToLowerInvariant();
-        var needsPrimary = PrimarySignals.Any(lower.Contains);
-        var needsLive = needsPrimary || LiveSignals.Any(lower.Contains);
+        var needsPrimary = PrimarySignals.Any(s => HasSignal(lower, s));
+        var needsLive = needsPrimary || LiveSignals.Any(s => HasSignal(lower, s));
         var complex = text.Length > 180 || lower.Contains("compare") || lower.Contains(" and ") || lower.Contains("versus") || lower.Contains(" vs ");
         var rule = TopicRules
-            .Select(candidate => (Rule: candidate, Matches: candidate.Signals.Count(signal => lower.Contains(signal, StringComparison.OrdinalIgnoreCase))))
+            .Select(candidate => (Rule: candidate, Matches: candidate.Signals.Count(signal => HasSignal(lower, signal))))
             .Where(candidate => candidate.Matches > 0)
             .OrderByDescending(candidate => candidate.Matches)
             .FirstOrDefault();
@@ -93,15 +100,45 @@ public static class SearchPlanBuilder
 
         var queries = new List<SearchQueryPlan> { new(primaryQuery, current ? "news" : "general") };
 
-        var isForwardLooking = current || decision.TopicCategory == "news" || ForwardLookingEntities.Any(e => lower.Contains(e));
+        // Only inject hardware/tech roadmap queries if the query explicitly targets consumer tech / hardware entities
+        var isHardwareOrConsumerTech = ForwardLookingEntities.Any(e =>
+            System.Text.RegularExpressions.Regex.IsMatch(lower, $@"\b{System.Text.RegularExpressions.Regex.Escape(e)}\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
 
-        if (isForwardLooking)
+        if (isHardwareOrConsumerTech)
         {
-            // Horizon 1: Confirmed & Scheduled Events
-            queries.Add(new SearchQueryPlan($"{primaryQuery} official event keynote announcement date news", "news"));
-
-            // Horizon 2: Future Roadmap & Leaks / Expected Products
+            queries.Add(new SearchQueryPlan($"{primaryQuery} official event announcement date news", "news"));
             queries.Add(new SearchQueryPlan($"{primaryQuery} upcoming hardware roadmap rumors expected release timeline", "news"));
+        }
+        else
+        {
+            // Category-relevant query planning without spurious hardware/rumor injection
+            switch (decision.TopicCategory)
+            {
+                case "regulation":
+                    queries.Add(new SearchQueryPlan($"{primaryQuery} official regulation rule guidance compliance federal register", "general"));
+                    break;
+                case "finance":
+                    queries.Add(new SearchQueryPlan($"{primaryQuery} official earnings report financial filing statement", current ? "news" : "general"));
+                    break;
+                case "health":
+                    queries.Add(new SearchQueryPlan($"{primaryQuery} official medical guidance clinical trial safety fda cdc", "general"));
+                    break;
+                case "science":
+                    queries.Add(new SearchQueryPlan($"{primaryQuery} official research paper scientific study mission data", "general"));
+                    break;
+                case "sports":
+                    queries.Add(new SearchQueryPlan($"{primaryQuery} official score standings schedule results", current ? "news" : "general"));
+                    break;
+                case "news":
+                    queries.Add(new SearchQueryPlan($"{primaryQuery} official announcement breaking news details", "news"));
+                    break;
+                default:
+                    if (current)
+                    {
+                        queries.Add(new SearchQueryPlan($"{primaryQuery} latest updates official announcement", "news"));
+                    }
+                    break;
+            }
         }
 
         if (mode == "advanced")
@@ -224,10 +261,38 @@ public static class SourceQualityScorer
         return score;
     }
 
-    public static IReadOnlyList<WebSearchResult> Rank(IEnumerable<WebSearchResult> results, SearchPlan? plan = null) =>
-        results.Select((r, i) => (Result: r, Score: Score(r, plan), Index: i))
-               .OrderByDescending(x => x.Score)
-               .ThenBy(x => x.Index)
-               .Select(x => x.Result)
-               .ToList();
+    public static IReadOnlyList<WebSearchResult> Rank(IEnumerable<WebSearchResult> results, SearchPlan? plan = null)
+    {
+        var scored = results
+            .Where(r => plan?.PreferredDomains == null || plan.PreferredDomains.Count == 0 || UrlNormalization.IsDomainAllowed(r.Url, plan.PreferredDomains))
+            .Select((r, i) => (Result: r, Score: Score(r, plan), Index: i, CanonicalUrl: UrlNormalization.CanonicalizeUrl(r.Url)))
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Index)
+            .ToList();
+
+        // 1. Deduplicate by canonical URL
+        var uniqueByUrl = new List<(WebSearchResult Result, int Score, int Index, string CanonicalUrl)>();
+        var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in scored)
+        {
+            if (seenUrls.Add(item.CanonicalUrl))
+            {
+                uniqueByUrl.Add(item);
+            }
+        }
+
+        // 2. Mirror and syndicated content deduplication (drop lower-scoring near-duplicate titles)
+        var finalResults = new List<WebSearchResult>();
+        foreach (var item in uniqueByUrl)
+        {
+            var isMirror = finalResults.Any(existing => UrlNormalization.AreTitlesNearDuplicates(existing.Title, item.Result.Title));
+            if (!isMirror)
+            {
+                finalResults.Add(item.Result);
+            }
+        }
+
+        return finalResults;
+    }
 }

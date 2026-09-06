@@ -75,36 +75,92 @@ public sealed class WebContentService
     /// Fetches a URL and transforms its HTML into clean, human-readable Markdown.
     /// Strips scripts, ads, headers, navbars, tracking widgets, and footers.
     /// </summary>
-    public async Task<WebScrapeResult> ScrapeUrlAsync(string url, CancellationToken cancellationToken = default)
+    public async Task<WebScrapeResult> ScrapeUrlAsync(string url, CancellationToken cancellationToken = default, IReadOnlyList<string>? allowedDomains = null)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
             return new WebScrapeResult(url, "", "", false, "Invalid URL format.");
         }
 
+        if (allowedDomains != null && allowedDomains.Count > 0 && !UrlNormalization.IsDomainAllowed(url, allowedDomains))
+        {
+            return new WebScrapeResult(url, "", "", false, "Domain restriction policy blocked this URL.");
+        }
+
+        const int maxRedirectHops = 5;
+        var currentUri = uri;
+        var hopCount = 0;
+
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, uri);
-            req.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
-            req.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7");
-            req.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
-
-            using var res = await _httpClient.SendAsync(req, cancellationToken);
-            if (!res.IsSuccessStatusCode)
+            while (true)
             {
-                return new WebScrapeResult(url, "", "", false, $"HTTP {(int)res.StatusCode}: {res.ReasonPhrase}");
-            }
+                if (allowedDomains != null && allowedDomains.Count > 0 && !UrlNormalization.IsDomainAllowed(currentUri.ToString(), allowedDomains))
+                {
+                    return new WebScrapeResult(url, "", "", false, $"Domain restriction policy blocked redirect to '{currentUri.Host}'.");
+                }
 
-            var contentType = res.Content.Headers.ContentType?.MediaType ?? "";
-            if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase) || 
-                contentType.Contains("text/plain", StringComparison.OrdinalIgnoreCase))
-            {
-                var plain = await res.Content.ReadAsStringAsync(cancellationToken);
-                return new WebScrapeResult(url, uri.Host, plain.Length > 15000 ? plain[..15000] + "\n\n...[content truncated]" : plain, true);
-            }
+                using var req = new HttpRequestMessage(HttpMethod.Get, currentUri);
+                req.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+                req.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7");
+                req.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
 
-            var html = await res.Content.ReadAsStringAsync(cancellationToken);
-            return ParseHtmlToMarkdown(url, html);
+                using var res = await _httpClient.SendAsync(req, cancellationToken);
+
+                // If a 3xx redirect status is returned (when AllowAutoRedirect = false), validate and follow next hop manually
+                if ((int)res.StatusCode is 301 or 302 or 303 or 307 or 308)
+                {
+                    var location = res.Headers.Location;
+                    if (location == null)
+                    {
+                        return new WebScrapeResult(url, "", "", false, $"Redirect status {(int)res.StatusCode} returned without Location header.");
+                    }
+
+                    var nextUri = location.IsAbsoluteUri ? location : new Uri(currentUri, location);
+                    if (nextUri.Scheme != Uri.UriSchemeHttp && nextUri.Scheme != Uri.UriSchemeHttps)
+                    {
+                        return new WebScrapeResult(url, "", "", false, $"Redirect to unsupported scheme '{nextUri.Scheme}' was blocked.");
+                    }
+
+                    hopCount++;
+                    if (hopCount > maxRedirectHops)
+                    {
+                        return new WebScrapeResult(url, "", "", false, "Too many redirect hops.");
+                    }
+
+                    // Check allowed domain BEFORE following the hop
+                    if (allowedDomains != null && allowedDomains.Count > 0 && !UrlNormalization.IsDomainAllowed(nextUri.ToString(), allowedDomains))
+                    {
+                        return new WebScrapeResult(url, "", "", false, $"Redirect hop {hopCount} to unauthorized domain '{nextUri.Host}' was blocked.");
+                    }
+
+                    currentUri = nextUri;
+                    continue;
+                }
+
+                // Check final request URI as safety net (in case HttpClientHandler had auto-redirects enabled)
+                var finalUri = res.RequestMessage?.RequestUri;
+                if (finalUri != null && allowedDomains != null && allowedDomains.Count > 0 && !UrlNormalization.IsDomainAllowed(finalUri.ToString(), allowedDomains))
+                {
+                    return new WebScrapeResult(url, "", "", false, $"Redirected to unauthorized domain '{finalUri.Host}'.");
+                }
+
+                if (!res.IsSuccessStatusCode)
+                {
+                    return new WebScrapeResult(url, "", "", false, $"HTTP {(int)res.StatusCode}: {res.ReasonPhrase}");
+                }
+
+                var contentType = res.Content.Headers.ContentType?.MediaType ?? "";
+                if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase) || 
+                    contentType.Contains("text/plain", StringComparison.OrdinalIgnoreCase))
+                {
+                    var plain = await res.Content.ReadAsStringAsync(cancellationToken);
+                    return new WebScrapeResult(url, currentUri.Host, plain.Length > 15000 ? plain[..15000] + "\n\n...[content truncated]" : plain, true);
+                }
+
+                var html = await res.Content.ReadAsStringAsync(cancellationToken);
+                return ParseHtmlToMarkdown(url, html);
+            }
         }
         catch (Exception ex)
         {
@@ -125,7 +181,8 @@ public sealed class WebContentService
         if (string.IsNullOrWhiteSpace(query)) return [];
         LastUsage = null;
         var stopwatch = Stopwatch.StartNew();
-        var cacheKey = $"{query.Trim().ToLowerInvariant()}::{maxResults}";
+        var domainsKey = plan.PreferredDomains?.Count > 0 ? string.Join(",", plan.PreferredDomains.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)) : "all";
+        var cacheKey = $"{query.Trim().ToLowerInvariant()}::{maxResults}::{domainsKey}";
         if (!bypassCache && _searchCache.TryGetValue(cacheKey, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow)
         {
             LastUsage = null;

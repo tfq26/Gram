@@ -34,6 +34,11 @@ var port = Environment.GetEnvironmentVariable("PORT") ?? "7337";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("WebBrowser")
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = false
+    });
 builder.Services.AddSingleton<Gram.Blazor.Shared.IRateLimitCoordinator, Gram.Blazor.Shared.RateLimitCoordinator>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthorizationCore();

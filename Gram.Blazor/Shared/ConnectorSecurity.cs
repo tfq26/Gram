@@ -46,8 +46,13 @@ public interface IConnectorCredentialVault
 public sealed class ConnectorCredentialVault : IConnectorCredentialVault
 {
     private readonly string _path;
+    private readonly byte[] _key;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    public ConnectorCredentialVault(StorageService storage) => _path = storage.GetFilePath("connector_credentials.dat");
+    public ConnectorCredentialVault(StorageService storage)
+    {
+        _path = storage.GetFilePath("connector_credentials.dat");
+        _key = LoadKey(storage.GetFilePath("connector_credentials.key"));
+    }
 
     public async Task StoreAsync(ConnectorCredentialReference reference, string secret, CancellationToken cancellationToken = default)
     {
@@ -58,7 +63,7 @@ public sealed class ConnectorCredentialVault : IConnectorCredentialVault
         {
             var values = await LoadAsync(cancellationToken);
             values[Key(reference)] = secret;
-            await File.WriteAllBytesAsync(_path, Encrypt(JsonSerializer.Serialize(values)), cancellationToken);
+            await WriteAtomicAsync(Encrypt(JsonSerializer.Serialize(values, BackendJson.Options)), cancellationToken);
         }
         finally { _gate.Release(); }
     }
@@ -78,10 +83,10 @@ public sealed class ConnectorCredentialVault : IConnectorCredentialVault
         try
         {
             var values = await LoadAsync(cancellationToken);
-            var prefix = $"{userId}:{connectorId}:{connectionId}:";
+            var prefix = ScopePrefix(userId, connectorId, connectionId);
             var removed = values.Keys.Where(key => key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
             foreach (var key in removed) values.Remove(key);
-            if (removed.Count > 0) await File.WriteAllBytesAsync(_path, Encrypt(JsonSerializer.Serialize(values)), cancellationToken);
+            if (removed.Count > 0) await WriteAtomicAsync(Encrypt(JsonSerializer.Serialize(values, BackendJson.Options)), cancellationToken);
             return removed.Count > 0;
         }
         finally { _gate.Release(); }
@@ -90,12 +95,72 @@ public sealed class ConnectorCredentialVault : IConnectorCredentialVault
     private async Task<Dictionary<string, string>> LoadAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_path)) return new(StringComparer.OrdinalIgnoreCase);
-        try { return JsonSerializer.Deserialize<Dictionary<string, string>>(Decrypt(await File.ReadAllBytesAsync(_path, cancellationToken))) ?? new(StringComparer.OrdinalIgnoreCase); }
-        catch { return new(StringComparer.OrdinalIgnoreCase); }
+        var json = Decrypt(await File.ReadAllBytesAsync(_path, cancellationToken));
+        return JsonSerializer.Deserialize<Dictionary<string, string>>(json, BackendJson.Options)
+            ?? throw new CryptographicException("Connector credential vault contents are invalid.");
     }
-    private static string Key(ConnectorCredentialReference reference) => $"{reference.UserId}:{reference.ConnectorId}:{reference.ConnectionId}:{reference.Name}";
-    private static void Validate(ConnectorCredentialReference reference) { if (new[] { reference.UserId, reference.ConnectorId, reference.ConnectionId, reference.Name }.Any(string.IsNullOrWhiteSpace)) throw new ArgumentException("Credential scope is incomplete."); }
-    private static byte[] EncryptionKey() => SHA256.HashData(Encoding.UTF8.GetBytes(Environment.UserName + Environment.MachineName + "GramConnectorVault2026"));
-    private static byte[] Encrypt(string value) { using var aes = Aes.Create(); aes.Key = EncryptionKey(); aes.GenerateIV(); using var output = new MemoryStream(); output.Write(aes.IV); using (var crypto = new CryptoStream(output, aes.CreateEncryptor(), CryptoStreamMode.Write)) using (var writer = new StreamWriter(crypto)) writer.Write(value); return output.ToArray(); }
-    private static string Decrypt(byte[] value) { if (value.Length < 17) return "{}"; using var aes = Aes.Create(); aes.Key = EncryptionKey(); aes.IV = value[..16]; using var input = new MemoryStream(value, 16, value.Length - 16); using var crypto = new CryptoStream(input, aes.CreateDecryptor(), CryptoStreamMode.Read); using var reader = new StreamReader(crypto); return reader.ReadToEnd(); }
+    private async Task WriteAtomicAsync(byte[] bytes, CancellationToken cancellationToken)
+    {
+        var temporaryPath = _path + ".tmp";
+        await File.WriteAllBytesAsync(temporaryPath, bytes, cancellationToken);
+        File.Move(temporaryPath, _path, true);
+    }
+
+    private static string Key(ConnectorCredentialReference reference) => string.Join('.',
+        EncodeScope(reference.UserId), EncodeScope(reference.ConnectorId), EncodeScope(reference.ConnectionId), EncodeScope(reference.Name));
+
+    private static string ScopePrefix(string userId, string connectorId, string connectionId) => string.Join('.', EncodeScope(userId), EncodeScope(connectorId), EncodeScope(connectionId)) + ".";
+    private static string EncodeScope(string value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(value)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    private static void Validate(ConnectorCredentialReference reference) { if (new[] { reference.UserId, reference.ConnectorId, reference.ConnectionId, reference.Name }.Any(string.IsNullOrWhiteSpace) || reference.UserId.Equals("default", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Credential scope is incomplete or unauthenticated."); }
+
+    private byte[] Encrypt(string value)
+    {
+        var nonce = RandomNumberGenerator.GetBytes(12);
+        var plaintext = Encoding.UTF8.GetBytes(value);
+        var ciphertext = new byte[plaintext.Length];
+        var tag = new byte[16];
+        using var aes = new AesGcm(_key, tag.Length);
+        aes.Encrypt(nonce, plaintext, ciphertext, tag);
+        return [1, .. nonce, .. tag, .. ciphertext];
+    }
+
+    private string Decrypt(byte[] value)
+    {
+        if (value.Length < 29 || value[0] != 1) throw new CryptographicException("Connector credential vault format is invalid.");
+        var nonce = value[1..13];
+        var tag = value[13..29];
+        var ciphertext = value[29..];
+        var plaintext = new byte[ciphertext.Length];
+        using var aes = new AesGcm(_key, tag.Length);
+        aes.Decrypt(nonce, ciphertext, tag, plaintext);
+        return Encoding.UTF8.GetString(plaintext);
+    }
+
+    private static byte[] LoadKey(string keyPath)
+    {
+        var configured = Environment.GetEnvironmentVariable("GRAM_CONNECTOR_VAULT_KEY");
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            try
+            {
+                var key = configured.Length == 64 ? Convert.FromHexString(configured) : Convert.FromBase64String(configured);
+                if (key.Length == 32) return key;
+            }
+            catch { }
+            throw new InvalidOperationException("GRAM_CONNECTOR_VAULT_KEY must be a 32-byte base64 or 64-character hex key.");
+        }
+
+        if (File.Exists(keyPath))
+        {
+            var existing = File.ReadAllBytes(keyPath);
+            if (existing.Length != 32) throw new CryptographicException("Connector credential vault key is invalid.");
+            return existing;
+        }
+
+        var generated = RandomNumberGenerator.GetBytes(32);
+        Directory.CreateDirectory(Path.GetDirectoryName(keyPath)!);
+        using (var stream = new FileStream(keyPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)) stream.Write(generated);
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(keyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        return generated;
+    }
 }

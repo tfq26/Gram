@@ -33,7 +33,7 @@ public sealed class NativeScratchpadDriverTests : IDisposable
             ResourceBudget = new SandboxResourceBudget(SandboxResourceClass.Tiny, 1, 64L * 1024 * 1024, 1024 * 1024)
         };
 
-        var result = await driver.ExecuteCommandAsync(session, "printf ok");
+        var result = await driver.ExecuteCommandAsync(session, OperatingSystem.IsWindows() ? "echo ok" : "printf ok");
 
         Assert.True(result.Success);
         Assert.Contains("ok", result.Stdout, StringComparison.OrdinalIgnoreCase);

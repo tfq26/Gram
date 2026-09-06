@@ -8,13 +8,21 @@ namespace Gram.Blazor.Shared;
 
 public sealed record SpotifyAuthorizationStart(string AuthorizationUrl, string State);
 
-public sealed class SpotifyOAuthService
+public sealed class SpotifyOAuthService : IConnectorConnectionRefresher
 {
     private readonly IConnectorCredentialVault _vault;
     private readonly IConnectorConnectionStore _connections;
     private readonly ConcurrentDictionary<string, PendingState> _pending = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _refreshLocks = new(StringComparer.Ordinal);
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
-    public SpotifyOAuthService(IConnectorCredentialVault vault, IConnectorConnectionStore connections) { _vault = vault; _connections = connections; }
+    public SpotifyOAuthService(IConnectorCredentialVault vault, IConnectorConnectionStore connections, HttpClient? http = null) { _vault = vault; _connections = connections; _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(30) }; }
+    public string ConnectorId => "spotify";
+
+    public async Task<bool> TryRefreshAsync(string userId, string connectionId, CancellationToken cancellationToken = default)
+    {
+        await RefreshAsync(userId, connectionId, cancellationToken);
+        return true;
+    }
 
     public SpotifyAuthorizationStart Start(string userId, string? returnUrl = null)
     {
@@ -55,16 +63,28 @@ public sealed class SpotifyOAuthService
 
     public async Task<ConnectorConnection> RefreshAsync(string userId, string connectionId, CancellationToken cancellationToken = default)
     {
-        var connection = (await _connections.ListAsync(userId, "spotify", cancellationToken)).FirstOrDefault(x => x.Id.Equals(connectionId, StringComparison.OrdinalIgnoreCase)) ?? throw new KeyNotFoundException("Spotify connection was not found.");
-        var refresh = await _vault.ResolveAsync(new ConnectorCredentialReference(userId, "spotify", connectionId, "refresh_token"), ["refresh_token"], cancellationToken) ?? throw new InvalidOperationException("Spotify refresh token is unavailable.");
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://accounts.spotify.com/api/token") { Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["grant_type"] = "refresh_token", ["refresh_token"] = refresh, ["client_id"] = Environment.GetEnvironmentVariable("SPOTIFY_CLIENT_ID") ?? "" }) };
-        using var response = await _http.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        var token = await response.Content.ReadFromJsonAsync<SpotifyToken>(cancellationToken: cancellationToken) ?? throw new InvalidOperationException("Spotify returned an empty refresh response.");
-        await _vault.StoreAsync(new ConnectorCredentialReference(userId, "spotify", connectionId, "access_token"), token.AccessToken, cancellationToken);
-        var updated = connection with { IsConnected = true, ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, token.ExpiresIn - 60)), LastVerifiedAt = DateTimeOffset.UtcNow, Scopes = string.IsNullOrWhiteSpace(token.Scope) ? connection.Scopes : token.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries) };
-        await _connections.SaveAsync(updated, cancellationToken);
-        return updated;
+        var lockKey = $"{userId}\u001f{connectionId}";
+        var refreshLock = _refreshLocks.GetOrAdd(lockKey, _ => new SemaphoreSlim(1, 1));
+        await refreshLock.WaitAsync(cancellationToken);
+        try
+        {
+            var connection = (await _connections.ListAsync(userId, "spotify", cancellationToken)).FirstOrDefault(x => x.Id.Equals(connectionId, StringComparison.OrdinalIgnoreCase)) ?? throw new KeyNotFoundException("Spotify connection was not found.");
+            var refresh = await _vault.ResolveAsync(new ConnectorCredentialReference(userId, "spotify", connectionId, "refresh_token"), ["refresh_token"], cancellationToken) ?? throw new InvalidOperationException("Spotify refresh token is unavailable.");
+            using var request = new HttpRequestMessage(HttpMethod.Post, "https://accounts.spotify.com/api/token") { Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["grant_type"] = "refresh_token", ["refresh_token"] = refresh, ["client_id"] = Environment.GetEnvironmentVariable("SPOTIFY_CLIENT_ID") ?? "" }) };
+            using var response = await _http.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            var token = await response.Content.ReadFromJsonAsync<SpotifyToken>(cancellationToken: cancellationToken) ?? throw new InvalidOperationException("Spotify returned an empty refresh response.");
+            await _vault.StoreAsync(new ConnectorCredentialReference(userId, "spotify", connectionId, "access_token"), token.AccessToken, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(token.RefreshToken))
+                await _vault.StoreAsync(new ConnectorCredentialReference(userId, "spotify", connectionId, "refresh_token"), token.RefreshToken, cancellationToken);
+            var updated = connection with { IsConnected = true, ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, token.ExpiresIn - 60)), LastVerifiedAt = DateTimeOffset.UtcNow, Scopes = string.IsNullOrWhiteSpace(token.Scope) ? connection.Scopes : token.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries) };
+            await _connections.SaveAsync(updated, cancellationToken);
+            return updated;
+        }
+        finally
+        {
+            refreshLock.Release();
+        }
     }
 
     public async Task<bool> DisconnectAsync(string userId, string connectionId, CancellationToken cancellationToken = default)

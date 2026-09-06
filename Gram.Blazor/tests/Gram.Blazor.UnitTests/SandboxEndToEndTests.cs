@@ -65,7 +65,13 @@ public sealed class SandboxEndToEndTests : IAsyncLifetime
 
     private static async Task GitAsync(string directory, string command)
     {
-        var psi = new ProcessStartInfo("/bin/bash", $"-c \"{command.Replace("\"", "\\\"")}\"") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        var psi = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo("cmd.exe", $"/c {command}")
+            : new ProcessStartInfo("/bin/bash", $"-c \"{command.Replace("\"", "\\\"")}\"");
+        psi.WorkingDirectory = directory;
+        psi.RedirectStandardOutput = true;
+        psi.RedirectStandardError = true;
+        psi.UseShellExecute = false;
         using var process = Process.Start(psi)!;
         await process.WaitForExitAsync();
         Assert.True(process.ExitCode == 0, await process.StandardError.ReadToEndAsync());

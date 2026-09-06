@@ -14,7 +14,8 @@ public sealed class ConnectorSdkTests
 
         Assert.Equal("example-music", preview.Manifest.Id);
         Assert.Contains(preview.Manifest.Actions, action => action.Id == "play" && action.RequiresApproval);
-        Assert.True(preview.CanInstall);
+        Assert.False(preview.CanInstall);
+        Assert.Contains(preview.Warnings, warning => warning.Contains("scaffold", StringComparison.OrdinalIgnoreCase));
         Assert.Contains("IConnectedConnector", preview.AdapterSource);
     }
 

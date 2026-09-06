@@ -89,6 +89,7 @@ public sealed class ConnectorSdk : IConnectorSdk
         }
         foreach (var pattern in ForbiddenSourcePatterns)
             if (adapterSource.Contains(pattern, StringComparison.OrdinalIgnoreCase)) warnings.Add($"Generated adapter contains forbidden operation: {pattern}");
+        if (adapterSource.Contains("not_implemented", StringComparison.OrdinalIgnoreCase)) warnings.Add("Connector adapter is still a scaffold and must implement its declared actions before installation.");
         if (adapterSource.Contains("API_KEY", StringComparison.OrdinalIgnoreCase) || adapterSource.Contains("Bearer ", StringComparison.OrdinalIgnoreCase)) warnings.Add("Adapters must request credentials through the connection vault; secrets may not be embedded in source.");
         return warnings;
     }
