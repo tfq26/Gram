@@ -10,6 +10,7 @@
 @inject ThemeService ThemeService
 @inject StorageService StorageService
 @inject DesktopSession Session
+@inject GramBackendClient BackendClient
 @inject IJSRuntime JSRuntime
 @implements IDisposable
 
@@ -147,6 +148,14 @@
                                 </svg>
                                 <span>MCP</span>
                             </span>
+                        </button>
+                    }
+
+                    @if (MatchesSearch("Connections connectors Spotify Postman Home Assistant MCP browser"))
+                    {
+                        <button type="button" class="settings-nav-item @(activeCategory == "Connectors" ? "active" : "")" @onclick='() => SelectCategory("Connectors")'>
+                            <span class="nav-label"><span>Connectors</span></span>
+                            <span class="setting-hint">@connectorCatalog.Count</span>
                         </button>
                     }
 
@@ -762,7 +771,26 @@
                     </div>
                 }
 
-                @* 8. LOGS *@
+                @* 8. CONNECTORS *@
+                @if (activeCategory == "Connectors")
+                {
+                    <div class="settings-header"><h2 class="settings-section-title">Connectors</h2><p class="settings-section-desc">Connected services and permission-aware actions shared with Gram.</p></div>
+                    <div class="settings-group">
+                        @foreach (var connector in connectorCatalog)
+                        {
+                            var connection = connectorConnections.FirstOrDefault(c => c.ConnectorId.Equals(connector.Id, StringComparison.OrdinalIgnoreCase) && c.IsConnected);
+                            <div class="setting-item">
+                                <div class="setting-info"><span class="setting-title">@connector.Name</span><span class="setting-desc">@connector.Description</span></div>
+                                <div class="setting-control">
+                                    <span class="provider-status @(connection != null ? "connected" : connector.IsEnabled ? "system" : "")">@(connection != null ? "Connected" : connector.IsEnabled ? connector.RequiresConnection ? "Needs setup" : "Available" : "Experimental")</span>
+                                    @if (connector.Id == "spotify") { <a class="btn-secondary" href="@(BackendUrl.TrimEnd('/') + "/api/v1/connectors/spotify/authorize?returnUrl=%2F")" style="text-decoration:none; font-size:11px;">@(connection == null ? "Connect" : "Reconnect")</a> }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @* 9. LOGS *@
                 @if (activeCategory == "Logs")
                 {
                     <div class="settings-header">
@@ -871,6 +899,8 @@
     private bool autoApproveRead = true;
     private bool autoApproveWrite = false;
     private string maxParallelTools = "4";
+    private IReadOnlyList<ConnectorDescriptor> connectorCatalog = [];
+    private IReadOnlyList<ConnectorConnection> connectorConnections = [];
 
     private string apiKeyAnthropic = "";
     private string apiKeyOpenAI = "";
@@ -894,6 +924,8 @@
         try
         {
             await Session.LoadSecuritySettingsAsync();
+            connectorCatalog = await BackendClient.GetConnectorsAsync();
+            connectorConnections = await BackendClient.GetConnectorConnectionsAsync();
         }
         catch {}
     }

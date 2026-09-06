@@ -9,6 +9,7 @@ public interface IConnectorConnectionStore
 {
     Task<IReadOnlyList<ConnectorConnection>> ListAsync(string userId, string? connectorId = null, CancellationToken cancellationToken = default);
     Task<ConnectorConnection> SaveAsync(ConnectorConnection connection, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(string userId, string connectorId, string connectionId, CancellationToken cancellationToken = default);
 }
 
 public sealed class ConnectorConnectionStore : IConnectorConnectionStore
@@ -32,6 +33,18 @@ public sealed class ConnectorConnectionStore : IConnectorConnectionStore
             all.Add(connection);
             await File.WriteAllTextAsync(_path, JsonSerializer.Serialize(all, BackendJson.Options), cancellationToken);
             return connection;
+        }
+        finally { _gate.Release(); }
+    }
+    public async Task<bool> DeleteAsync(string userId, string connectorId, string connectionId, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var all = await LoadAsync(cancellationToken);
+            var removed = all.RemoveAll(c => c.UserId.Equals(userId, StringComparison.OrdinalIgnoreCase) && c.ConnectorId.Equals(connectorId, StringComparison.OrdinalIgnoreCase) && c.Id.Equals(connectionId, StringComparison.OrdinalIgnoreCase));
+            if (removed > 0) await File.WriteAllTextAsync(_path, JsonSerializer.Serialize(all, BackendJson.Options), cancellationToken);
+            return removed > 0;
         }
         finally { _gate.Release(); }
     }

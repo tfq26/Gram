@@ -12,6 +12,7 @@
 @inject IQuotaTracker QuotaTracker
 @inject IConnectorRegistry ConnectorRegistry
 @inject IConnectorConnectionStore ConnectorConnectionStore
+@inject SpotifyOAuthService SpotifyOAuth
 @inject NavigationManager NavManager
 @inject IJSRuntime JSRuntime
 @implements IDisposable
@@ -395,7 +396,14 @@
                     var connection = connectorConnections.FirstOrDefault(c => c.ConnectorId.Equals(connector.Id, StringComparison.OrdinalIgnoreCase) && c.IsConnected);
                     <div class="setting-item">
                         <div class="setting-info"><span class="setting-title">@connector.Name</span><span class="setting-desc">@connector.Description</span></div>
-                        <div class="setting-control"><span class="provider-status @(connection != null ? "connected" : connector.IsEnabled ? "system" : "")">@(connection != null ? "Connected" : connector.IsEnabled ? "Available" : "Experimental")</span></div>
+                        <div class="setting-control">
+                            <span class="provider-status @(connection != null ? "connected" : connector.IsEnabled ? "system" : "")">@(connection != null ? "Connected" : connector.IsEnabled ? "Available" : "Experimental")</span>
+                            @if (connector.Id == "spotify")
+                            {
+                                <a class="btn-secondary" href="/api/v1/connectors/spotify/authorize?returnUrl=%2Fsettings" style="text-decoration:none; font-size:11px;">@(connection == null ? "Connect" : "Reconnect")</a>
+                                @if (connection != null) { <button type="button" class="btn-secondary" style="font-size:11px;" @onclick="() => DisconnectSpotifyAsync(connection.Id)">Disconnect</button> }
+                            }
+                        </div>
                     </div>
                 }
             </div>
@@ -541,6 +549,14 @@
     private HashSet<string> testingProviders = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<ConnectorDescriptor> connectors = Array.Empty<ConnectorDescriptor>();
     private IReadOnlyList<ConnectorConnection> connectorConnections = Array.Empty<ConnectorConnection>();
+
+    private async Task DisconnectSpotifyAsync(string connectionId)
+    {
+        var user = await AuthService.GetCurrentUserAsync();
+        await SpotifyOAuth.DisconnectAsync(user.Id, connectionId);
+        connectorConnections = await ConnectorConnectionStore.ListAsync(user.Id);
+        StateHasChanged();
+    }
 
     private bool IsDirty =>
         assistantName != SettingsService.GetSetting("assistantName", "Gram") ||

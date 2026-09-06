@@ -94,15 +94,51 @@ public abstract class ConnectionGatedConnector : IConnectedConnector
 
 public sealed class SpotifyConnector : ConnectionGatedConnector
 {
+    private readonly IConnectorCredentialVault? _vault;
+    private readonly HttpClient _http;
+    public SpotifyConnector(IConnectorCredentialVault? vault = null, HttpClient? http = null) { _vault = vault; _http = http ?? new HttpClient { BaseAddress = new Uri("https://api.spotify.com/v1"), Timeout = TimeSpan.FromSeconds(20) }; }
     public override ConnectorDescriptor Descriptor => new("spotify", "Spotify", ConnectorTransport.Native, "Control playback and search the connected Spotify account.", true);
     public override IReadOnlyList<ConnectorAction> Actions =>
     [
         new("status", "spotify", "Playback status", "Read the current playback state.", ActionRiskLevel.Safe, RequiredScopes: ["user-read-playback-state"]),
         new("search", "spotify", "Search Spotify", "Search tracks, albums, artists, and playlists.", ActionRiskLevel.Safe),
-        new("play", "spotify", "Start playback", "Start playback on an available device.", ActionRiskLevel.Moderate, RequiresApproval: true, RequiredScopes: ["user-modify-playback-state"]),
+        new("play", "spotify", "Start playback", "Start playback on an available device or URI.", ActionRiskLevel.Moderate, RequiresApproval: true, RequiredScopes: ["user-modify-playback-state"]),
         new("pause", "spotify", "Pause playback", "Pause current playback.", ActionRiskLevel.Moderate, RequiresApproval: true, RequiredScopes: ["user-modify-playback-state"]),
         new("next", "spotify", "Next track", "Skip to the next track.", ActionRiskLevel.Moderate, RequiresApproval: true, RequiredScopes: ["user-modify-playback-state"])
     ];
+
+    public override async Task<ConnectorActionResult> ExecuteAsync(ConnectorActionRequest request, CancellationToken cancellationToken = default)
+    {
+        if (_vault == null || string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.ConnectionId)) return new(false, "connection_required", "A verified Spotify connection is required.");
+        var token = await _vault.ResolveAsync(new ConnectorCredentialReference(request.UserId, "spotify", request.ConnectionId, "access_token"), ["access_token"], cancellationToken);
+        if (string.IsNullOrWhiteSpace(token)) return new(false, "reauthorization_required", "The Spotify access token is unavailable.");
+        using var document = request.Parameters.ValueKind == JsonValueKind.Undefined ? JsonDocument.Parse("{}") : JsonDocument.Parse(request.Parameters.GetRawText());
+        var root = document.RootElement;
+        HttpRequestMessage message;
+        if (request.ActionId.Equals("status", StringComparison.OrdinalIgnoreCase)) message = new(HttpMethod.Get, "/me/player");
+        else if (request.ActionId.Equals("search", StringComparison.OrdinalIgnoreCase))
+        {
+            var query = root.TryGetProperty("query", out var q) ? q.GetString() : null;
+            if (string.IsNullOrWhiteSpace(query)) return new(false, "invalid_parameters", "A Spotify search query is required.");
+            message = new(HttpMethod.Get, $"/search?q={Uri.EscapeDataString(query)}&type=track,album,artist,playlist&limit=10");
+        }
+        else if (request.ActionId.Equals("pause", StringComparison.OrdinalIgnoreCase)) message = new(HttpMethod.Put, "/me/player/pause");
+        else if (request.ActionId.Equals("next", StringComparison.OrdinalIgnoreCase)) message = new(HttpMethod.Post, "/me/player/next");
+        else if (request.ActionId.Equals("play", StringComparison.OrdinalIgnoreCase))
+        {
+            message = new(HttpMethod.Put, "/me/player/play");
+            if (root.TryGetProperty("uri", out var uri) && !string.IsNullOrWhiteSpace(uri.GetString())) message.Content = new StringContent(JsonSerializer.Serialize(new { uris = new[] { uri.GetString() } }), Encoding.UTF8, "application/json");
+        }
+        else return new(false, "action_not_found");
+        message.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        using (message)
+        using (var response = await _http.SendAsync(message, cancellationToken))
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (body.Length > 12000) body = body[..12000] + "…";
+            return new(response.IsSuccessStatusCode, response.IsSuccessStatusCode ? "completed" : response.StatusCode == System.Net.HttpStatusCode.Unauthorized ? "reauthorization_required" : "provider_error", body);
+        }
+    }
 }
 
 public sealed class HomeAssistantConnector : ConnectionGatedConnector

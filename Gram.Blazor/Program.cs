@@ -155,6 +155,7 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorCredentialVault, Gram
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorHostClient, Gram.Blazor.Shared.ConnectorHostClient>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorConnectionStore, Gram.Blazor.Shared.ConnectorConnectionStore>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorConnectionResolver, Gram.Blazor.Shared.ConnectorConnectionResolver>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.SpotifyOAuthService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.ReminderConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.ControlledHttpConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.DesktopUseConnector>();
@@ -216,7 +217,7 @@ api.MapPost("/actions/preview", (Gram.Blazor.Shared.ConnectorActionRequest reque
     var action = registry.ListActions(request.ConnectorId).FirstOrDefault(a => a.Id.Equals(request.ActionId, StringComparison.OrdinalIgnoreCase));
     return action is null ? Results.NotFound(new Gram.Blazor.Shared.ApiError("action_not_found", "Connector action was not found.")) : Results.Ok(new { action, riskLevel = permissions.Classify(action), requiresApproval = permissions.Classify(action) != Gram.Blazor.Shared.ActionRiskLevel.Safe });
 });
-api.MapPost("/actions/execute", async (HttpContext context, Gram.Blazor.Shared.ConnectorActionRequest request, Gram.Blazor.Shared.IConnectorRegistry registry, Gram.Blazor.Shared.IActionPermissionService permissions, Gram.Blazor.Shared.IConnectorConnectionResolver connections, CancellationToken ct) =>
+api.MapPost("/actions/execute", async (HttpContext context, Gram.Blazor.Shared.ConnectorActionRequest request, Gram.Blazor.Shared.IConnectorRegistry registry, Gram.Blazor.Shared.IActionPermissionService permissions, Gram.Blazor.Shared.IConnectorConnectionResolver connections, Gram.Blazor.Shared.SpotifyOAuthService spotify, CancellationToken ct) =>
 {
     var connector = registry.Get(request.ConnectorId);
     var action = registry.ListActions(request.ConnectorId).FirstOrDefault(a => a.Id.Equals(request.ActionId, StringComparison.OrdinalIgnoreCase));
@@ -224,12 +225,33 @@ api.MapPost("/actions/execute", async (HttpContext context, Gram.Blazor.Shared.C
     var userId = GetMemoryUserId(context);
     request = request with { UserId = userId };
     var connection = await connections.ResolveAsync(userId, connector.Descriptor, action, request.ConnectionId, ct);
+    if (connection.Status == Gram.Blazor.Shared.ConnectionResolutionStatus.ReauthorizationRequired && request.ConnectorId.Equals("spotify", StringComparison.OrdinalIgnoreCase) && connection.Connection != null)
+    {
+        try
+        {
+            await spotify.RefreshAsync(userId, connection.Connection.Id, ct);
+            connection = await connections.ResolveAsync(userId, connector.Descriptor, action, connection.Connection.Id, ct);
+        }
+        catch { }
+    }
     if (connection.Status != Gram.Blazor.Shared.ConnectionResolutionStatus.Ready) return Results.Ok(new Gram.Blazor.Shared.ConnectorActionResult(false, connection.Status.ToString(), connection.Message));
+    request = request with { ConnectionId = connection.Connection?.Id ?? request.ConnectionId };
     if (permissions.Classify(action) != Gram.Blazor.Shared.ActionRiskLevel.Safe && await permissions.GetApprovalAsync(userId, request, ct) is null)
         return Results.Ok(new Gram.Blazor.Shared.ConnectorActionResult(false, "approval_required", "This action requires user approval.", RequiresApproval: true));
     return Results.Ok(await connector.ExecuteAsync(request, ct));
 });
 api.MapGet("/connectors/connections", async (HttpContext context, string? connectorId, Gram.Blazor.Shared.IConnectorConnectionStore connections, CancellationToken ct) => Results.Ok(await connections.ListAsync(GetMemoryUserId(context), connectorId, ct)));
+api.MapGet("/connectors/spotify/authorize", (HttpContext context, Gram.Blazor.Shared.SpotifyOAuthService spotify) => Results.Redirect(spotify.Start(GetMemoryUserId(context), context.Request.Query["returnUrl"].FirstOrDefault()).AuthorizationUrl));
+api.MapGet("/connectors/spotify/authorize-url", (HttpContext context, Gram.Blazor.Shared.SpotifyOAuthService spotify) => Results.Ok(spotify.Start(GetMemoryUserId(context), context.Request.Query["returnUrl"].FirstOrDefault())));
+api.MapGet("/connectors/spotify/callback", async (string? code, string? state, string? error, Gram.Blazor.Shared.SpotifyOAuthService spotify, CancellationToken ct) =>
+{
+    if (!string.IsNullOrWhiteSpace(error)) return Results.BadRequest(new Gram.Blazor.Shared.ApiError("spotify_authorization_denied", error));
+    if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(state)) return Results.BadRequest(new Gram.Blazor.Shared.ApiError("spotify_callback_invalid", "Spotify authorization callback was incomplete."));
+    var completed = await spotify.CompleteAsync(code, state, ct);
+    return string.IsNullOrWhiteSpace(completed.ReturnUrl) ? Results.Ok(completed.Connection) : Results.Redirect(completed.ReturnUrl);
+});
+api.MapPost("/connectors/spotify/{connectionId}/refresh", async (HttpContext context, string connectionId, Gram.Blazor.Shared.SpotifyOAuthService spotify, CancellationToken ct) => Results.Ok(await spotify.RefreshAsync(GetMemoryUserId(context), connectionId, ct)));
+api.MapDelete("/connectors/spotify/{connectionId}", async (HttpContext context, string connectionId, Gram.Blazor.Shared.SpotifyOAuthService spotify, CancellationToken ct) => await spotify.DisconnectAsync(GetMemoryUserId(context), connectionId, ct) ? Results.NoContent() : Results.NotFound());
 api.MapPost("/connectors/connections", async (HttpContext context, Gram.Blazor.Shared.ConnectorConnectionRegistrationRequest request, Gram.Blazor.Shared.IConnectorConnectionStore connections, CancellationToken ct) =>
 {
     var connection = new Gram.Blazor.Shared.ConnectorConnection(Guid.NewGuid().ToString("N"), request.ConnectorId, request.DisplayName, request.Scopes, true, request.ExpiresAt, GetMemoryUserId(context), request.AuthenticationType, DateTimeOffset.UtcNow, request.ClientId);
