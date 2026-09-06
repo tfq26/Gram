@@ -145,3 +145,35 @@ Historical verified baseline was 145 discovered tests, 144 passing with one Live
 Live Parallel searches previously succeeded after network escalation. Use the existing configured key without printing it. Do not source/export every secret unnecessarily. Local `.env`, launch profiles, credential vault data and auth tokens are not handoff artifacts. Model-provider/account availability should be retested only when needed and authorized.
 
 Useful entry documents: `Gram.Blazor/docs/backend-architecture.md`, `desktop-frontend-handoff.md`, `search-architecture.md`, `client-platform-plan.md`, and this handoff. Treat their statements as intended direction where code does not yet support them. The current priority is completing the connector settings request and closing the documented execution/auth gaps before calling the connector platform production-ready.
+
+## Current prioritized backlog
+
+Use this order unless a blocking test changes the priority:
+
+1. **Complete Spotify live validation.** Test OAuth callback, account verification, playback status, search, play/pause/next, expired-token refresh, revoked token, missing scopes, no active device, wrong account, and disconnect.
+2. **Move connection and memory persistence to shared PostgreSQL/SQLite storage.** Local JSON/in-memory state must not be authoritative for synchronized clients.
+3. **Fix identity and ownership enforcement.** Scope conversations, memories, connectors, connections, packages, approvals, and actions to the authenticated user and tenant. Remove unsafe hosted `default` fallbacks.
+4. **Complete approval handling.** Implement atomic Once, Run, and Session approvals bound to the exact connector, connection, action, target, and parameters.
+5. **Finish the shared connection framework.** Add reusable OAuth support for Google, Postman, and Home Assistant, including refresh, revoke, scope verification, account selection, and reauthorization.
+6. **Implement a real Postman connector.** Use validated first-party research for collection/workspace operations, safe request execution, authentication, and webhook support.
+7. **Implement Home Assistant and MCP runtime support.** Add server startup, discovery, schemas, permissions, execution, health, and shutdown; MCP registration alone is insufficient.
+8. **Harden connector workers and egress.** Add kernel/container network isolation, redirect and DNS-rebinding protection, hard process-tree resource limits, bounded streaming output, and secure credential delivery.
+9. **Improve research reliability.** Strengthen source filtering, page extraction, citation entailment, contradiction handling, coverage validation, and follow-up research tests.
+10. **Complete the desktop local agent.** Add secure file picker, terminal bridge, sandbox controls, browser-profile pairing, performance monitoring, Unix socket/named pipe support, and offline local capability behavior.
+11. **Extract the shared client core.** Move contracts, REST/SSE, authentication, retry, sync, offline cache, and conflict handling into frontend-neutral projects.
+12. **Build the mobile client.** Reuse the backend contracts for chat, memory, connector status, artifacts, offline cache, push/deep links, and capability restrictions that exclude desktop operations.
+
+The key dependency chain is:
+
+```text
+Spotify validation
+→ identity and persistence
+→ approvals and OAuth framework
+→ Postman/Home Assistant/MCP
+→ worker and egress hardening
+→ desktop local agent
+→ shared client extraction
+→ mobile client
+```
+
+Do not declare connected actions production-ready until account isolation, credential storage, approval consumption, worker isolation, and restart/retry behavior have test coverage.
