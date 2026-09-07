@@ -174,6 +174,67 @@ public sealed class ResearchReliabilityTests
         Assert.DoesNotContain("https://external-leak.com/data", handler.RequestedUrls);
     }
 
+    [Fact]
+    public async Task ScrapeUrlAsync_DetectsAndBlocksRedirectLoop()
+    {
+        var routes = new Dictionary<string, (HttpStatusCode Status, string? Location, string Content)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://trusted.gov/loop-a"] = (HttpStatusCode.Redirect, "https://trusted.gov/loop-b", ""),
+            ["https://trusted.gov/loop-b"] = (HttpStatusCode.Redirect, "https://trusted.gov/loop-a", "")
+        };
+
+        var handler = new MultiHopMockHandler(routes);
+        var clientFactory = new SingleHandlerClientFactory(handler);
+        var web = new WebContentService(clientFactory);
+
+        var result = await web.ScrapeUrlAsync("https://trusted.gov/loop-a", CancellationToken.None, allowedDomains: ["trusted.gov"]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("redirect loop", result.ErrorMessage ?? "", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ScrapeUrlAsync_BlocksHttpsToHttpRedirectDowngrade()
+    {
+        var routes = new Dictionary<string, (HttpStatusCode Status, string? Location, string Content)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://trusted.gov/secure"] = (HttpStatusCode.Redirect, "http://trusted.gov/insecure", ""),
+            ["http://trusted.gov/insecure"] = (HttpStatusCode.OK, null, "<html>Content</html>")
+        };
+
+        var handler = new MultiHopMockHandler(routes);
+        var clientFactory = new SingleHandlerClientFactory(handler);
+        var web = new WebContentService(clientFactory);
+
+        var result = await web.ScrapeUrlAsync("https://trusted.gov/secure", CancellationToken.None, allowedDomains: ["trusted.gov"]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("downgrade", result.ErrorMessage ?? "", StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("http://trusted.gov/insecure", handler.RequestedUrls);
+    }
+
+    [Fact]
+    public async Task ScrapeUrlAsync_BlocksRedirectToPrivateOrLoopbackIp()
+    {
+        var routes = new Dictionary<string, (HttpStatusCode Status, string? Location, string Content)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["https://trusted.gov/redir-meta"] = (HttpStatusCode.Redirect, "https://169.254.169.254/latest/meta-data", ""),
+            ["https://trusted.gov/redir-loop"] = (HttpStatusCode.Redirect, "https://127.0.0.1:8080/internal", "")
+        };
+
+        var handler = new MultiHopMockHandler(routes);
+        var clientFactory = new SingleHandlerClientFactory(handler);
+        var web = new WebContentService(clientFactory);
+
+        var resultMeta = await web.ScrapeUrlAsync("https://trusted.gov/redir-meta", CancellationToken.None);
+        Assert.False(resultMeta.IsSuccess);
+        Assert.Contains("private, loopback, or reserved", resultMeta.ErrorMessage ?? "", StringComparison.OrdinalIgnoreCase);
+
+        var resultLoop = await web.ScrapeUrlAsync("https://trusted.gov/redir-loop", CancellationToken.None);
+        Assert.False(resultLoop.IsSuccess);
+        Assert.Contains("private, loopback, or reserved", resultLoop.ErrorMessage ?? "", StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class MultiHopMockHandler : HttpMessageHandler
     {
         private readonly Dictionary<string, (HttpStatusCode Status, string? Location, string Content)> _routes;

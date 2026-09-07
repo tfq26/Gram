@@ -82,6 +82,11 @@ public sealed class WebContentService
             return new WebScrapeResult(url, "", "", false, "Invalid URL format.");
         }
 
+        if (IPAddress.TryParse(uri.Host, out var initialIp) && ConnectorEgressPolicy.IsPrivateOrReserved(initialIp))
+        {
+            return new WebScrapeResult(url, "", "", false, $"Target '{uri.Host}' is a private, loopback, or reserved address.");
+        }
+
         if (allowedDomains != null && allowedDomains.Count > 0 && !UrlNormalization.IsDomainAllowed(url, allowedDomains))
         {
             return new WebScrapeResult(url, "", "", false, "Domain restriction policy blocked this URL.");
@@ -90,6 +95,7 @@ public sealed class WebContentService
         const int maxRedirectHops = 5;
         var currentUri = uri;
         var hopCount = 0;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { UrlNormalization.CanonicalizeUrl(uri.ToString()) };
 
         try
         {
@@ -120,6 +126,25 @@ public sealed class WebContentService
                     if (nextUri.Scheme != Uri.UriSchemeHttp && nextUri.Scheme != Uri.UriSchemeHttps)
                     {
                         return new WebScrapeResult(url, "", "", false, $"Redirect to unsupported scheme '{nextUri.Scheme}' was blocked.");
+                    }
+
+                    // Reject HTTPS to HTTP redirect downgrade
+                    if (currentUri.Scheme == Uri.UriSchemeHttps && nextUri.Scheme == Uri.UriSchemeHttp)
+                    {
+                        return new WebScrapeResult(url, "", "", false, "Redirect downgrade from HTTPS to insecure HTTP was blocked.");
+                    }
+
+                    // Reject redirect loops
+                    var canonicalNext = UrlNormalization.CanonicalizeUrl(nextUri.ToString());
+                    if (!visited.Add(canonicalNext))
+                    {
+                        return new WebScrapeResult(url, "", "", false, "Redirect loop detected.");
+                    }
+
+                    // Reject private / reserved destination IP addresses
+                    if (IPAddress.TryParse(nextUri.Host, out var targetIp) && ConnectorEgressPolicy.IsPrivateOrReserved(targetIp))
+                    {
+                        return new WebScrapeResult(url, "", "", false, $"Redirect to private, loopback, or reserved destination '{nextUri.Host}' was blocked.");
                     }
 
                     hopCount++;

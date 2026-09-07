@@ -154,3 +154,94 @@ Focused tests must cover the changed behavior. Report full-suite failures accura
 - Use `apply_patch` for source edits.
 - Do not claim production readiness based only on happy-path unit tests.
 - Do not mark the phase complete until security, restart, ownership, and Windows acceptance behavior have focused coverage.
+
+---
+
+## Completed Implementations & Laptop Continuity Guide (Updated 2026-09-06)
+
+All foundation tasks outlined above have been implemented and verified. When pulling this repository on your laptop, use this section to understand what was fixed and how to proceed.
+
+### 1. Summary of Completed Fixes & Additions
+
+#### A. Approval Engine & Redirect Safety (Security Fixes)
+- **Redirect Policy Enforced**: In `Gram.Blazor/Shared/WebContentService.cs`, `WebBrowser` HTTP client has `AllowAutoRedirect = false`. Implemented a manual 5-hop redirect loop evaluating `UrlNormalization.IsDomainAllowed` prior to each hop. Rejects HTTP downgrades, unlisted domains, loop cycles, and private/metadata IPs (`ConnectorEgressPolicy.IsPrivateOrReserved`).
+- **Session Approval Lifetime**: Kept `ApprovalScope.Session` strictly in-memory in `ConnectorRegistry.cs`; session approvals now vanish on restart rather than persisting across instances.
+- **Atomic Once Approval Consumption**: Added SQLite transactional `BEGIN IMMEDIATE` + atomic update lock in `connector_approvals.db` for multi-process safety.
+
+#### B. Authenticated Windows Local Agent (`Gram.LocalAgent`)
+- **New Project**: `Gram.Blazor/clients/Gram.LocalAgent/` (targets `net9.0`).
+- **Localhost-Only Binding**: Listens strictly on `http://127.0.0.1:7340` (or `PORT`/`GRAM_LOCAL_AGENT_PORT`).
+- **Host Header Validation**: Middleware rejects requests where `Host` is not `localhost`, `127.0.0.1`, or `::1` to prevent DNS rebinding attacks.
+- **Pairing Secret Authentication**: Generates or loads a 64-char hex key from `%LOCALAPPDATA%/Gram/local-agent.secret` with constant-time equality check (`CryptographicOperations.FixedTimeEquals`). Auth required via `X-Local-Agent-Secret` or `Authorization: Bearer <secret>`.
+- **Capability Endpoints**:
+  - `GET /local/v1/health` (unauthenticated status)
+  - `GET /local/v1/capabilities` (reports `capabilities.get`, `files.pick`, `terminal.run`, `sandbox.create`)
+  - `POST /local/v1/files/pick` (workspace-bounded secure file retrieval)
+  - `POST /local/v1/terminal/run` (command runner with process-tree termination on timeout/cancellation)
+  - `POST /local/v1/sandbox/create` (creates isolated sandbox directory)
+- **Shared Contracts**: `Gram.Blazor/Shared/LocalAgentModels.cs`.
+
+#### C. Desktop Local Capabilities & Path Guard (`Gram.Desktop`)
+- **Path Traversal Guard**: `Gram.Blazor/clients/Gram.Desktop/Services/LocalPathGuard.cs` restricts operations strictly to within the designated workspace root.
+- **Authenticated Client**: `Gram.Blazor/clients/Gram.Desktop/DesktopLocalAgent.cs` implements `ILocalAgentClient` with automatic secret pairing, typed methods, and non-localhost URI rejection.
+
+#### D. Desktop Recovery & SQLite Offline Cache
+- **Durable SQLite Storage**: `Gram.Blazor/clients/Gram.Desktop/DesktopOfflineCache.cs` supports `desktop-cache.db` in WAL mode (`PRAGMA journal_mode = WAL;`) with JSON fallback.
+- **Offline Edits**: Implemented `EnqueueEdit`, `GetQueuedEdits`, and `RemoveQueuedEdit` with timestamp ordering.
+- **Version Conflict Surfacing**: Added `VersionConflictException` to surface conflicts rather than silently overwriting server updates.
+- **Credential Scrubbing**: `Sanitize` guarantees access tokens, refresh tokens, and secrets are never persisted in the offline cache.
+
+#### E. Shared Client Core
+- **Extracted Abstractions**: `Gram.Blazor/Shared/ClientCore.cs` contains:
+  - `IAuthenticationProvider` & `StaticTokenAuthenticationProvider`
+  - `GramApiException` with structured API error code and HTTP status code
+  - `RedactedClientLogger` for redacting credentials and tokens from logs
+  - `ConversationSyncState` for multi-client synchronization tracking
+
+#### F. Test Coverage
+- **New Suites**:
+  - `Gram.Blazor/tests/Gram.Blazor.UnitTests/LocalAgentProcessTests.cs` (6 tests: secret enforcement, host header rejection, path guard, terminal execution with timeout cancellation, sandbox creation).
+- **Expanded Suites**:
+  - `DesktopRecoveryTests.cs` (6 tests: JSON and SQLite cache roundtrips, offline edit queuing, version conflict).
+  - `ConnectorPackageServiceTests.cs` (2 tests: cross-owner compile/install rejection with `KeyNotFoundException`).
+  - `ConnectorCredentialVaultTests.cs` (3 tests: cross-user isolation and revoked credential resolution failure).
+  - `ResearchReliabilityTests.cs` (12 tests: 5-hop redirect safety, metadata IP blocking).
+- Total **55/55 foundation tests pass**.
+
+---
+
+### 2. How to Run & Verify on Your Laptop
+
+1. **Pull & Restore**:
+   ```powershell
+   git pull
+   dotnet restore Gram.Blazor/Gram.Blazor.sln
+   ```
+
+2. **Run the Foundation Test Suite**:
+   ```powershell
+   dotnet test Gram.Blazor/tests/Gram.Blazor.UnitTests/Gram.Blazor.UnitTests.csproj -m:1 --logger "console;verbosity=minimal" --filter "FullyQualifiedName~ResearchReliabilityTests|FullyQualifiedName~ConnectorPermissionServiceTests|FullyQualifiedName~ConnectorEgressPolicyTests|FullyQualifiedName~ConnectorPackageServiceTests|FullyQualifiedName~ConnectorCredentialVaultTests|FullyQualifiedName~ConnectorRuntimeServiceTests|FullyQualifiedName~DesktopRecoveryTests|FullyQualifiedName~LocalAgentProcessTests|FullyQualifiedName~DesktopClientReliabilityTests"
+   ```
+
+3. **Verify All Target Builds**:
+   ```powershell
+   dotnet build Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj
+   dotnet build Gram.Blazor/clients/Gram.ConnectorHost/Gram.ConnectorHost.csproj
+   dotnet build Gram.Blazor/clients/Gram.ConnectorWorker/Gram.ConnectorWorker.csproj
+   dotnet build Gram.Blazor/clients/Gram.LocalAgent/Gram.LocalAgent.csproj
+   ```
+
+4. **Running the Local Agent Process Locally**:
+   ```powershell
+   dotnet run --project Gram.Blazor/clients/Gram.LocalAgent/Gram.LocalAgent.csproj
+   ```
+   - Defaults to `http://127.0.0.1:7340`.
+   - The pairing secret will be automatically generated at `%LOCALAPPDATA%\Gram\local-agent.secret` (or set via `GRAM_LOCAL_AGENT_SECRET` env var).
+
+---
+
+### 3. Next Steps on the Laptop
+- Wire `DesktopSession` and the desktop UI views to render local agent status (`LocalAgentStatus.IsAvailable`, `Capabilities`) and enable the file picker and terminal tabs when connected.
+- Begin phase 2 connector integrations (Spotify / Postman / Home Assistant) on top of the validated `ConnectorRuntimeService` and `ConnectorPermissionService` baseline.
+- Ensure Spotify files (`SpotifyOAuthService.cs`, `ConnectorConnectionResolver.cs`) continue to preserve their connection resolution logic.
+

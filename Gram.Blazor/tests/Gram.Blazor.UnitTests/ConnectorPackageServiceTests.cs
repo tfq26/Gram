@@ -47,6 +47,10 @@ public sealed class ConnectorPackageServiceTests
             Assert.NotNull(await packages.GetAsync(staged.Id, ownerId: "owner-a"));
             Assert.Null(await packages.GetAsync(staged.Id, ownerId: "owner-b"));
             Assert.Empty(await packages.ListAsync(ownerId: "owner-b"));
+
+            // Cross-owner compile & install attempts must fail with KeyNotFoundException
+            await Assert.ThrowsAsync<KeyNotFoundException>(() => packages.CompileAsync(staged.Id, ownerId: "owner-b"));
+            await Assert.ThrowsAsync<KeyNotFoundException>(() => packages.InstallAsync(staged.Id, approved: true, ownerId: "owner-b"));
         }
         finally
         {

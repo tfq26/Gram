@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Gram.Blazor.csproj" ReferenceOutputAssembly="true" />
+    <ProjectReference Include="../GramBox.Contracts/GramBox.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Photino.Blazor" Version="4.0.13" />
