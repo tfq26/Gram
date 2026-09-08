@@ -7,35 +7,6 @@
 @inject IJSRuntime JSRuntime
 
 <div class="dt-terminal-view">
-    <!-- Header: Minimal Zed/Linear bar without status lights or connected text -->
-    <div class="dt-terminal-header">
-        <div class="dt-terminal-title">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="dt-terminal-icon">
-                <polyline points="4 17 10 11 4 5"></polyline>
-                <line x1="12" y1="19" x2="20" y2="19"></line>
-            </svg>
-            <span class="dt-terminal-name">Terminal</span>
-            @if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
-            {
-                <span class="dt-terminal-sep">·</span>
-                <span class="dt-terminal-cwd" title="@Session.WorkspacePath">@GetCleanWorkspaceName()</span>
-            }
-        </div>
-
-        <div class="dt-terminal-actions">
-            @if (isTerminalRunning)
-            {
-                <div class="dt-terminal-spinner" title="Executing command..."></div>
-            }
-            @if (terminalHistory.Count > 0)
-            {
-                <button type="button" class="dt-terminal-action-btn" @onclick="() => terminalHistory.Clear()" title="Clear terminal output">
-                    Clear
-                </button>
-            }
-        </div>
-    </div>
-
     <!-- Output Buffer: Continuous monospace terminal buffer, no cards -->
     <div class="dt-terminal-output" @ref="terminalScrollRef">
         @if (terminalHistory.Count == 0)
@@ -319,13 +290,6 @@
         }
     }
 
-    private string GetCleanWorkspaceName()
-    {
-        if (string.IsNullOrWhiteSpace(Session.WorkspacePath)) return "";
-        var name = Path.GetFileName(Session.WorkspacePath.TrimEnd('/', '\\'));
-        return string.IsNullOrWhiteSpace(name) ? Session.WorkspacePath : name;
-    }
-
     private async Task HandleTerminalKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter" && !e.ShiftKey)
@@ -399,6 +363,16 @@
     {
         var cmd = terminalInput.Trim();
         if (string.IsNullOrWhiteSpace(cmd) || isTerminalRunning) return;
+
+        if (cmd.Equals("clear", StringComparison.OrdinalIgnoreCase) || cmd.Equals("cls", StringComparison.OrdinalIgnoreCase))
+        {
+            terminalHistory.Clear();
+            terminalInput = "";
+            historyIndex = -1;
+            temporaryInput = "";
+            isSuggestionsOpen = false;
+            return;
+        }
 
         isTerminalRunning = true;
         terminalInput = "";
