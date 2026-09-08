@@ -53,6 +53,7 @@
                         <span class="dt-terminal-prompt">❯</span>
                         <span class="dt-terminal-cmd">@entry.Command</span>
                         <span class="dt-terminal-meta">
+                            <span class="dt-terminal-timestamp" title="@entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
                             @if (entry.ExitCode != 0)
                             {
                                 <span class="dt-terminal-exit error">exit @entry.ExitCode</span>

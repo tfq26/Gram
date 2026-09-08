@@ -3951,6 +3951,12 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, select:focus-
     color: var(--dt-danger);
 }
 
+.dt-terminal-timestamp {
+    opacity: 0.5;
+    font-size: 10px;
+    font-family: var(--dt-font-mono);
+}
+
 .dt-terminal-time {
     opacity: 0.6;
 }
