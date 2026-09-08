@@ -92,107 +92,92 @@
         }
     </div>
 
-    <!-- Click-to-Expand: Linear-style Task Queue & Model Dropdown HUD -->
+    <!-- Click-to-Expand: Single Unified HUD Menu separated with dividers -->
     @if (isExpanded)
     {
         <div class="dt-island-backdrop" @onclick="() => isExpanded = false"></div>
         <div class="dt-island-hud" @onclick:stopPropagation="true">
-            <div class="dt-hud-header">
-                <span class="dt-hud-title">Tasks</span>
-                <button type="button" class="dt-hud-close" @onclick="() => isExpanded = false" aria-label="Close">✕</button>
+            <!-- 1. Task Queue List (Flat, seamless) -->
+            @{
+                var tasks = GetTaskQueue();
+            }
+            <div class="dt-hud-queue-list">
+                @if (tasks.Count == 0)
+                {
+                    <div class="dt-hud-queue-empty">No active or queued tasks</div>
+                }
+                else
+                {
+                    @foreach (var task in tasks)
+                    {
+                        <div class="dt-hud-queue-item @task.StatusKind">
+                            <div class="dt-hud-queue-icon-wrap">
+                                @if (task.StatusKind == "running")
+                                {
+                                    <div class="dt-hud-queue-spinner"></div>
+                                }
+                                else if (task.StatusKind == "pending")
+                                {
+                                    <span class="dt-hud-queue-icon pending">●</span>
+                                }
+                                else if (task.StatusKind == "failed")
+                                {
+                                    <span class="dt-hud-queue-icon failed">✕</span>
+                                }
+                                else
+                                {
+                                    <span class="dt-hud-queue-icon completed">✓</span>
+                                }
+                            </div>
+                            <div class="dt-hud-queue-main">
+                                <span class="dt-hud-queue-title">@task.Title</span>
+                                @if (!string.IsNullOrWhiteSpace(task.Subtitle))
+                                {
+                                    <span class="dt-hud-queue-sub">@task.Subtitle</span>
+                                }
+                            </div>
+                            <span class="dt-hud-queue-badge @task.StatusKind">@task.Status</span>
+                        </div>
+                    }
+                }
             </div>
 
-            <div class="dt-hud-body">
-                <!-- Section 1: Task Queue (Completed, Running, and Queued) -->
-                <div class="dt-hud-section">
-                    <div class="dt-hud-section-header">
-                        <span class="dt-hud-section-label">Task Queue</span>
-                        @{
-                            var tasks = GetTaskQueue();
-                        }
-                        @if (tasks.Count > 0)
-                        {
-                            <span class="dt-hud-count">@tasks.Count</span>
-                        }
-                    </div>
+            <!-- Divider -->
+            @if (Models != null && Models.Count > 0)
+            {
+                <div class="dt-hud-divider"></div>
 
-                    <div class="dt-hud-queue-list">
-                        @if (tasks.Count == 0)
-                        {
-                            <div class="dt-hud-queue-empty">No active or queued tasks</div>
-                        }
-                        else
-                        {
-                            @foreach (var task in tasks)
+                <!-- 2. Model Selection Row directly under divider -->
+                <div class="dt-hud-model-row">
+                    <span class="dt-hud-row-label">Model</span>
+                    <div class="dt-hud-model-select-wrap">
+                        <select class="dt-hud-model-select"
+                                value="@SelectedModelId"
+                                @onchange="HandleModelChanged"
+                                disabled="@IsStreaming">
+                            @foreach (var model in Models.Where(m => m.IsEnabled))
                             {
-                                <div class="dt-hud-queue-item @task.StatusKind">
-                                    <div class="dt-hud-queue-icon-wrap">
-                                        @if (task.StatusKind == "running")
-                                        {
-                                            <div class="dt-hud-queue-spinner"></div>
-                                        }
-                                        else if (task.StatusKind == "pending")
-                                        {
-                                            <span class="dt-hud-queue-icon pending">●</span>
-                                        }
-                                        else if (task.StatusKind == "failed")
-                                        {
-                                            <span class="dt-hud-queue-icon failed">✕</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="dt-hud-queue-icon completed">✓</span>
-                                        }
-                                    </div>
-                                    <div class="dt-hud-queue-main">
-                                        <div class="dt-hud-queue-title">@task.Title</div>
-                                        @if (!string.IsNullOrWhiteSpace(task.Subtitle))
-                                        {
-                                            <div class="dt-hud-queue-sub">@task.Subtitle</div>
-                                        }
-                                    </div>
-                                    <span class="dt-hud-queue-badge @task.StatusKind">@task.Status</span>
-                                </div>
+                                <option value="@model.Id">@model.Name (@model.Provider)</option>
                             }
-                        }
+                        </select>
+                        <svg class="dt-hud-select-arrow" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
                     </div>
                 </div>
+            }
 
-                <!-- Section 2: Model Dropdown (right under the task queue) -->
-                @if (Models != null && Models.Count > 0)
-                {
-                    <div class="dt-hud-section">
-                        <div class="dt-hud-section-header">
-                            <span class="dt-hud-section-label">Model</span>
-                        </div>
-                        <div class="dt-hud-model-select-wrap">
-                            <select class="dt-hud-model-select"
-                                    value="@SelectedModelId"
-                                    @onchange="HandleModelChanged"
-                                    disabled="@IsStreaming">
-                                @foreach (var model in Models.Where(m => m.IsEnabled))
-                                {
-                                    <option value="@model.Id">@model.Name (@model.Provider)</option>
-                                }
-                            </select>
-                            <svg class="dt-hud-select-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                                <polyline points="6 9 12 15 18 9"></polyline>
-                            </svg>
-                        </div>
-                    </div>
-                }
-
-                <!-- Action Footer (if streaming, can stop task) -->
-                @if (IsStreaming && OnCancel.HasDelegate)
-                {
-                    <div class="dt-hud-footer">
-                        <button type="button" class="dt-hud-btn-cancel" @onclick="HandleCancelFromHud">
-                            <span>Stop Task</span>
-                            <kbd>Esc</kbd>
-                        </button>
-                    </div>
-                }
-            </div>
+            <!-- 3. Stop Action (if streaming) -->
+            @if (IsStreaming && OnCancel.HasDelegate)
+            {
+                <div class="dt-hud-divider"></div>
+                <div class="dt-hud-action-row">
+                    <button type="button" class="dt-hud-btn-cancel" @onclick="HandleCancelFromHud">
+                        <span>Stop Task</span>
+                        <kbd>Esc</kbd>
+                    </button>
+                </div>
+            }
         </div>
     }
 </div>

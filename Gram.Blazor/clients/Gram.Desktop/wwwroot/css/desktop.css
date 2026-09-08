@@ -448,16 +448,17 @@ input, textarea, button, select {
     top: 35px;
     left: 50%;
     transform: translateX(-50%);
-    width: 320px;
+    width: 290px;
     background: var(--dt-bg-surface);
     border: 1px solid var(--dt-border-default);
     border-radius: var(--dt-radius-md);
     box-shadow: 
         inset 0 1px 0 rgba(255, 255, 255, 0.05),
-        0 14px 36px -4px rgba(0, 0, 0, 0.75);
+        0 14px 34px -4px rgba(0, 0, 0, 0.7);
     z-index: 9991;
     overflow: hidden;
-    animation: dt-hud-fade-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+    padding: 4px;
+    animation: dt-hud-fade-in 0.15s cubic-bezier(0.16, 1, 0.3, 1);
     font-family: var(--dt-font-sans);
 }
 
@@ -466,99 +467,18 @@ input, textarea, button, select {
     to { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
-.dt-hud-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 7px 12px;
-    border-bottom: 1px solid var(--dt-border-subtle);
-    background: var(--dt-bg-canvas);
-}
-
-.dt-hud-title {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--dt-text-primary);
-    letter-spacing: -0.01em;
-    font-family: var(--dt-font-sans);
-}
-
-.dt-hud-close {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    border: none;
-    background: transparent;
-    color: var(--dt-text-muted);
-    font-size: 10px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.12s ease;
-    font-family: var(--dt-font-sans);
-}
-
-.dt-hud-close:hover {
-    background: var(--dt-bg-hover);
-    color: var(--dt-text-primary);
-}
-
-.dt-hud-body {
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    font-family: var(--dt-font-sans);
-}
-
-.dt-hud-section {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-.dt-hud-section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 1px;
-}
-
-.dt-hud-section-label {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--dt-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-family: var(--dt-font-sans);
-}
-
-.dt-hud-count {
-    font-size: 9.5px;
-    font-weight: 600;
-    color: var(--dt-text-muted);
-    background: var(--dt-bg-subtle);
-    padding: 0 5px;
-    border-radius: var(--dt-radius-full);
-    font-family: var(--dt-font-sans);
-}
-
-/* Task Queue */
+/* Task Queue List (Flat, seamless) */
 .dt-hud-queue-list {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    max-height: 200px;
+    gap: 1px;
+    max-height: 180px;
     overflow-y: auto;
-    background: var(--dt-bg-canvas);
-    border: 1px solid var(--dt-border-subtle);
-    border-radius: var(--dt-radius-sm);
-    padding: 3px;
+    padding: 2px;
 }
 
 .dt-hud-queue-empty {
-    padding: 12px 10px;
+    padding: 10px 8px;
     font-size: 11px;
     color: var(--dt-text-muted);
     text-align: center;
@@ -569,10 +489,10 @@ input, textarea, button, select {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 7px;
+    padding: 5px 6px;
     border-radius: var(--dt-radius-sm);
     background: transparent;
-    transition: background 0.12s ease;
+    transition: background 0.1s ease;
     font-family: var(--dt-font-sans);
 }
 
@@ -649,7 +569,7 @@ input, textarea, button, select {
 }
 
 .dt-hud-queue-badge {
-    font-size: 9.5px;
+    font-size: 9px;
     font-weight: 500;
     padding: 1px 6px;
     border-radius: var(--dt-radius-full);
@@ -677,32 +597,64 @@ input, textarea, button, select {
     color: var(--dt-danger);
 }
 
-/* Model Dropdown Section */
+/* Divider */
+.dt-hud-divider {
+    height: 1px;
+    background: var(--dt-border-subtle);
+    margin: 3px 2px;
+}
+
+/* Model Row */
+.dt-hud-model-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 6px;
+    gap: 8px;
+    font-family: var(--dt-font-sans);
+}
+
+.dt-hud-row-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--dt-text-muted);
+    font-family: var(--dt-font-sans);
+    flex-shrink: 0;
+}
+
 .dt-hud-model-select-wrap {
     position: relative;
-    width: 100%;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    flex: 1;
+    justify-content: flex-end;
 }
 
 .dt-hud-model-select {
-    width: 100%;
     appearance: none;
     -webkit-appearance: none;
-    background: var(--dt-bg-canvas);
-    border: 1px solid var(--dt-border-subtle);
+    background: transparent;
+    border: 1px solid transparent;
     border-radius: var(--dt-radius-sm);
     color: var(--dt-text-primary);
     font-size: 11px;
     font-weight: 500;
     font-family: var(--dt-font-sans);
-    padding: 5px 26px 5px 9px;
+    padding: 3px 18px 3px 6px;
     cursor: pointer;
     outline: none;
-    transition: all 0.12s ease;
+    text-align: right;
+    max-width: 100%;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    transition: all 0.1s ease;
 }
 
 .dt-hud-model-select:hover {
-    border-color: var(--dt-border-default);
     background: var(--dt-bg-hover);
+    border-color: var(--dt-border-subtle);
 }
 
 .dt-hud-model-select:focus {
@@ -717,17 +669,16 @@ input, textarea, button, select {
 
 .dt-hud-select-arrow {
     position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
+    right: 5px;
     pointer-events: none;
     color: var(--dt-text-muted);
 }
 
-.dt-hud-footer {
+/* Action Row */
+.dt-hud-action-row {
     display: flex;
     justify-content: flex-end;
-    padding-top: 2px;
+    padding: 2px 4px;
 }
 
 .dt-hud-btn-cancel {
