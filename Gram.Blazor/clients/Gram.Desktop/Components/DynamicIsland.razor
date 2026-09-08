@@ -151,6 +151,7 @@
                 <div class="dt-hud-model-row">
                     <span class="dt-hud-row-label">Model</span>
                     <div class="dt-hud-model-select-wrap">
+                        <span class="dt-hud-select-measurer" aria-hidden="true">@GetSelectedModelDisplayName()</span>
                         <select class="dt-hud-model-select"
                                 value="@SelectedModelId"
                                 @onchange="HandleModelChanged"
@@ -210,6 +211,12 @@
             SelectedModelId = modelId;
             await SelectedModelIdChanged.InvokeAsync(modelId);
         }
+    }
+
+    private string GetSelectedModelDisplayName()
+    {
+        var model = Models?.FirstOrDefault(m => m.Id == SelectedModelId);
+        return model != null ? $"{model.Name} ({model.Provider})" : "Select model";
     }
 
     private void HandleKeyDown(KeyboardEventArgs e)
