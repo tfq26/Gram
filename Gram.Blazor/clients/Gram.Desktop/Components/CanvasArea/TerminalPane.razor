@@ -1,8 +1,10 @@
 @namespace Gram.Desktop.Components.CanvasArea
 @using Gram.Desktop.Services
 @using Gram.Blazor.Shared
+@implements IAsyncDisposable
 @inject DesktopSession Session
 @inject WorkspaceTabService TabService
+@inject IJSRuntime JSRuntime
 
 <div class="dt-terminal-view">
     <!-- Header: Minimal Zed/Linear bar without status lights or connected text -->
@@ -71,14 +73,39 @@
         }
     </div>
 
-    <!-- Command Input Bar: Clean command line prompt with history navigation -->
+    <!-- Command Input Bar: Clean command line prompt with auto-complete & history navigation -->
     <div class="dt-terminal-input-bar">
+        @if (isSuggestionsOpen && suggestions.Count > 0)
+        {
+            <div class="dt-terminal-suggestions-popup" @onclick:stopPropagation="true">
+                @for (int i = 0; i < suggestions.Count; i++)
+                {
+                    var index = i;
+                    var item = suggestions[index];
+                    var isSelected = index == selectedSuggestionIndex;
+                    <div class="dt-terminal-suggestion-item @(isSelected ? "selected" : "")"
+                         @onclick="() => SelectSuggestion(index)"
+                         @onmouseenter="() => selectedSuggestionIndex = index">
+                        <div class="dt-terminal-suggestion-main">
+                            <span class="dt-terminal-suggestion-kind @item.Kind">@item.Kind</span>
+                            <span class="dt-terminal-suggestion-text">@item.DisplayLabel</span>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(item.Description))
+                        {
+                            <span class="dt-terminal-suggestion-desc">@item.Description</span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
         <span class="dt-terminal-prompt">❯</span>
         <input type="text"
+               @ref="terminalInputRef"
                class="dt-terminal-input"
-               placeholder="Type a command..."
-               @bind="terminalInput"
-               @bind:event="oninput"
+               placeholder="Type a command (Tab to autocomplete)..."
+               value="@terminalInput"
+               @oninput="HandleTerminalInput"
                @onkeydown="HandleTerminalKeyDown"
                disabled="@isTerminalRunning"
                autofocus />
@@ -91,12 +118,205 @@
 
 @code {
     private sealed record TerminalHistoryEntry(string Command, int ExitCode, string Stdout, string Stderr, long ElapsedMs, DateTimeOffset Timestamp);
+    private sealed record TerminalSuggestion(string DisplayLabel, string InsertionText, string Kind, string Description);
+
     private readonly List<TerminalHistoryEntry> terminalHistory = new();
+    private readonly List<TerminalSuggestion> suggestions = new();
     private string terminalInput = "";
     private bool isTerminalRunning = false;
+    private bool isSuggestionsOpen = false;
+    private int selectedSuggestionIndex = 0;
     private ElementReference terminalScrollRef;
+    private ElementReference terminalInputRef;
+    private DotNetObjectReference<TerminalPane>? dotNetHelper;
     private int historyIndex = -1;
     private string temporaryInput = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetHelper = DotNetObjectReference.Create(this);
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("gramDesktop.attachTerminal", terminalInputRef, dotNetHelper);
+            }
+            catch
+            {
+                // JSRuntime might not be available or disposed in edge cases
+            }
+        }
+    }
+
+    [JSInvokable]
+    public void OnTabPressed()
+    {
+        if (isSuggestionsOpen && suggestions.Count > 0)
+        {
+            var idx = Math.Clamp(selectedSuggestionIndex, 0, suggestions.Count - 1);
+            ApplySuggestion(suggestions[idx]);
+        }
+        else
+        {
+            UpdateSuggestions();
+            if (suggestions.Count > 0)
+            {
+                ApplySuggestion(suggestions[0]);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private void HandleTerminalInput(ChangeEventArgs e)
+    {
+        terminalInput = e.Value?.ToString() ?? "";
+        historyIndex = -1;
+        UpdateSuggestions();
+    }
+
+    private void UpdateSuggestions()
+    {
+        suggestions.Clear();
+        selectedSuggestionIndex = 0;
+
+        var raw = terminalInput.TrimStart();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            isSuggestionsOpen = false;
+            return;
+        }
+
+        // 1. History Matches
+        var historyMatches = terminalHistory
+            .Select(h => h.Command.Trim())
+            .Where(cmd => !string.IsNullOrWhiteSpace(cmd) && cmd.Contains(raw, StringComparison.OrdinalIgnoreCase) && !cmd.Equals(raw, StringComparison.OrdinalIgnoreCase))
+            .Distinct()
+            .Take(3);
+
+        foreach (var hist in historyMatches)
+        {
+            suggestions.Add(new TerminalSuggestion(hist, hist, "hist", "History"));
+        }
+
+        // 2. Command Catalog Matches
+        var commandMatches = KnownCommands
+            .Where(k => k.Cmd.StartsWith(raw, StringComparison.OrdinalIgnoreCase) || k.Cmd.Contains(raw, StringComparison.OrdinalIgnoreCase))
+            .Where(k => !k.Cmd.Equals(raw, StringComparison.OrdinalIgnoreCase))
+            .Take(6);
+
+        foreach (var cmd in commandMatches)
+        {
+            suggestions.Add(new TerminalSuggestion(cmd.Cmd, cmd.Cmd, "cmd", cmd.Desc));
+        }
+
+        // 3. Workspace File and Directory Paths
+        if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
+        {
+            AddWorkspacePathSuggestions(raw);
+        }
+
+        isSuggestionsOpen = suggestions.Count > 0;
+    }
+
+    private void AddWorkspacePathSuggestions(string raw)
+    {
+        try
+        {
+            // Extract the last token (file or folder path currently being typed)
+            var lastSpaceIndex = raw.LastIndexOf(' ');
+            var token = lastSpaceIndex >= 0 ? raw[(lastSpaceIndex + 1)..] : raw;
+
+            // Only complete path if there's a space or starts with ./ or / or contains a slash or matches command like cd/ls/cat
+            var isPathContext = lastSpaceIndex >= 0 || token.StartsWith("./") || token.StartsWith("/") || token.Contains('/');
+            if (!isPathContext && !raw.StartsWith("cd ", StringComparison.OrdinalIgnoreCase) && !raw.StartsWith("ls ", StringComparison.OrdinalIgnoreCase) && !raw.StartsWith("cat ", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var searchDir = Session.WorkspacePath;
+            var searchPrefix = token;
+
+            if (token.Contains('/') || token.Contains('\\'))
+            {
+                var dirPart = Path.GetDirectoryName(token) ?? "";
+                searchDir = Path.Combine(Session.WorkspacePath, dirPart);
+                searchPrefix = Path.GetFileName(token);
+            }
+
+            if (Directory.Exists(searchDir))
+            {
+                var entries = Directory.EnumerateFileSystemEntries(searchDir)
+                    .Select(e => Path.GetFileName(e))
+                    .Where(name => !name.StartsWith(".") && (string.IsNullOrEmpty(searchPrefix) || name.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)))
+                    .Take(5);
+
+                foreach (var entryName in entries)
+                {
+                    var full = Path.Combine(searchDir, entryName);
+                    var isDir = Directory.Exists(full);
+                    var insertion = isDir ? entryName + "/" : entryName;
+                    var label = isDir ? entryName + "/" : entryName;
+                    suggestions.Add(new TerminalSuggestion(label, insertion, isDir ? "dir" : "file", isDir ? "Folder" : "File"));
+                }
+            }
+        }
+        catch
+        {
+            // Ignore path lookup errors
+        }
+    }
+
+    private void SelectSuggestion(int index)
+    {
+        if (index >= 0 && index < suggestions.Count)
+        {
+            ApplySuggestion(suggestions[index]);
+            StateHasChanged();
+        }
+    }
+
+    private void ApplySuggestion(TerminalSuggestion suggestion)
+    {
+        if (suggestion.Kind is "dir" or "file")
+        {
+            // Append or replace the last argument token
+            var lastSpaceIndex = terminalInput.LastIndexOf(' ');
+            if (lastSpaceIndex >= 0)
+            {
+                var commandPrefix = terminalInput[..(lastSpaceIndex + 1)];
+                var currentToken = terminalInput[(lastSpaceIndex + 1)..];
+                var slashIndex = currentToken.LastIndexOf('/');
+                if (slashIndex >= 0)
+                {
+                    terminalInput = commandPrefix + currentToken[..(slashIndex + 1)] + suggestion.InsertionText;
+                }
+                else
+                {
+                    terminalInput = commandPrefix + suggestion.InsertionText;
+                }
+            }
+            else
+            {
+                terminalInput = suggestion.InsertionText;
+            }
+
+            // If it's a directory, keep suggestions open to allow drill-down
+            if (suggestion.Kind == "dir")
+            {
+                UpdateSuggestions();
+            }
+            else
+            {
+                isSuggestionsOpen = false;
+            }
+        }
+        else
+        {
+            // Full command or history item
+            terminalInput = suggestion.InsertionText;
+            isSuggestionsOpen = false;
+        }
+    }
 
     private string GetCleanWorkspaceName()
     {
@@ -109,11 +329,34 @@
     {
         if (e.Key == "Enter" && !e.ShiftKey)
         {
+            if (isSuggestionsOpen && suggestions.Count > 0 && selectedSuggestionIndex >= 0 && selectedSuggestionIndex < suggestions.Count)
+            {
+                var item = suggestions[selectedSuggestionIndex];
+                if (item.Kind is "dir" or "file")
+                {
+                    ApplySuggestion(item);
+                    return;
+                }
+                else
+                {
+                    ApplySuggestion(item);
+                }
+            }
+
+            isSuggestionsOpen = false;
             await ExecuteTerminalCommand();
+        }
+        else if (e.Key == "Escape")
+        {
+            isSuggestionsOpen = false;
         }
         else if (e.Key == "ArrowUp")
         {
-            if (terminalHistory.Count > 0)
+            if (isSuggestionsOpen && suggestions.Count > 0)
+            {
+                selectedSuggestionIndex = (selectedSuggestionIndex - 1 + suggestions.Count) % suggestions.Count;
+            }
+            else if (terminalHistory.Count > 0)
             {
                 if (historyIndex == -1)
                 {
@@ -125,11 +368,16 @@
                     historyIndex--;
                 }
                 terminalInput = terminalHistory[historyIndex].Command;
+                isSuggestionsOpen = false;
             }
         }
         else if (e.Key == "ArrowDown")
         {
-            if (historyIndex != -1)
+            if (isSuggestionsOpen && suggestions.Count > 0)
+            {
+                selectedSuggestionIndex = (selectedSuggestionIndex + 1) % suggestions.Count;
+            }
+            else if (historyIndex != -1)
             {
                 if (historyIndex < terminalHistory.Count - 1)
                 {
@@ -141,6 +389,7 @@
                     historyIndex = -1;
                     terminalInput = temporaryInput;
                 }
+                isSuggestionsOpen = false;
             }
         }
     }
@@ -154,6 +403,7 @@
         terminalInput = "";
         historyIndex = -1;
         temporaryInput = "";
+        isSuggestionsOpen = false;
         try
         {
             var result = await Session.RunTerminalCommandAsync(cmd);
@@ -168,4 +418,63 @@
             isTerminalRunning = false;
         }
     }
+
+    public async ValueTask DisposeAsync()
+    {
+        dotNetHelper?.Dispose();
+        await ValueTask.CompletedTask;
+    }
+
+    private static readonly List<(string Cmd, string Desc)> KnownCommands = new()
+    {
+        // Git
+        ("git status", "Show working tree status"),
+        ("git diff", "Show changes between commits/worktree"),
+        ("git log -n 10", "Show recent commit logs"),
+        ("git add -A", "Stage all repository changes"),
+        ("git add .", "Stage changes in current dir"),
+        ("git commit -m \"\"", "Record changes to repository"),
+        ("git push", "Update remote refs"),
+        ("git pull", "Fetch and integrate with remote"),
+        ("git checkout", "Switch branch or restore files"),
+        ("git branch -a", "List local and remote branches"),
+        ("git stash", "Stash changes in dirty worktree"),
+        ("git stash pop", "Apply latest stashed state"),
+        ("git restore", "Restore working tree files"),
+
+        // .NET
+        ("dotnet build", "Build solution or project"),
+        ("dotnet test", "Run unit tests in solution"),
+        ("dotnet run", "Build and run project"),
+        ("dotnet watch", "Hot reload development watcher"),
+        ("dotnet clean", "Clean build outputs"),
+        ("dotnet restore", "Restore dependencies"),
+        ("dotnet --version", "Display installed .NET SDK"),
+
+        // NPM / Yarn / PNPM
+        ("npm run dev", "Run development script"),
+        ("npm run build", "Run build script"),
+        ("npm test", "Run test suite"),
+        ("npm install", "Install dependencies"),
+        ("pnpm dev", "Run dev script"),
+        ("pnpm build", "Run build script"),
+        ("yarn dev", "Run development script"),
+        ("yarn build", "Run build script"),
+
+        // Docker
+        ("docker ps", "List running containers"),
+        ("docker compose up -d", "Start containers in background"),
+        ("docker compose down", "Stop and remove containers"),
+        ("docker logs", "Fetch logs of a container"),
+
+        // Shell utilities
+        ("ls -la", "List detailed directory contents"),
+        ("pwd", "Print working directory"),
+        ("cat", "Print file content to terminal"),
+        ("grep -rn \"\"", "Search pattern recursively"),
+        ("mkdir -p", "Create directory structure"),
+        ("rm -rf", "Remove files/directories recursively"),
+        ("curl -I", "Fetch HTTP response headers"),
+        ("clear", "Clear terminal buffer")
+    };
 }

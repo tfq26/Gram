@@ -85,3 +85,15 @@ window.addEventListener('keydown', function (e) {
     }
 });
 
+window.gramDesktop.attachTerminal = function (inputElement, dotNetHelper) {
+    if (!inputElement || inputElement._gramAttached) return;
+    inputElement._gramAttached = true;
+    inputElement.addEventListener('keydown', function (e) {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            if (dotNetHelper) {
+                dotNetHelper.invokeMethodAsync('OnTabPressed');
+            }
+        }
+    });
+};

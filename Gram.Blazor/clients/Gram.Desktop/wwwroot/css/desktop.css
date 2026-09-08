@@ -3869,6 +3869,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, select:focus-
 
 /* Terminal Input Line */
 .dt-terminal-input-bar {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -3900,6 +3901,104 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, select:focus-
     font-size: 11px;
     color: var(--dt-text-muted);
     font-family: var(--dt-font-mono);
+}
+
+/* Terminal Autocomplete Suggestions Popup */
+.dt-terminal-suggestions-popup {
+    position: absolute;
+    bottom: 42px;
+    left: 14px;
+    min-width: 280px;
+    max-width: 480px;
+    max-height: 220px;
+    background: var(--dt-bg-surface);
+    border: 1px solid var(--dt-border-default);
+    border-radius: var(--dt-radius-sm);
+    box-shadow: 
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 14px 34px -4px rgba(0, 0, 0, 0.75);
+    z-index: 100;
+    overflow-y: auto;
+    padding: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    animation: dt-hud-fade-in 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+    font-family: var(--dt-font-sans);
+}
+
+.dt-terminal-suggestion-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 7px;
+    border-radius: var(--dt-radius-xs);
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.08s ease;
+    user-select: none;
+}
+
+.dt-terminal-suggestion-item:hover,
+.dt-terminal-suggestion-item.selected {
+    background: var(--dt-bg-hover);
+}
+
+.dt-terminal-suggestion-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+
+.dt-terminal-suggestion-kind {
+    font-size: 9px;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    font-family: var(--dt-font-sans);
+    flex-shrink: 0;
+}
+
+.dt-terminal-suggestion-kind.cmd {
+    background: var(--dt-accent-subtle);
+    color: var(--dt-accent);
+}
+
+.dt-terminal-suggestion-kind.dir {
+    background: var(--dt-warning-bg);
+    color: var(--dt-warning);
+}
+
+.dt-terminal-suggestion-kind.file {
+    background: var(--dt-bg-subtle);
+    color: var(--dt-text-secondary);
+}
+
+.dt-terminal-suggestion-kind.hist {
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+}
+
+.dt-terminal-suggestion-text {
+    font-family: var(--dt-font-mono);
+    font-size: 11.5px;
+    color: var(--dt-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dt-terminal-suggestion-desc {
+    font-size: 10.5px;
+    color: var(--dt-text-muted);
+    font-family: var(--dt-font-sans);
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 
