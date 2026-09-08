@@ -16,8 +16,7 @@
         {
             <!-- 1. Urgent Permission Alert State -->
             <div class="dt-island-content alert">
-                <span class="dt-island-dot warning"></span>
-                <span class="dt-island-label mono">Approval Required</span>
+                <span class="dt-island-label warning">Approval Required</span>
                 <span class="dt-island-chevron">▾</span>
             </div>
         }
@@ -82,7 +81,6 @@
         {
             <!-- 5. Idle / Ready State -->
             <div class="dt-island-content idle">
-                <span class="dt-island-dot @(Session.IsLocalAgentConnected ? "success" : "neutral")"></span>
                 <span class="dt-island-brand">Gram</span>
                 @if (!string.IsNullOrWhiteSpace(ActiveModelName))
                 {
@@ -94,25 +92,79 @@
         }
     </div>
 
-    <!-- Click-to-Expand: Linear-style Task & Telemetry HUD Popover -->
+    <!-- Click-to-Expand: Linear-style Task Queue & Model Dropdown HUD -->
     @if (isExpanded)
     {
         <div class="dt-island-backdrop" @onclick="() => isExpanded = false"></div>
         <div class="dt-island-hud" @onclick:stopPropagation="true">
             <div class="dt-hud-header">
-                <div class="dt-hud-title-wrap">
-                    <span class="dt-island-dot @(IsStreaming ? "violet" : (Session.IsLocalAgentConnected ? "success" : "neutral"))"></span>
-                    <span class="dt-hud-title">@(IsStreaming ? "Active Operation" : "System Status")</span>
-                </div>
-                <button type="button" class="dt-hud-close" @onclick="() => isExpanded = false">✕</button>
+                <span class="dt-hud-title">Tasks</span>
+                <button type="button" class="dt-hud-close" @onclick="() => isExpanded = false" aria-label="Close">✕</button>
             </div>
 
             <div class="dt-hud-body">
-                <!-- 1. Model Selection Dropdown -->
+                <!-- Section 1: Task Queue (Completed, Running, and Queued) -->
+                <div class="dt-hud-section">
+                    <div class="dt-hud-section-header">
+                        <span class="dt-hud-section-label">Task Queue</span>
+                        @{
+                            var tasks = GetTaskQueue();
+                        }
+                        @if (tasks.Count > 0)
+                        {
+                            <span class="dt-hud-count">@tasks.Count</span>
+                        }
+                    </div>
+
+                    <div class="dt-hud-queue-list">
+                        @if (tasks.Count == 0)
+                        {
+                            <div class="dt-hud-queue-empty">No active or queued tasks</div>
+                        }
+                        else
+                        {
+                            @foreach (var task in tasks)
+                            {
+                                <div class="dt-hud-queue-item @task.StatusKind">
+                                    <div class="dt-hud-queue-icon-wrap">
+                                        @if (task.StatusKind == "running")
+                                        {
+                                            <div class="dt-hud-queue-spinner"></div>
+                                        }
+                                        else if (task.StatusKind == "pending")
+                                        {
+                                            <span class="dt-hud-queue-icon pending">●</span>
+                                        }
+                                        else if (task.StatusKind == "failed")
+                                        {
+                                            <span class="dt-hud-queue-icon failed">✕</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="dt-hud-queue-icon completed">✓</span>
+                                        }
+                                    </div>
+                                    <div class="dt-hud-queue-main">
+                                        <div class="dt-hud-queue-title">@task.Title</div>
+                                        @if (!string.IsNullOrWhiteSpace(task.Subtitle))
+                                        {
+                                            <div class="dt-hud-queue-sub">@task.Subtitle</div>
+                                        }
+                                    </div>
+                                    <span class="dt-hud-queue-badge @task.StatusKind">@task.Status</span>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <!-- Section 2: Model Dropdown (right under the task queue) -->
                 @if (Models != null && Models.Count > 0)
                 {
                     <div class="dt-hud-section">
-                        <div class="dt-hud-section-label">MODEL SELECTION</div>
+                        <div class="dt-hud-section-header">
+                            <span class="dt-hud-section-label">Model</span>
+                        </div>
                         <div class="dt-hud-model-select-wrap">
                             <select class="dt-hud-model-select"
                                     value="@SelectedModelId"
@@ -130,74 +182,7 @@
                     </div>
                 }
 
-                <!-- 2. Current Task Details -->
-                <div class="dt-hud-section">
-                    <div class="dt-hud-section-label">CURRENT TASK</div>
-                    <div class="dt-hud-task-card">
-                        @if (Session.ActivePermissionRequest != null)
-                        {
-                            <div class="dt-hud-task-row">
-                                <span class="dt-hud-task-badge warning">Permission Pending</span>
-                                <span class="dt-hud-task-name">@Session.ActivePermissionRequest.OperationType</span>
-                            </div>
-                            <div class="dt-hud-task-cmd">❯ @(Session.ActivePermissionRequest.ExactTarget ?? Session.ActivePermissionRequest.Command)</div>
-                        }
-                        else if (Session.CurrentStreamingToolCalls.Count > 0)
-                        {
-                            var tool = Session.CurrentStreamingToolCalls.Last();
-                            <div class="dt-hud-task-row">
-                                <span class="dt-hud-task-badge running">Tool Executing</span>
-                                <span class="dt-hud-task-name">@tool.ToolName</span>
-                            </div>
-                            @if (!string.IsNullOrWhiteSpace(tool.Arguments))
-                            {
-                                <div class="dt-hud-task-cmd">@tool.Arguments</div>
-                            }
-                        }
-                        else if (IsStreaming)
-                        {
-                            <div class="dt-hud-task-row">
-                                <span class="dt-hud-task-badge streaming">LLM Generating</span>
-                                <span class="dt-hud-task-name">@(ActiveModelName ?? "Gram Q+")</span>
-                            </div>
-                            <div class="dt-hud-task-desc">Processing prompt tokens and streaming response to canvas...</div>
-                        }
-                        else
-                        {
-                            <div class="dt-hud-task-row">
-                                <span class="dt-hud-task-badge ready">Idle & Ready</span>
-                                <span class="dt-hud-task-name">Awaiting prompt</span>
-                            </div>
-                            <div class="dt-hud-task-desc">Ready for agentic coding, architecture reasoning, and terminal commands.</div>
-                        }
-                    </div>
-                </div>
-
-                <!-- 3. Telemetry Rows -->
-                <div class="dt-hud-grid">
-                    <div class="dt-hud-grid-item">
-                        <span class="dt-hud-k">Provider</span>
-                        <span class="dt-hud-v">@(Models?.FirstOrDefault(m => m.Id == SelectedModelId)?.Provider ?? "Local")</span>
-                    </div>
-                    <div class="dt-hud-grid-item">
-                        <span class="dt-hud-k">Local Agent</span>
-                        <span class="dt-hud-v @(Session.IsLocalAgentConnected ? "success" : "muted")">
-                            @(Session.IsLocalAgentConnected ? "Connected (:7340)" : "Offline")
-                        </span>
-                    </div>
-                    <div class="dt-hud-grid-item">
-                        <span class="dt-hud-k">Workspace</span>
-                        <span class="dt-hud-v mono" title="@Session.WorkspacePath">
-                            @(string.IsNullOrWhiteSpace(Session.WorkspacePath) ? "None" : Path.GetFileName(Session.WorkspacePath.TrimEnd('/', '\\')))
-                        </span>
-                    </div>
-                    <div class="dt-hud-grid-item">
-                        <span class="dt-hud-k">Capabilities</span>
-                        <span class="dt-hud-v">@Session.LocalAgentCapabilities.Count active</span>
-                    </div>
-                </div>
-
-                <!-- Action Footer -->
+                <!-- Action Footer (if streaming, can stop task) -->
                 @if (IsStreaming && OnCancel.HasDelegate)
                 {
                     <div class="dt-hud-footer">
@@ -224,6 +209,8 @@
     [Parameter] public EventCallback OnCancel { get; set; }
 
     private bool isExpanded = false;
+
+    private record HudTaskItem(string Title, string Subtitle, string Status, string StatusKind);
 
     private void ToggleExpand()
     {
@@ -258,6 +245,110 @@
         await OnCancel.InvokeAsync();
     }
 
+    private List<HudTaskItem> GetTaskQueue()
+    {
+        var list = new List<HudTaskItem>();
+
+        // 1. Pending approval request (waiting on user confirmation)
+        if (Session.ActivePermissionRequest != null)
+        {
+            var req = Session.ActivePermissionRequest;
+            var target = !string.IsNullOrWhiteSpace(req.ExactTarget)
+                ? Path.GetFileName(req.ExactTarget)
+                : (!string.IsNullOrWhiteSpace(req.Command)
+                    ? (req.Command.Length > 36 ? req.Command[..36] + "…" : req.Command)
+                    : "");
+            list.Add(new HudTaskItem(req.OperationType ?? "Operation", target, "Pending", "pending"));
+        }
+
+        // 2. Active streaming tool calls (currently running)
+        var runningTools = Session.CurrentStreamingToolCalls.Where(t => string.IsNullOrEmpty(t.Result) && !t.IsError).ToList();
+        foreach (var tool in runningTools)
+        {
+            list.Add(new HudTaskItem(
+                ToolNameHelper.GetDisplayName(tool.ToolName),
+                GetCleanTarget(tool),
+                "Running",
+                "running"
+            ));
+        }
+
+        // 3. If streaming LLM generation without tool executing
+        if (IsStreaming && runningTools.Count == 0 && Session.ActivePermissionRequest == null)
+        {
+            list.Add(new HudTaskItem("Generate Response", ActiveModelName ?? "Gram", "Running", "running"));
+        }
+
+        // 4. Completed tool calls from current stream
+        var completedCurrent = Session.CurrentStreamingToolCalls.Where(t => !string.IsNullOrEmpty(t.Result) || t.IsError).ToList();
+        foreach (var tool in completedCurrent)
+        {
+            list.Add(new HudTaskItem(
+                ToolNameHelper.GetDisplayName(tool.ToolName),
+                GetCleanTarget(tool),
+                tool.IsError ? "Failed" : "Done",
+                tool.IsError ? "failed" : "completed"
+            ));
+        }
+
+        // 5. If idle with no active tools, display recent completed tasks from the active conversation's last assistant turn
+        if (list.Count == 0 && Session.ActiveConversation?.Messages != null)
+        {
+            var lastWithTools = Session.ActiveConversation.Messages
+                .LastOrDefault(m => m.ToolCalls != null && m.ToolCalls.Count > 0);
+            if (lastWithTools?.ToolCalls != null)
+            {
+                foreach (var tool in lastWithTools.ToolCalls)
+                {
+                    list.Add(new HudTaskItem(
+                        ToolNameHelper.GetDisplayName(tool.ToolName),
+                        GetCleanTarget(tool),
+                        tool.IsError ? "Failed" : "Done",
+                        tool.IsError ? "failed" : "completed"
+                    ));
+                }
+            }
+        }
+
+        return list;
+    }
+
+    private static string GetCleanTarget(ToolCallInfo tool)
+    {
+        if (string.IsNullOrWhiteSpace(tool.Arguments)) return "";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(tool.Arguments);
+            var root = doc.RootElement;
+            if (root.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var prop in root.EnumerateObject())
+                {
+                    var name = prop.Name.ToLowerInvariant();
+                    if (name is "filepath" or "targetfile" or "path" or "file" or "searchdirectory")
+                    {
+                        var val = prop.Value.GetString() ?? "";
+                        return Path.GetFileName(val);
+                    }
+                    if (name is "command" or "commandline" or "cmd")
+                    {
+                        var val = prop.Value.GetString() ?? "";
+                        return val.Length > 34 ? val[..34] + "…" : val;
+                    }
+                    if (name is "query" or "pattern")
+                    {
+                        var val = prop.Value.GetString() ?? "";
+                        return $"\"{val}\"";
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+        return tool.Arguments.Length > 34 ? tool.Arguments[..34] + "…" : tool.Arguments;
+    }
+
     private string GetActiveTaskLabel()
     {
         if (!string.IsNullOrWhiteSpace(CurrentTask)) return CurrentTask;
@@ -266,11 +357,11 @@
         {
             var tool = Session.CurrentStreamingToolCalls.Last();
             var name = tool.ToolName.ToLowerInvariant();
-            if (name.Contains("terminal") || name.Contains("command")) return "Terminal: Running";
-            if (name.Contains("file") && name.Contains("pick")) return "Reading Workspace File";
+            if (name.Contains("terminal") || name.Contains("command")) return "Terminal";
+            if (name.Contains("file") && name.Contains("pick")) return "Reading File";
             if (name.Contains("write") || name.Contains("edit")) return "Editing File";
-            if (name.Contains("search")) return "Searching Project";
-            return $"Tool: {tool.ToolName}";
+            if (name.Contains("search")) return "Searching";
+            return ToolNameHelper.GetDisplayName(tool.ToolName);
         }
 
         if (!string.IsNullOrWhiteSpace(ActiveModelName))
@@ -296,6 +387,6 @@
     private string IslandTooltip => Session.ActivePermissionRequest != null
         ? "Action requires your approval (Click to inspect)"
         : IsStreaming
-            ? "Gram is actively executing a task (Click to inspect)"
-            : "Gram status and active telemetry (Click to inspect)";
+            ? "Gram is actively executing tasks (Click to inspect)"
+            : "Tasks and model settings (Click to inspect)";
 }
