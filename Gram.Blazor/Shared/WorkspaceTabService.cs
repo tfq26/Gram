@@ -331,6 +331,28 @@ public sealed class WorkspaceTabService
         SaveTabs();
     }
 
+    public void OpenTerminalTab()
+    {
+        var existing = OpenTabs.FirstOrDefault(t => t.Type == WorkspaceTabType.Terminal);
+        if (existing != null)
+        {
+            ActiveTabId = existing.Id;
+        }
+        else
+        {
+            var newTab = new WorkspaceTab
+            {
+                Title = "Terminal",
+                Type = WorkspaceTabType.Terminal,
+                Icon = "💻"
+            };
+            OpenTabs.Add(newTab);
+            ActiveTabId = newTab.Id;
+        }
+        SaveTabs();
+        OnTabsChanged?.Invoke();
+    }
+
     public void CloseTab(string tabId)
     {
         var tab = OpenTabs.FirstOrDefault(t => t.Id == tabId);

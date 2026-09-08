@@ -237,4 +237,56 @@ public sealed class LocalAgentProcessTests
             try { Directory.Delete(baseDir, true); } catch { }
         }
     }
+
+    [Fact]
+    public async Task DesktopSession_WhenLocalAgentConnected_DispatchesCapabilities()
+    {
+        var port = GetFreePort();
+        var secret = "test-secret-" + Guid.NewGuid().ToString("N");
+        var app = Program.CreateApp([], explicitSecret: secret, explicitPort: port);
+        await app.StartAsync();
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "gram-session-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        File.WriteAllText(Path.Combine(tempDir, "sample.txt"), "hello from local workspace");
+
+        try
+        {
+            var agent = new DesktopLocalAgent(new DesktopLocalAgentOptions(
+                Endpoint: $"http://127.0.0.1:{port}",
+                Secret: secret
+            ));
+
+            var fakeBackend = new GramBackendClient(new HttpClient { BaseAddress = new Uri("http://localhost:7337") });
+            var session = new DesktopSession(fakeBackend, backendUrl: "http://localhost:7337", localAgent: agent);
+            session.SetWorkspace(tempDir);
+
+            // Initially before refresh, status is offline
+            Assert.False(session.IsLocalAgentConnected);
+
+            // After refresh, local agent connects
+            await session.RefreshLocalAgentAsync();
+            Assert.True(session.IsLocalAgentConnected);
+            Assert.False(session.IsLocalAgentUnauthorized);
+            Assert.Contains(session.LocalAgentCapabilities, c => c.Name == "terminal.run");
+
+            // Pick workspace file
+            var pickRes = await session.PickWorkspaceFileAsync("sample.txt");
+            Assert.True(pickRes.Success);
+            Assert.Equal("hello from local workspace", pickRes.Content);
+
+            // Run terminal command
+            var cmd = OperatingSystem.IsWindows() ? "cmd /c echo session-ok" : "echo session-ok";
+            var termRes = await session.RunTerminalCommandAsync(cmd);
+            Assert.True(termRes.Success);
+            Assert.Equal(0, termRes.ExitCode);
+            Assert.Contains("session-ok", termRes.Stdout);
+        }
+        finally
+        {
+            await app.StopAsync();
+            await app.DisposeAsync();
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
 }

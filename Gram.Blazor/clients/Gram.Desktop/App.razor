@@ -81,6 +81,8 @@
                        IsOpen="@isInfosheetOpen"
                        IsStreaming="Session.IsStreaming"
                        Error="@Session.Error"
+                       LocalAgentStatus="@Session.LocalAgentStatus"
+                       IsLocalAgentUnauthorized="@Session.IsLocalAgentUnauthorized"
                        OnClose="() => { isInfosheetOpen = false; LayoutService.SavePanes(isSidebarOpen, isInfosheetOpen); }" />
         </div>
     }

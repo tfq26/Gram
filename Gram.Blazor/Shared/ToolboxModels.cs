@@ -5,7 +5,8 @@ public enum WorkspaceTabType
     Chat,
     ToolboxOverview,
     ToolConfig,
-    Presentation
+    Presentation,
+    Terminal
 }
 
 public sealed class WorkspaceTab

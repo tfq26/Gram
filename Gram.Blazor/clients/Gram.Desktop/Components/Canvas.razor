@@ -1,501 +1,64 @@
-@namespace Gram.Desktop.Components
+@namespace Gram.Desktop.Components.Root
+@using Gram.Desktop.Components.CanvasArea
 @using Gram.Desktop.Components.Platform
 @using Gram.Desktop.Services
 @using Gram.Blazor.Shared
 @inject IPlatformService Platform
 @inject WorkspaceTabService TabService
-@inject IJSRuntime JSRuntime
 @inject DesktopSession Session
 
 <main class="dt-canvas @Platform.PlatformCssClass" data-ui-region="canvas" role="main" aria-label="Conversation Canvas">
-    <!-- Header -->
-    <header class="dt-canvas-header" data-ui-region="canvas-header">
-        <!-- Tabs Region (Stops a few places to the left of the chat title) -->
-        <div class="dt-canvas-tabs-container" data-ui-region="canvas-tabs">
-            <div class="dt-tabs-scroll-area" @ref="tabsScrollRef" @onwheel="HandleTabsWheel">
-                @foreach (var tab in TabService.OpenTabs)
-                {
-                    var isCurrent = TabService.ActiveTabId == tab.Id;
-                    var isMultiSelected = selectedTabIds.Contains(tab.Id);
-                    <div class="dt-tab @(isCurrent ? "active" : "") @(isMultiSelected ? "selected" : "")"
-                         @onclick="(e) => HandleTabClick(e, tab)"
-                         @oncontextmenu="(e) => HandleTabContextMenu(e, tab)"
-                         @oncontextmenu:preventDefault="true"
-                         title="@tab.Title">
-                        @if (tab.IsPinned)
-                        {
-                            <span class="dt-tab-pin-icon" title="Pinned tab">📌</span>
-                        }
-                        <span class="dt-tab-title">@tab.Title</span>
-                        @if (TabService.OpenTabs.Count > 1 && !tab.IsPinned)
-                        {
-                            <button type="button"
-                                    class="dt-tab-close"
-                                    @onclick:stopPropagation="true"
-                                    @onclick="() => HandleCloseTab(tab)"
-                                    title="Close tab">✕</button>
-                        }
-                    </div>
-                }
+    <!-- 1. Header & Tab Strip Region -->
+    <CanvasHeader Conversation="@Conversation"
+                  Conversations="@Conversations"
+                  OnSelectConversation="@OnSelectConversation"
+                  OnNewConversation="@OnNewConversation"
+                  OnOpenWorkspacePicker="() => isWorkspacePickerOpen = true"
+                  OnAddReferencedChat="HandleAddReferencedChat" />
 
-                <button type="button"
-                        class="dt-tab-new-btn"
-                        @onclick="HandleNewChatTab"
-                        title="New chat tab">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
-                </button>
-            </div>
-        </div>
+    @if (TabService.ActiveTab?.Type == WorkspaceTabType.Terminal)
+    {
+        <!-- 2. Integrated Local Agent Terminal Pane -->
+        <TerminalPane />
+    }
+    else
+    {
+        <!-- 3. Message Stream & Empty State Hero -->
+        <MessageList Conversation="@Conversation"
+                     DraftResponse="@DraftResponse"
+                     IsStreaming="@IsStreaming"
+                     OnSuggestionClick="HandleSuggestionClick" />
 
-        <!-- Chat Title Group (Right Edge) -->
-        <div class="dt-canvas-title-group">
-            <button type="button" class="dt-workspace-badge" @onclick="ToggleWorkspacePicker" title="Active Workspace: @Session.WorkspacePath">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        <!-- 4. Interactive Security Permission Prompt -->
+        <PermissionPromptCard />
+
+        <!-- 5. Workspace Directory Picker Popover Modal -->
+        <WorkspacePickerModal @bind-IsOpen="isWorkspacePickerOpen" />
+
+        <!-- 6. Error Notice -->
+        @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+        {
+            <div style="margin: 0 20px 8px; padding: 6px 10px; background: var(--dt-danger-bg); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--dt-radius-sm); color: var(--dt-danger); font-size: 11.5px; display: flex; align-items: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
                 </svg>
-                <span class="dt-workspace-name">@GetWorkspaceFolderName()</span>
-            </button>
-            <h1 class="dt-canvas-title">
-                @(string.IsNullOrWhiteSpace(Conversation?.Title) ? "New Chat" : Conversation.Title)
-            </h1>
-        </div>
-    </header>
-
-    <!-- Messages Container -->
-    <div class="dt-messages-scroll">
-        @if (Conversation == null || (Conversation.Messages != null && Conversation.Messages.Count == 0 && string.IsNullOrWhiteSpace(DraftResponse)))
-        {
-            <!-- Clean, Disciplined Workspace Hero -->
-            <div class="dt-hero">
-                <div class="dt-hero-character-stage">
-                    <GramCharacter Size="168" State="idle" Interactive="true" AutoWaveOnLoad="false" />
-                </div>
-                <h2 class="dt-hero-title">What would you like to build?</h2>
-                <p class="dt-hero-desc">
-                    Gram provides agentic coding, architecture reasoning, test execution, and workspace exploration.
-                </p>
-
-                <div class="dt-hero-actions">
-                    <div class="dt-hero-card" @onclick="@(() => HandleSuggestionClick("Explain the architecture of this project"))">
-                        <strong>Architect:</strong> Explain codebase structure
-                    </div>
-                    <div class="dt-hero-card" @onclick="@(() => HandleSuggestionClick("Run the unit tests and inspect recent diffs"))">
-                        <strong>Verify:</strong> Run tests & check diffs
-                    </div>
-                    <div class="dt-hero-card" @onclick="@(() => HandleSuggestionClick("Review security and provider boundaries"))">
-                        <strong>Audit:</strong> Check security boundaries
-                    </div>
-                </div>
+                <span>@ErrorMessage</span>
             </div>
         }
-        else if (Conversation.Messages != null)
-        {
-            <div class="dt-messages-stack">
-                @foreach (var msg in Conversation.Messages)
-                {
-                    var isUser = msg.Role.Equals("user", StringComparison.OrdinalIgnoreCase);
-                    <div class="dt-msg-row @(isUser ? "user" : "assistant")">
-                        @if (!isUser)
-                        {
-                            <div class="dt-msg-avatar">
-                                <GramCharacter Size="18" State="idle" Interactive="false" AutoWaveOnLoad="false" />
-                            </div>
-                            <div class="dt-msg-content-assistant">
-                                @if (msg.ToolCalls != null && msg.ToolCalls.Count > 0)
-                                {
-                                    <div class="dt-toolcalls-stack">
-                                        @foreach (var tool in msg.ToolCalls)
-                                        {
-                                            <DesktopToolCard ToolCall="@tool" />
-                                        }
-                                    </div>
-                                }
-                                @if (!string.IsNullOrWhiteSpace(msg.Text))
-                                {
-                                    <MarkdownView Content="@msg.Text" />
-                                }
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="dt-msg-bubble-user">
-                                @msg.Text
-                            </div>
-                        }
-                    </div>
-                }
 
-                @if (IsStreaming)
-                {
-                    <div class="dt-msg-row assistant">
-                        <div class="dt-msg-avatar">
-                            <GramCharacter Size="18" State="thinking" Interactive="false" AutoWaveOnLoad="false" />
-                        </div>
-                        <div class="dt-msg-content-assistant">
-                            @if (Session.CurrentStreamingToolCalls.Count > 0)
-                            {
-                                <div class="dt-toolcalls-stack">
-                                    @foreach (var tool in Session.CurrentStreamingToolCalls)
-                                    {
-                                        <DesktopToolCard ToolCall="@tool" />
-                                    }
-                                </div>
-                            }
-                            @if (!string.IsNullOrWhiteSpace(DraftResponse))
-                            {
-                                <MarkdownView Content="@DraftResponse" />
-                                <span class="dt-streaming-cursor"></span>
-                            }
-                            else if (Session.CurrentStreamingToolCalls.Count == 0 && Session.ActivePermissionRequest == null)
-                            {
-                                <span style="font-size: 12px; color: var(--dt-text-muted);">Analyzing context...</span>
-                            }
-                        </div>
-                    </div>
-                }
-            </div>
-        }
-    </div>
-
-    <!-- Interactive Permission Request Card -->
-    @if (Session.ActivePermissionRequest != null)
-    {
-        var perm = Session.ActivePermissionRequest;
-        var isCmd = perm.ToolName.Contains("command") || !string.IsNullOrWhiteSpace(perm.Command);
-        var opType = !string.IsNullOrWhiteSpace(perm.OperationType)
-            ? perm.OperationType
-            : (isCmd ? "Terminal Command" : "File Modification");
-        var riskClass = $"risk-{perm.RiskLevel.ToString().ToLowerInvariant()}";
-        <div class="dt-permission-card">
-            <div class="dt-perm-header">
-                <div class="dt-perm-icon-wrap">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                    </svg>
-                </div>
-                <div class="dt-perm-title-group">
-                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <span class="dt-perm-title">Permission: @opType</span>
-                        @if (perm.IsNetworkAccess)
-                        {
-                            <span class="dt-perm-badge network">Network Access</span>
-                        }
-                        <span class="dt-perm-badge @riskClass">@perm.RiskLevel Risk</span>
-                    </div>
-                    <span class="dt-perm-desc">@perm.Reason</span>
-                </div>
-            </div>
-
-            @if (!string.IsNullOrWhiteSpace(perm.EstimatedImpact))
-            {
-                <div class="dt-perm-impact">
-                    <strong>Estimated Impact:</strong> @perm.EstimatedImpact
-                </div>
-            }
-
-            <div class="dt-perm-details">
-                @if (isCmd)
-                {
-                    <div class="dt-perm-code-box">
-                        <div class="dt-perm-code-label">Exact Command / Target</div>
-                        <pre class="dt-perm-code">❯ @(perm.ExactTarget ?? perm.Command)</pre>
-                        @if (!string.IsNullOrWhiteSpace(perm.WorkspaceRoot ?? perm.WorkingDirectory))
-                        {
-                            <div class="dt-perm-meta">Workspace: <code>@(perm.WorkspaceRoot ?? perm.WorkingDirectory)</code></div>
-                        }
-                    </div>
-                }
-                else
-                {
-                    <div class="dt-perm-code-box">
-                        <div class="dt-perm-code-label">Target File</div>
-                        <pre class="dt-perm-code">📄 @(perm.ExactTarget ?? perm.FilePath)</pre>
-                        @if (!string.IsNullOrWhiteSpace(perm.WorkspaceRoot))
-                        {
-                            <div class="dt-perm-meta">Workspace: <code>@perm.WorkspaceRoot</code></div>
-                        }
-                    </div>
-                }
-            </div>
-
-            <div class="dt-perm-actions">
-                <button type="button" class="dt-perm-btn primary" @onclick="() => Session.RespondToPermissionAsync(perm.Id, true, false)">
-                    Approve Once
-                </button>
-                <button type="button" class="dt-perm-btn secondary" @onclick="() => Session.RespondToPermissionAsync(perm.Id, true, true)">
-                    Remember for this Workspace Session
-                </button>
-                <button type="button" class="dt-perm-btn danger" @onclick="() => Session.RespondToPermissionAsync(perm.Id, false, false)">
-                    Deny
-                </button>
-            </div>
-        </div>
-    }
-
-    <!-- Workspace Picker Modal -->
-    @if (isWorkspacePickerOpen)
-    {
-        <div class="dt-ref-backdrop" @onclick="() => isWorkspacePickerOpen = false"></div>
-        <div class="dt-workspace-popover" @onclick:stopPropagation="true">
-            <div class="dt-workspace-popover-header">
-                <div class="dt-workspace-popover-title">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                    </svg>
-                    <span>Active Workspace</span>
-                </div>
-                <button type="button" class="dt-tab-close" @onclick="() => isWorkspacePickerOpen = false">✕</button>
-            </div>
-
-            <div class="dt-workspace-popover-body">
-                <span class="dt-workspace-hint">Target directory for file edits, searches, and terminal commands:</span>
-                <input type="text" class="dt-workspace-input" @bind="workspaceInput" placeholder="/path/to/project" />
-                @if (!string.IsNullOrWhiteSpace(workspaceError))
-                {
-                    <span class="dt-workspace-error">@workspaceError</span>
-                }
-                <div class="dt-workspace-actions">
-                    <button type="button" class="dt-workspace-btn" @onclick="ApplyWorkspace">Save Workspace</button>
-                </div>
-            </div>
-        </div>
-    }
-
-    <!-- Error notice -->
-    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
-    {
-        <div style="margin: 0 20px 8px; padding: 6px 10px; background: var(--dt-danger-bg); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--dt-radius-sm); color: var(--dt-danger); font-size: 11.5px; display: flex; align-items: center; gap: 6px;">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="12" y1="8" x2="12" y2="12"></line>
-                <line x1="12" y1="16" x2="12.01" y2="16"></line>
-            </svg>
-            <span>@ErrorMessage</span>
-        </div>
-    }
-
-    <!-- Composer Dock (Web App Style) -->
-    <div class="dt-composer-dock">
-        <div class="dt-composer-box">
-            @if (referencedChats.Count > 0)
-            {
-                <div class="dt-composer-references-tray">
-                    @foreach (var refChat in referencedChats)
-                    {
-                        <div class="dt-reference-pill" title="Referenced chat context: @refChat.Title">
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.7;">
-                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                            </svg>
-                            <span class="dt-ref-title">@refChat.Title</span>
-                            <button type="button" class="dt-ref-close" @onclick="() => RemoveReferencedChat(refChat)" title="Remove reference">✕</button>
-                        </div>
-                    }
-                </div>
-            }
-
-            <div class="dt-composer-inner">
-                <!-- Left: Attach / Reference previous chats -->
-                <div class="dt-composer-actions-left" style="position: relative;">
-                    <button type="button"
-                            class="dt-btn-composer-icon @(isReferencePickerOpen ? "active" : "")"
-                            title="Reference previous chats or attach context"
-                            aria-label="Reference chats"
-                            @onclick="ToggleReferencePicker">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                        </svg>
-                        @if (referencedChats.Count > 0)
-                        {
-                            <span class="dt-ref-counter">@referencedChats.Count</span>
-                        }
-                    </button>
-
-                    @if (isReferencePickerOpen)
-                    {
-                        <div class="dt-ref-backdrop" @onclick="() => isReferencePickerOpen = false"></div>
-                        <div class="dt-ref-popover" @onclick:stopPropagation="true">
-                            <div class="dt-ref-popover-header">
-                                <div class="dt-ref-popover-title">
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                                    </svg>
-                                    <span>Reference Previous Chats</span>
-                                </div>
-                                <span class="dt-ref-popover-hint">Select a chat to attach to message context</span>
-                            </div>
-
-                            <div class="dt-ref-search-wrap">
-                                <input type="text"
-                                       class="dt-ref-search-input"
-                                       placeholder="Search chats..."
-                                       value="@refSearchQuery"
-                                       @oninput="HandleRefSearch" />
-                            </div>
-
-                            <div class="dt-ref-list">
-                                @if (FilteredReferenceConversations.Count == 0)
-                                {
-                                    <div class="dt-ref-empty">No other chats found</div>
-                                }
-                                else
-                                {
-                                    @foreach (var c in FilteredReferenceConversations)
-                                    {
-                                        var isAlreadyReferenced = referencedChats.Any(r => r.Id == c.Id);
-                                        <button type="button"
-                                                class="dt-ref-item @(isAlreadyReferenced ? "selected" : "")"
-                                                @onclick="() => ToggleReferenceChat(c)">
-                                            <div class="dt-ref-item-main">
-                                                <span class="dt-ref-item-title">@c.Title</span>
-                                                <span class="dt-ref-item-meta">@c.MessageCount messages • @c.Updated.ToLocalTime().ToString("MMM d, h:mm tt")</span>
-                                            </div>
-                                            <div class="dt-ref-item-action">
-                                                @if (isAlreadyReferenced)
-                                                {
-                                                    <span class="dt-ref-check">✓</span>
-                                                }
-                                                else
-                                                {
-                                                    <span class="dt-ref-add">+</span>
-                                                }
-                                            </div>
-                                        </button>
-                                    }
-                                }
-                            </div>
-                        </div>
-                    }
-                </div>
-
-                <!-- Center: Auto-expanding Textarea -->
-                <textarea class="dt-composer-textarea"
-                          placeholder="Message Gram..."
-                          rows="1"
-                          value="@inputText"
-                          @oninput="HandleInput"
-                          @onkeydown="HandleKeyDown"
-                          disabled="@(Conversation == null || IsLoading)"></textarea>
-
-                <!-- Right: Model Picker, Voice, Send/Stop -->
-                <div class="dt-composer-actions-right">
-                    @if (Models != null && Models.Count > 0 && string.IsNullOrWhiteSpace(inputText))
-                    {
-                        <div class="dt-composer-model-section">
-                            <select class="dt-composer-model-select"
-                                    value="@SelectedModelId"
-                                    @onchange="HandleModelChange"
-                                    disabled="@IsStreaming"
-                                    title="Active Model">
-                                @foreach (var model in Models.Where(m => m.IsEnabled))
-                                {
-                                    <option value="@model.Id">@model.Name</option>
-                                }
-                            </select>
-                        </div>
-                    }
-
-                    <button type="button"
-                            class="dt-btn-composer-icon @(isVoiceActive ? "active" : "")"
-                            @onclick="ToggleVoice"
-                            title="@(isVoiceActive ? "Stop Voice Input" : "Voice input")">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
-                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                            <line x1="12" y1="19" x2="12" y2="22"></line>
-                        </svg>
-                    </button>
-
-                    @if (IsStreaming)
-                    {
-                        <button type="button"
-                                class="dt-btn-composer-send stop-btn"
-                                @onclick="OnCancel"
-                                title="Stop generation">
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-                                <rect x="5" y="5" width="14" height="14" rx="2" />
-                            </svg>
-                        </button>
-                    }
-                    else
-                    {
-                        <button type="button"
-                                class="dt-btn-composer-send"
-                                @onclick="HandleSubmit"
-                                disabled="@(string.IsNullOrWhiteSpace(inputText) || Conversation == null || IsLoading)"
-                                title="Send (@Platform.SubmitShortcutLabel)">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <line x1="12" y1="19" x2="12" y2="5"></line>
-                                <polyline points="5 12 12 5 19 12"></polyline>
-                            </svg>
-                        </button>
-                    }
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Tab Context Menu -->
-    @if (isContextMenuOpen && contextMenuTab != null)
-    {
-        <div class="dt-context-backdrop" @onclick="CloseContextMenu"></div>
-        <div class="dt-context-menu" style="left: @(contextMenuX)px; top: @(contextMenuY)px;" @onclick:stopPropagation="true">
-            <div class="dt-context-header">
-                <span class="dt-context-title">@contextMenuTab.Title</span>
-                @if (selectedTabIds.Count > 1)
-                {
-                    <span class="dt-context-badge">@selectedTabIds.Count selected</span>
-                }
-            </div>
-            <div class="dt-context-separator"></div>
-
-            @if (selectedTabIds.Count > 1)
-            {
-                <button type="button" class="dt-context-item" @onclick="HandleCloseSelectedTabs">
-                    <span>Close @selectedTabIds.Count Selected Tabs</span>
-                </button>
-            }
-            else
-            {
-                <button type="button" class="dt-context-item" @onclick="() => HandleCloseTab(contextMenuTab)">
-                    <span>Close Tab</span>
-                </button>
-            }
-
-            <button type="button" class="dt-context-item" @onclick="HandleCloseOthers">
-                <span>Close Others</span>
-            </button>
-
-            <button type="button" class="dt-context-item" @onclick="HandleCloseToTheRight">
-                <span>Close to the Right</span>
-            </button>
-
-            <button type="button" class="dt-context-item destructive" @onclick="HandleCloseAllTabs">
-                <span>Close All</span>
-            </button>
-
-            <div class="dt-context-separator"></div>
-
-            <button type="button" class="dt-context-item" @onclick="HandleTogglePin">
-                <span>@(contextMenuTab.IsPinned ? "Unpin Tab" : "Pin Tab")</span>
-            </button>
-
-            <button type="button" class="dt-context-item" @onclick="HandleDuplicateTab">
-                <span>Duplicate Tab</span>
-            </button>
-
-            <div class="dt-context-separator"></div>
-
-            <button type="button" class="dt-context-item" @onclick="HandleCopyAllTabTitles">
-                <span>Copy All Tab Titles</span>
-            </button>
-
-            <button type="button" class="dt-context-item" @onclick="HandleAddTabToChat">
-                <span>Add to Chat</span>
-            </button>
-        </div>
+        <!-- 7. Composer Dock -->
+        <Gram.Desktop.Components.CanvasArea.ComposerDock @ref="composerRef"
+                      Conversation="@Conversation"
+                      Conversations="@Conversations"
+                      Models="@Models"
+                      SelectedModelId="@SelectedModelId"
+                      SelectedModelIdChanged="@SelectedModelIdChanged"
+                      IsStreaming="@IsStreaming"
+                      IsLoading="@IsLoading"
+                      OnSendMessage="@OnSendMessage"
+                      OnCancel="@OnCancel" />
     }
 </main>
 
@@ -518,352 +81,26 @@
     [Parameter] public EventCallback OnCancel { get; set; }
     [Parameter] public EventCallback OnNewConversation { get; set; }
 
-    private string inputText = "";
-    private bool isVoiceActive = false;
-    private ElementReference tabsScrollRef;
-
-    // Multi-select & Tab Context Menu
-    private HashSet<string> selectedTabIds = new();
-    private string? lastSelectedTabId = null;
-    private bool isContextMenuOpen = false;
-    private WorkspaceTab? contextMenuTab;
-    private double contextMenuX = 0;
-    private double contextMenuY = 0;
-
-    // Reference previous chats
-    private List<ConversationSummary> referencedChats = new();
-    private bool isReferencePickerOpen = false;
-    private string refSearchQuery = "";
-
-    // Workspace picker
     private bool isWorkspacePickerOpen = false;
-    private string workspaceInput = "";
-    private string? workspaceError = null;
-
-    private void ToggleWorkspacePicker()
-    {
-        isWorkspacePickerOpen = !isWorkspacePickerOpen;
-        if (isWorkspacePickerOpen)
-        {
-            workspaceInput = Session.WorkspacePath;
-            workspaceError = null;
-        }
-    }
-
-    private void ApplyWorkspace()
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(workspaceInput) || !Directory.Exists(workspaceInput))
-            {
-                workspaceError = "Directory does not exist.";
-                return;
-            }
-            Session.SetWorkspace(workspaceInput);
-            isWorkspacePickerOpen = false;
-            workspaceError = null;
-        }
-        catch (Exception ex)
-        {
-            workspaceError = ex.Message;
-        }
-    }
-
-    private string GetWorkspaceFolderName()
-    {
-        try
-        {
-            var p = Session.WorkspacePath;
-            if (string.IsNullOrWhiteSpace(p)) return "Workspace";
-            var name = Path.GetFileName(p.TrimEnd('/', '\\'));
-            return string.IsNullOrWhiteSpace(name) ? p : name;
-        }
-        catch
-        {
-            return "Workspace";
-        }
-    }
-
-    private List<ConversationSummary> FilteredReferenceConversations =>
-        (Conversations ?? Array.Empty<ConversationSummary>())
-            .Where(c => c.Id != Conversation?.Id)
-            .Where(c => string.IsNullOrWhiteSpace(refSearchQuery) || c.Title.Contains(refSearchQuery, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            try
-            {
-                await JSRuntime.InvokeVoidAsync("gramDesktop.enableTabsWheel", tabsScrollRef);
-            }
-            catch {}
-        }
-    }
-
-    private void HandleTabsWheel(WheelEventArgs e)
-    {
-        // Handled directly via JS enableTabsWheel for smooth performance
-    }
-
-    private async Task HandleTabClick(MouseEventArgs e, WorkspaceTab tab)
-    {
-        CloseContextMenu();
-
-        if (e.CtrlKey || e.MetaKey)
-        {
-            // Toggle selection in multi-select mode
-            if (selectedTabIds.Contains(tab.Id))
-            {
-                selectedTabIds.Remove(tab.Id);
-            }
-            else
-            {
-                selectedTabIds.Add(tab.Id);
-            }
-            lastSelectedTabId = tab.Id;
-        }
-        else if (e.ShiftKey && lastSelectedTabId != null)
-        {
-            // Range select
-            var allTabs = TabService.OpenTabs;
-            var idx1 = allTabs.FindIndex(t => t.Id == lastSelectedTabId);
-            var idx2 = allTabs.FindIndex(t => t.Id == tab.Id);
-            if (idx1 >= 0 && idx2 >= 0)
-            {
-                var min = Math.Min(idx1, idx2);
-                var max = Math.Max(idx1, idx2);
-                for (int i = min; i <= max; i++)
-                {
-                    selectedTabIds.Add(allTabs[i].Id);
-                }
-            }
-        }
-        else
-        {
-            // Normal click: activate and reset multi-selection to single tab
-            selectedTabIds.Clear();
-            selectedTabIds.Add(tab.Id);
-            lastSelectedTabId = tab.Id;
-            TabService.SelectTab(tab.Id);
-            if (!string.IsNullOrWhiteSpace(tab.ChatId))
-            {
-                await OnSelectConversation.InvokeAsync(tab.ChatId);
-            }
-        }
-    }
-
-    private void HandleTabContextMenu(MouseEventArgs e, WorkspaceTab tab)
-    {
-        contextMenuTab = tab;
-        if (!selectedTabIds.Contains(tab.Id))
-        {
-            selectedTabIds.Clear();
-            selectedTabIds.Add(tab.Id);
-        }
-        contextMenuX = Math.Min(e.ClientX, 700);
-        contextMenuY = Math.Min(e.ClientY, 500);
-        isContextMenuOpen = true;
-    }
-
-    private void CloseContextMenu()
-    {
-        isContextMenuOpen = false;
-        contextMenuTab = null;
-    }
-
-    private void HandleCloseTab(WorkspaceTab tab)
-    {
-        TabService.CloseTab(tab.Id);
-        selectedTabIds.Remove(tab.Id);
-        CloseContextMenu();
-    }
-
-    private void HandleCloseSelectedTabs()
-    {
-        if (selectedTabIds.Count > 0)
-        {
-            TabService.CloseTabs(selectedTabIds);
-            selectedTabIds.Clear();
-        }
-        CloseContextMenu();
-    }
-
-    private void HandleCloseOthers()
-    {
-        if (contextMenuTab != null)
-        {
-            TabService.CloseOthers(contextMenuTab.Id);
-            selectedTabIds.Clear();
-            selectedTabIds.Add(contextMenuTab.Id);
-        }
-        CloseContextMenu();
-    }
-
-    private void HandleCloseToTheRight()
-    {
-        if (contextMenuTab != null)
-        {
-            TabService.CloseToTheRight(contextMenuTab.Id);
-            selectedTabIds.Clear();
-            selectedTabIds.Add(contextMenuTab.Id);
-        }
-        CloseContextMenu();
-    }
-
-    private void HandleCloseAllTabs()
-    {
-        TabService.CloseAll();
-        selectedTabIds.Clear();
-        CloseContextMenu();
-    }
-
-    private void HandleTogglePin()
-    {
-        if (contextMenuTab != null)
-        {
-            TabService.TogglePinTab(contextMenuTab.Id);
-        }
-        CloseContextMenu();
-    }
-
-    private void HandleDuplicateTab()
-    {
-        if (contextMenuTab != null)
-        {
-            TabService.DuplicateTab(contextMenuTab.Id);
-        }
-        CloseContextMenu();
-    }
-
-    private async Task HandleCopyAllTabTitles()
-    {
-        var titles = string.Join("\n", TabService.OpenTabs.Select(t => $"- {t.Title} (ID: {t.ChatId})"));
-        await JSRuntime.InvokeVoidAsync("gramDesktop.copyText", titles);
-        CloseContextMenu();
-    }
-
-    private void HandleAddTabToChat()
-    {
-        if (contextMenuTab != null)
-        {
-            var targetIds = selectedTabIds.Count > 0 ? selectedTabIds : new HashSet<string> { contextMenuTab.Id };
-            foreach (var tId in targetIds)
-            {
-                var tab = TabService.OpenTabs.FirstOrDefault(t => t.Id == tId);
-                if (tab != null && !string.IsNullOrWhiteSpace(tab.ChatId))
-                {
-                    var matching = Conversations?.FirstOrDefault(c => c.Id == tab.ChatId);
-                    if (matching != null && !referencedChats.Any(r => r.Id == matching.Id))
-                    {
-                        referencedChats.Add(matching);
-                    }
-                    else if (matching == null && !referencedChats.Any(r => r.Id == tab.ChatId))
-                    {
-                        var now = DateTimeOffset.UtcNow;
-                        referencedChats.Add(new ConversationSummary(tab.ChatId, tab.Title, now, now, null, 0, 0));
-                    }
-                }
-            }
-        }
-        CloseContextMenu();
-    }
-
-    private async Task HandleNewChatTab()
-    {
-        await OnNewConversation.InvokeAsync();
-    }
-
-    private void ToggleReferencePicker()
-    {
-        isReferencePickerOpen = !isReferencePickerOpen;
-    }
-
-    private void HandleRefSearch(ChangeEventArgs e)
-    {
-        refSearchQuery = e.Value?.ToString() ?? "";
-    }
-
-    private void ToggleReferenceChat(ConversationSummary chat)
-    {
-        var existing = referencedChats.FirstOrDefault(r => r.Id == chat.Id);
-        if (existing != null)
-        {
-            referencedChats.Remove(existing);
-        }
-        else
-        {
-            referencedChats.Add(chat);
-        }
-    }
+    private ComposerDock? composerRef;
 
     public void AddReferencedChat(ConversationSummary chat)
     {
-        if (!referencedChats.Any(r => r.Id == chat.Id))
-        {
-            referencedChats.Add(chat);
-            StateHasChanged();
-        }
+        composerRef?.AddReferencedChat(chat);
     }
 
-    private void RemoveReferencedChat(ConversationSummary chat)
+    private void HandleAddReferencedChat(ConversationSummary chat)
     {
-        referencedChats.Remove(chat);
-    }
-
-    private void ToggleVoice()
-    {
-        isVoiceActive = !isVoiceActive;
-    }
-
-    private async Task HandleModelChange(ChangeEventArgs e)
-    {
-        var modelId = e.Value?.ToString();
-        if (!string.IsNullOrWhiteSpace(modelId))
-        {
-            SelectedModelId = modelId;
-            await SelectedModelIdChanged.InvokeAsync(modelId);
-        }
-    }
-
-    private void HandleInput(ChangeEventArgs e)
-    {
-        inputText = e.Value?.ToString() ?? "";
-    }
-
-    private async Task HandleKeyDown(KeyboardEventArgs e)
-    {
-        if (IsStreaming || Conversation == null) return;
-
-        bool isSubmit = (e.Key == "Enter" && !e.ShiftKey) ||
-                        (Platform.IsSubmitKeyPressed(e.CtrlKey, e.MetaKey) && e.Key == "Enter");
-        if (isSubmit)
-        {
-            await HandleSubmit();
-        }
-    }
-
-    private async Task HandleSubmit()
-    {
-        if (string.IsNullOrWhiteSpace(inputText) || IsStreaming || Conversation == null) return;
-        var text = inputText.Trim();
-        inputText = "";
-
-        if (referencedChats.Count > 0)
-        {
-            var refs = string.Join("\n", referencedChats.Select(r => $"[Referenced Context: Chat \"{r.Title}\" (ID: {r.Id}) - user referenced this past conversation for context]"));
-            text = $"{refs}\n\n{text}";
-            referencedChats.Clear();
-        }
-
-        await OnSendMessage.InvokeAsync(text);
+        composerRef?.AddReferencedChat(chat);
     }
 
     private async Task HandleSuggestionClick(string prompt)
     {
         if (IsStreaming || Conversation == null) return;
-        inputText = prompt;
-        await HandleSubmit();
+        composerRef?.SetInputText(prompt);
+        if (composerRef != null)
+        {
+            await composerRef.HandleSubmit();
+        }
     }
 }

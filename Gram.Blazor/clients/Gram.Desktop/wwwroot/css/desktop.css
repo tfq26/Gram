@@ -3032,4 +3032,167 @@ input, textarea, button, select {
     margin-top: 4px;
 }
 
+/* Terminal View */
+.dt-terminal-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--dt-bg-canvas);
+    color: var(--dt-text-primary);
+    overflow: hidden;
+}
+
+.dt-terminal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--dt-border-default);
+    background: var(--dt-bg-surface);
+}
+
+.dt-terminal-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: var(--dt-font-mono);
+}
+
+.dt-terminal-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--dt-text-muted);
+}
+
+.dt-terminal-output {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    font-family: var(--dt-font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.dt-terminal-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--dt-text-muted);
+    text-align: center;
+}
+
+.dt-terminal-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.dt-terminal-cmd-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dt-terminal-cmd-row .dt-prompt {
+    color: var(--dt-success);
+    font-weight: bold;
+}
+
+.dt-terminal-cmd-row .dt-cmd {
+    font-weight: 600;
+    color: var(--dt-text-primary);
+}
+
+.dt-terminal-cmd-row .dt-meta {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--dt-text-muted);
+}
+
+.dt-exit.success { color: var(--dt-success); }
+.dt-exit.failed { color: var(--dt-danger); }
+
+.dt-stdout {
+    margin: 0;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: var(--dt-radius-sm);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11.5px;
+}
+
+.dt-stderr {
+    margin: 0;
+    padding: 6px 10px;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--dt-danger);
+    border-radius: var(--dt-radius-sm);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11.5px;
+}
+
+.dt-terminal-input-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--dt-border-default);
+    background: var(--dt-bg-surface);
+}
+
+.dt-terminal-input {
+    flex: 1;
+    background: var(--dt-bg-input);
+    border: 1px solid var(--dt-border-default);
+    border-radius: var(--dt-radius-sm);
+    padding: 6px 10px;
+    font-family: var(--dt-font-mono);
+    font-size: 12px;
+    color: var(--dt-text-primary);
+    outline: none;
+}
+
+.dt-terminal-input:focus {
+    border-color: var(--dt-border-focus);
+}
+
+.dt-terminal-run-btn {
+    background: var(--dt-btn-primary-bg);
+    color: var(--dt-btn-primary-fg);
+    border: none;
+    border-radius: var(--dt-radius-sm);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.dt-terminal-run-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.dt-terminal-clear-btn {
+    background: transparent;
+    color: var(--dt-text-muted);
+    border: 1px solid var(--dt-border-default);
+    border-radius: var(--dt-radius-sm);
+    padding: 6px 10px;
+    font-size: 11.5px;
+    cursor: pointer;
+}
+
 

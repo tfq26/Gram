@@ -110,6 +110,42 @@
             </div>
         </div>
 
+        <!-- Local Agent Daemon -->
+        <div class="dt-info-group">
+            <div class="dt-info-group-title">Local Agent</div>
+            <div class="dt-info-rows">
+                <div class="dt-info-row">
+                    <span class="dt-info-label">Bridge</span>
+                    @if (LocalAgentStatus?.IsAvailable == true)
+                    {
+                        <span class="dt-info-value" style="color: var(--dt-success);" title="Local agent daemon running on localhost:7340">Connected</span>
+                    }
+                    else if (IsLocalAgentUnauthorized)
+                    {
+                        <span class="dt-info-value" style="color: var(--dt-danger);" title="Pairing secret required">Unauthorized</span>
+                    }
+                    else
+                    {
+                        <span class="dt-info-value" style="color: var(--dt-text-muted);" title="Offline (start Gram.LocalAgent on port 7340)">Offline</span>
+                    }
+                </div>
+                @if (LocalAgentStatus?.Capabilities != null && LocalAgentStatus.Capabilities.Count > 0)
+                {
+                    <div class="dt-info-row" style="flex-direction: column; align-items: flex-start; gap: 4px;">
+                        <span class="dt-info-label">Capabilities</span>
+                        <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px;">
+                            @foreach (var cap in LocalAgentStatus.Capabilities.Where(c => c.Enabled))
+                            {
+                                <span class="mono" style="font-size: 10px; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.08);">
+                                    @cap.Name
+                                </span>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
         <!-- Session Parameters -->
         @if (Conversation != null)
         {
@@ -160,6 +196,8 @@
     [Parameter] public bool IsOpen { get; set; } = true;
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string? Error { get; set; }
+    [Parameter] public LocalAgentStatus? LocalAgentStatus { get; set; }
+    [Parameter] public bool IsLocalAgentUnauthorized { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
 
     private int ContextLimit => CurrentModel?.ContextLength ?? 128_000;

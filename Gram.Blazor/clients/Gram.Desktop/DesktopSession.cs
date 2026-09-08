@@ -1,4 +1,5 @@
 using Gram.Blazor.Shared;
+using GramBox.Contracts;
 using System.Text.Json;
 
 namespace Gram.Desktop;
@@ -105,6 +106,34 @@ public sealed class DesktopSession
             ? await _localAgent.GetStatusAsync(cancellationToken)
             : new(false, Capabilities: []);
         Notify();
+    }
+
+    public bool IsLocalAgentConnected => LocalCapabilitiesEnabled && LocalAgentStatus.IsAvailable;
+    public bool IsLocalAgentUnauthorized => _localAgent.IsUnauthorized;
+    public IReadOnlyList<SandboxCapability> LocalAgentCapabilities => LocalAgentStatus.Capabilities ?? [];
+
+    public async Task<FilePickResult> PickWorkspaceFileAsync(string relativePath, CancellationToken cancellationToken = default)
+    {
+        if (!IsLocalAgentConnected)
+            return new FilePickResult(false, null, null, 0, "Local agent is not connected.");
+
+        return await _localAgent.PickFileAsync(new FilePickRequest(WorkspacePath, relativePath), cancellationToken);
+    }
+
+    public async Task<ExecutionResult> RunTerminalCommandAsync(string command, int timeoutSeconds = 60, CancellationToken cancellationToken = default)
+    {
+        if (!IsLocalAgentConnected)
+            return new ExecutionResult(false, -1, "", "Local agent is not connected.", 0, "LOCAL_AGENT_UNAVAILABLE");
+
+        return await _localAgent.RunTerminalAsync(new TerminalRunRequest(command, WorkspacePath, timeoutSeconds, ActiveRun?.Id), cancellationToken);
+    }
+
+    public async Task<LocalSandboxCreateResult> CreateLocalSandboxAsync(string? taskName = null, CancellationToken cancellationToken = default)
+    {
+        if (!IsLocalAgentConnected)
+            return new LocalSandboxCreateResult(false, "", "", "Local agent is not connected.");
+
+        return await _localAgent.CreateSandboxAsync(new LocalSandboxCreateRequest(taskName, ActiveRun?.Id, WorkspacePath), cancellationToken);
     }
 
     public async Task LoadSecuritySettingsAsync()
