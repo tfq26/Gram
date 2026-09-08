@@ -108,7 +108,29 @@
             </div>
 
             <div class="dt-hud-body">
-                <!-- Current Task Details -->
+                <!-- 1. Model Selection Dropdown -->
+                @if (Models != null && Models.Count > 0)
+                {
+                    <div class="dt-hud-section">
+                        <div class="dt-hud-section-label">MODEL SELECTION</div>
+                        <div class="dt-hud-model-select-wrap">
+                            <select class="dt-hud-model-select"
+                                    value="@SelectedModelId"
+                                    @onchange="HandleModelChanged"
+                                    disabled="@IsStreaming">
+                                @foreach (var model in Models.Where(m => m.IsEnabled))
+                                {
+                                    <option value="@model.Id">@model.Name (@model.Provider)</option>
+                                }
+                            </select>
+                            <svg class="dt-hud-select-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                        </div>
+                    </div>
+                }
+
+                <!-- 2. Current Task Details -->
                 <div class="dt-hud-section">
                     <div class="dt-hud-section-label">CURRENT TASK</div>
                     <div class="dt-hud-task-card">
@@ -151,11 +173,11 @@
                     </div>
                 </div>
 
-                <!-- Telemetry Rows -->
+                <!-- 3. Telemetry Rows -->
                 <div class="dt-hud-grid">
                     <div class="dt-hud-grid-item">
-                        <span class="dt-hud-k">Active Model</span>
-                        <span class="dt-hud-v">@(ActiveModelName ?? "Gram Q+")</span>
+                        <span class="dt-hud-k">Provider</span>
+                        <span class="dt-hud-v">@(Models?.FirstOrDefault(m => m.Id == SelectedModelId)?.Provider ?? "Local")</span>
                     </div>
                     <div class="dt-hud-grid-item">
                         <span class="dt-hud-k">Local Agent</span>
@@ -196,6 +218,9 @@
     [Parameter] public bool IsListening { get; set; }
     [Parameter] public string? CurrentTask { get; set; }
     [Parameter] public string? ActiveModelName { get; set; }
+    [Parameter] public IReadOnlyList<ModelSummary>? Models { get; set; }
+    [Parameter] public string? SelectedModelId { get; set; }
+    [Parameter] public EventCallback<string> SelectedModelIdChanged { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
 
     private bool isExpanded = false;
@@ -203,6 +228,16 @@
     private void ToggleExpand()
     {
         isExpanded = !isExpanded;
+    }
+
+    private async Task HandleModelChanged(ChangeEventArgs e)
+    {
+        var modelId = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(modelId))
+        {
+            SelectedModelId = modelId;
+            await SelectedModelIdChanged.InvokeAsync(modelId);
+        }
     }
 
     private void HandleKeyDown(KeyboardEventArgs e)

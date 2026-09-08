@@ -21,6 +21,9 @@
     <div class="dt-topbar-center">
         <DynamicIsland IsStreaming="@IsStreaming"
                        IsLoading="@IsLoading"
+                       Models="@Models"
+                       SelectedModelId="@SelectedModelId"
+                       SelectedModelIdChanged="@SelectedModelIdChanged"
                        ActiveModelName="@(Models?.FirstOrDefault(m => m.Id == SelectedModelId)?.Name)"
                        OnCancel="@OnCancel" />
     </div>

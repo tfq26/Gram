@@ -176,24 +176,8 @@
                       @onkeydown="HandleKeyDown"
                       disabled="@(Conversation == null || IsLoading)"></textarea>
 
-            <!-- Right: Model Picker, Voice, Send/Stop -->
+            <!-- Right: Voice, Send/Stop -->
             <div class="dt-composer-actions-right">
-                @if (Models != null && Models.Count > 0 && string.IsNullOrWhiteSpace(inputText))
-                {
-                    <div class="dt-composer-model-section">
-                        <select class="dt-composer-model-select"
-                                value="@SelectedModelId"
-                                @onchange="HandleModelChange"
-                                disabled="@IsStreaming"
-                                title="Active Model">
-                            @foreach (var model in Models.Where(m => m.IsEnabled))
-                            {
-                                <option value="@model.Id">@model.Name</option>
-                            }
-                        </select>
-                    </div>
-                }
-
                 <button type="button"
                         class="dt-btn-composer-icon @(isVoiceActive ? "active" : "")"
                         @onclick="ToggleVoice"
