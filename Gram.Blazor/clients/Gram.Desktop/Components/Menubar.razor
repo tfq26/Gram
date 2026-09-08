@@ -19,7 +19,10 @@
 
     <!-- Center: Dynamic Island -->
     <div class="dt-topbar-center">
-        <DynamicIsland IsStreaming="@IsStreaming" IsLoading="@IsLoading" />
+        <DynamicIsland IsStreaming="@IsStreaming"
+                       IsLoading="@IsLoading"
+                       ActiveModelName="@(Models?.FirstOrDefault(m => m.Id == SelectedModelId)?.Name)"
+                       OnCancel="@OnCancel" />
     </div>
 
     <!-- Right: Inspector / Settings (Connected status pill removed) -->
@@ -57,6 +60,7 @@
     [Parameter] public EventCallback OnToggleSidebar { get; set; }
     [Parameter] public EventCallback OnToggleInfosheet { get; set; }
     [Parameter] public EventCallback OnOpenSettings { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
 
     private string ConnectionTooltip => IsConnected
         ? $"Connected to {BackendUrl}"

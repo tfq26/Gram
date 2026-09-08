@@ -1,53 +1,191 @@
 @namespace Gram.Desktop.Components
 @using Gram.Blazor.Shared
+@using Gram.Desktop.Services
+@inject DesktopSession Session
+@inject WorkspaceTabService TabService
 
-<div class="dt-island @IslandClass" title="@IslandTooltip">
-    @if (IsStreaming)
-    {
-        <div class="dt-island-content streaming">
-            <span class="dt-island-pulse-ring"></span>
-            <span class="dt-island-label">@(string.IsNullOrWhiteSpace(CurrentTask) ? "Gram is thinking..." : CurrentTask)</span>
-            <div class="dt-island-wave">
-                <span class="dt-island-bar"></span>
-                <span class="dt-island-bar"></span>
-                <span class="dt-island-bar"></span>
-                <span class="dt-island-bar"></span>
-                <span class="dt-island-bar"></span>
+<div class="dt-island-container">
+    <div class="dt-island @IslandClass @(isExpanded ? "expanded" : "")"
+         @onclick="ToggleExpand"
+         title="@IslandTooltip"
+         role="button"
+         tabindex="0"
+         @onkeydown="HandleKeyDown">
+        
+        @if (Session.ActivePermissionRequest != null)
+        {
+            <!-- 1. Urgent Permission Alert State -->
+            <div class="dt-island-content alert">
+                <span class="dt-island-dot warning"></span>
+                <span class="dt-island-label mono">Approval Required</span>
+                <span class="dt-island-chevron">▾</span>
             </div>
-        </div>
-        <div class="dt-island-progress">
-            <div class="dt-island-progress-bar"></div>
-        </div>
-    }
-    else if (IsListening)
-    {
-        <div class="dt-island-content listening">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="dt-island-mic">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                <line x1="12" y1="19" x2="12" y2="22"></line>
-            </svg>
-            <span class="dt-island-label">Listening</span>
-            <div class="dt-island-wave user">
-                <span class="dt-island-bar"></span>
-                <span class="dt-island-bar"></span>
-                <span class="dt-island-bar"></span>
-                <span class="dt-island-bar"></span>
+        }
+        else if (IsStreaming)
+        {
+            <!-- 2. Active Task / Streaming State with Audio Visualizer -->
+            <div class="dt-island-content streaming">
+                <span class="dt-island-sparkle">✦</span>
+                <span class="dt-island-label">@GetActiveTaskLabel()</span>
+                
+                <!-- Reactive 6-bar Audio/Frequency Visualizer -->
+                <div class="dt-island-visualizer active">
+                    <span class="dt-viz-bar bar-1"></span>
+                    <span class="dt-viz-bar bar-2"></span>
+                    <span class="dt-viz-bar bar-3"></span>
+                    <span class="dt-viz-bar bar-4"></span>
+                    <span class="dt-viz-bar bar-5"></span>
+                    <span class="dt-viz-bar bar-6"></span>
+                </div>
+
+                @if (OnCancel.HasDelegate)
+                {
+                    <button type="button" 
+                            class="dt-island-stop-btn" 
+                            @onclick:stopPropagation="true" 
+                            @onclick="OnCancel" 
+                            title="Stop task (Esc)">✕</button>
+                }
             </div>
-        </div>
-    }
-    else if (IsLoading)
+            <div class="dt-island-progress">
+                <div class="dt-island-progress-bar"></div>
+            </div>
+        }
+        else if (IsListening)
+        {
+            <!-- 3. Voice / Listening State -->
+            <div class="dt-island-content listening">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="dt-island-mic">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+                <span class="dt-island-label">Listening</span>
+                <div class="dt-island-visualizer voice">
+                    <span class="dt-viz-bar bar-1"></span>
+                    <span class="dt-viz-bar bar-2"></span>
+                    <span class="dt-viz-bar bar-3"></span>
+                    <span class="dt-viz-bar bar-4"></span>
+                    <span class="dt-viz-bar bar-5"></span>
+                </div>
+            </div>
+        }
+        else if (IsLoading)
+        {
+            <!-- 4. Syncing / Connecting State -->
+            <div class="dt-island-content loading">
+                <div class="dt-island-spinner"></div>
+                <span class="dt-island-label">Syncing</span>
+            </div>
+        }
+        else
+        {
+            <!-- 5. Idle / Ready State -->
+            <div class="dt-island-content idle">
+                <span class="dt-island-dot @(Session.IsLocalAgentConnected ? "success" : "neutral")"></span>
+                <span class="dt-island-brand">Gram</span>
+                @if (!string.IsNullOrWhiteSpace(ActiveModelName))
+                {
+                    <span class="dt-island-sep">·</span>
+                    <span class="dt-island-meta">@ActiveModelName</span>
+                }
+                <span class="dt-island-chevron">▾</span>
+            </div>
+        }
+    </div>
+
+    <!-- Click-to-Expand: Linear-style Task & Telemetry HUD Popover -->
+    @if (isExpanded)
     {
-        <div class="dt-island-content loading">
-            <div class="dt-island-spinner"></div>
-            <span class="dt-island-label">Syncing</span>
-        </div>
-    }
-    else
-    {
-        <div class="dt-island-content idle">
-            <span class="dt-island-status-dot"></span>
-            <span class="dt-island-label">Gram</span>
+        <div class="dt-island-backdrop" @onclick="() => isExpanded = false"></div>
+        <div class="dt-island-hud" @onclick:stopPropagation="true">
+            <div class="dt-hud-header">
+                <div class="dt-hud-title-wrap">
+                    <span class="dt-island-dot @(IsStreaming ? "violet" : (Session.IsLocalAgentConnected ? "success" : "neutral"))"></span>
+                    <span class="dt-hud-title">@(IsStreaming ? "Active Operation" : "System Status")</span>
+                </div>
+                <button type="button" class="dt-hud-close" @onclick="() => isExpanded = false">✕</button>
+            </div>
+
+            <div class="dt-hud-body">
+                <!-- Current Task Details -->
+                <div class="dt-hud-section">
+                    <div class="dt-hud-section-label">CURRENT TASK</div>
+                    <div class="dt-hud-task-card">
+                        @if (Session.ActivePermissionRequest != null)
+                        {
+                            <div class="dt-hud-task-row">
+                                <span class="dt-hud-task-badge warning">Permission Pending</span>
+                                <span class="dt-hud-task-name">@Session.ActivePermissionRequest.OperationType</span>
+                            </div>
+                            <div class="dt-hud-task-cmd">❯ @(Session.ActivePermissionRequest.ExactTarget ?? Session.ActivePermissionRequest.Command)</div>
+                        }
+                        else if (Session.CurrentStreamingToolCalls.Count > 0)
+                        {
+                            var tool = Session.CurrentStreamingToolCalls.Last();
+                            <div class="dt-hud-task-row">
+                                <span class="dt-hud-task-badge running">Tool Executing</span>
+                                <span class="dt-hud-task-name">@tool.ToolName</span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(tool.Arguments))
+                            {
+                                <div class="dt-hud-task-cmd">@tool.Arguments</div>
+                            }
+                        }
+                        else if (IsStreaming)
+                        {
+                            <div class="dt-hud-task-row">
+                                <span class="dt-hud-task-badge streaming">LLM Generating</span>
+                                <span class="dt-hud-task-name">@(ActiveModelName ?? "Gram Q+")</span>
+                            </div>
+                            <div class="dt-hud-task-desc">Processing prompt tokens and streaming response to canvas...</div>
+                        }
+                        else
+                        {
+                            <div class="dt-hud-task-row">
+                                <span class="dt-hud-task-badge ready">Idle & Ready</span>
+                                <span class="dt-hud-task-name">Awaiting prompt</span>
+                            </div>
+                            <div class="dt-hud-task-desc">Ready for agentic coding, architecture reasoning, and terminal commands.</div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Telemetry Rows -->
+                <div class="dt-hud-grid">
+                    <div class="dt-hud-grid-item">
+                        <span class="dt-hud-k">Active Model</span>
+                        <span class="dt-hud-v">@(ActiveModelName ?? "Gram Q+")</span>
+                    </div>
+                    <div class="dt-hud-grid-item">
+                        <span class="dt-hud-k">Local Agent</span>
+                        <span class="dt-hud-v @(Session.IsLocalAgentConnected ? "success" : "muted")">
+                            @(Session.IsLocalAgentConnected ? "Connected (:7340)" : "Offline")
+                        </span>
+                    </div>
+                    <div class="dt-hud-grid-item">
+                        <span class="dt-hud-k">Workspace</span>
+                        <span class="dt-hud-v mono" title="@Session.WorkspacePath">
+                            @(string.IsNullOrWhiteSpace(Session.WorkspacePath) ? "None" : Path.GetFileName(Session.WorkspacePath.TrimEnd('/', '\\')))
+                        </span>
+                    </div>
+                    <div class="dt-hud-grid-item">
+                        <span class="dt-hud-k">Capabilities</span>
+                        <span class="dt-hud-v">@Session.LocalAgentCapabilities.Count active</span>
+                    </div>
+                </div>
+
+                <!-- Action Footer -->
+                @if (IsStreaming && OnCancel.HasDelegate)
+                {
+                    <div class="dt-hud-footer">
+                        <button type="button" class="dt-hud-btn-cancel" @onclick="HandleCancelFromHud">
+                            <span>Stop Task</span>
+                            <kbd>Esc</kbd>
+                        </button>
+                    </div>
+                }
+            </div>
         </div>
     }
 </div>
@@ -57,20 +195,72 @@
     [Parameter] public bool IsLoading { get; set; }
     [Parameter] public bool IsListening { get; set; }
     [Parameter] public string? CurrentTask { get; set; }
+    [Parameter] public string? ActiveModelName { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
 
-    private string IslandClass => IsStreaming
-        ? "is-streaming"
-        : IsListening
-            ? "is-listening"
-            : IsLoading
-                ? "is-loading"
-                : "is-idle";
+    private bool isExpanded = false;
 
-    private string IslandTooltip => IsStreaming
-        ? "Gram is generating a response"
-        : IsListening
-            ? "Microphone is active"
-            : IsLoading
-                ? "Connecting to local backend"
-                : "Gram is idle and ready";
+    private void ToggleExpand()
+    {
+        isExpanded = !isExpanded;
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == " ")
+        {
+            ToggleExpand();
+        }
+        else if (e.Key == "Escape" && isExpanded)
+        {
+            isExpanded = false;
+        }
+    }
+
+    private async Task HandleCancelFromHud()
+    {
+        isExpanded = false;
+        await OnCancel.InvokeAsync();
+    }
+
+    private string GetActiveTaskLabel()
+    {
+        if (!string.IsNullOrWhiteSpace(CurrentTask)) return CurrentTask;
+
+        if (Session.CurrentStreamingToolCalls.Count > 0)
+        {
+            var tool = Session.CurrentStreamingToolCalls.Last();
+            var name = tool.ToolName.ToLowerInvariant();
+            if (name.Contains("terminal") || name.Contains("command")) return "Terminal: Running";
+            if (name.Contains("file") && name.Contains("pick")) return "Reading Workspace File";
+            if (name.Contains("write") || name.Contains("edit")) return "Editing File";
+            if (name.Contains("search")) return "Searching Project";
+            return $"Tool: {tool.ToolName}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(ActiveModelName))
+        {
+            return $"{ActiveModelName} · Thinking";
+        }
+
+        return "Generating...";
+    }
+
+    private string IslandClass
+    {
+        get
+        {
+            if (Session.ActivePermissionRequest != null) return "is-alert";
+            if (IsStreaming) return "is-streaming";
+            if (IsListening) return "is-listening";
+            if (IsLoading) return "is-loading";
+            return "is-idle";
+        }
+    }
+
+    private string IslandTooltip => Session.ActivePermissionRequest != null
+        ? "Action requires your approval (Click to inspect)"
+        : IsStreaming
+            ? "Gram is actively executing a task (Click to inspect)"
+            : "Gram status and active telemetry (Click to inspect)";
 }

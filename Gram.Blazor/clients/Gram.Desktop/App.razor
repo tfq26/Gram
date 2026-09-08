@@ -25,7 +25,8 @@
              IsSettingsOpen="@isSettingsOpen"
              OnToggleSidebar="ToggleSidebar"
              OnToggleInfosheet="ToggleInfosheet"
-             OnOpenSettings="() => isSettingsOpen = !isSettingsOpen" />
+             OnOpenSettings="() => isSettingsOpen = !isSettingsOpen"
+             OnCancel="HandleCancel" />
 
     @if (isSettingsOpen)
     {
