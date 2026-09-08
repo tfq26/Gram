@@ -3,6 +3,8 @@
 @using Gram.Desktop.Services
 @using Gram.Blazor.Shared
 @inject IPlatformService Platform
+@inject DesktopSession Session
+@implements IDisposable
 
 <aside class="dt-infosheet @(IsOpen ? "open" : "closed") @Platform.PlatformCssClass" data-ui-region="infosheet" role="complementary" aria-label="Chat info">
     <!-- Header -->
@@ -21,6 +23,63 @@
 
     <!-- Scrollable Body (Clean, flat, un-boxed layout) -->
     <div class="dt-infosheet-body">
+        <!-- Workspace (Folder) -->
+        <div class="dt-info-group">
+            <div class="dt-info-group-title">Workspace</div>
+            <div class="dt-info-rows">
+                <div class="dt-info-row">
+                    <span class="dt-info-label">Folder</span>
+                    <span class="dt-info-value" title="@Session.WorkspacePath" style="font-weight: 500; display: inline-flex; align-items: center; gap: 5px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--dt-text-muted);">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        <span>@GetWorkspaceFolderName()</span>
+                    </span>
+                </div>
+                <div class="dt-workspace-path-box mono" title="@Session.WorkspacePath">
+                    @Session.WorkspacePath
+                </div>
+                <div class="dt-workspace-actions-group">
+                    @if (Platform.IsMacOS)
+                    {
+                        <button type="button" class="dt-workspace-btn-sm" @onclick="PickFolderNativeAsync" title="Choose folder in Finder">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            <span>Browse...</span>
+                        </button>
+                    }
+                    <button type="button" class="dt-workspace-btn-sm" @onclick="ToggleEditingWorkspace" title="Edit workspace directory path">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                        <span>@(isEditingWorkspace ? "Cancel" : "Edit path")</span>
+                    </button>
+                </div>
+                @if (isEditingWorkspace)
+                {
+                    <div class="dt-workspace-edit-panel">
+                        <input type="text"
+                               class="dt-workspace-edit-input mono"
+                               @bind="workspaceInput"
+                               @bind:event="oninput"
+                               @onkeydown="HandleWorkspaceKeyDown"
+                               placeholder="/path/to/folder" />
+                        @if (!string.IsNullOrWhiteSpace(workspaceError))
+                        {
+                            <span class="dt-workspace-err-msg">@workspaceError</span>
+                        }
+                        <div class="dt-workspace-edit-btns">
+                            <button type="button" class="dt-workspace-action-save" @onclick="ApplyWorkspace">Save</button>
+                            <button type="button" class="dt-workspace-action-cancel" @onclick="CancelEditingWorkspace">Cancel</button>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
         <!-- Model Specifications -->
         <div class="dt-info-group">
             <div class="dt-info-group-title">Model</div>
@@ -199,6 +258,129 @@
     [Parameter] public LocalAgentStatus? LocalAgentStatus { get; set; }
     [Parameter] public bool IsLocalAgentUnauthorized { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
+
+    private bool isEditingWorkspace = false;
+    private string workspaceInput = "";
+    private string? workspaceError;
+
+    protected override void OnInitialized()
+    {
+        Session.StateChanged += OnSessionStateChanged;
+    }
+
+    private void OnSessionStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Session.StateChanged -= OnSessionStateChanged;
+    }
+
+    private string GetWorkspaceFolderName()
+    {
+        try
+        {
+            var p = Session.WorkspacePath;
+            if (string.IsNullOrWhiteSpace(p)) return "Workspace";
+            var name = Path.GetFileName(p.TrimEnd('/', '\\'));
+            return string.IsNullOrWhiteSpace(name) ? p : name;
+        }
+        catch
+        {
+            return "Workspace";
+        }
+    }
+
+    private void ToggleEditingWorkspace()
+    {
+        isEditingWorkspace = !isEditingWorkspace;
+        if (isEditingWorkspace)
+        {
+            workspaceInput = Session.WorkspacePath;
+            workspaceError = null;
+        }
+    }
+
+    private void CancelEditingWorkspace()
+    {
+        isEditingWorkspace = false;
+        workspaceError = null;
+    }
+
+    private void ApplyWorkspace()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(workspaceInput) || !Directory.Exists(workspaceInput))
+            {
+                workspaceError = "Directory does not exist.";
+                return;
+            }
+            Session.SetWorkspace(workspaceInput);
+            isEditingWorkspace = false;
+            workspaceError = null;
+        }
+        catch (Exception ex)
+        {
+            workspaceError = ex.Message;
+        }
+    }
+
+    private void HandleWorkspaceKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            ApplyWorkspace();
+        }
+        else if (e.Key == "Escape")
+        {
+            CancelEditingWorkspace();
+        }
+    }
+
+    private async Task PickFolderNativeAsync()
+    {
+        try
+        {
+            workspaceError = null;
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "osascript",
+                Arguments = "-e \"POSIX path of (choose folder with prompt \\\"Select Workspace Folder:\\\")\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process != null)
+            {
+                var output = await process.StandardOutput.ReadToEndAsync();
+                await process.WaitForExitAsync();
+                if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                {
+                    var selectedPath = output.Trim().TrimEnd('\r', '\n');
+                    if (Directory.Exists(selectedPath))
+                    {
+                        Session.SetWorkspace(selectedPath);
+                        workspaceInput = selectedPath;
+                        isEditingWorkspace = false;
+                        await InvokeAsync(StateHasChanged);
+                    }
+                    else
+                    {
+                        workspaceError = "Selected folder does not exist.";
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            workspaceError = ex.Message;
+        }
+    }
 
     private int ContextLimit => CurrentModel?.ContextLength ?? 128_000;
 

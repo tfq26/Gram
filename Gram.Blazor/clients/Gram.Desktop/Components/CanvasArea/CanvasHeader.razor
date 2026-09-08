@@ -62,18 +62,6 @@
         </div>
     </div>
 
-    <!-- Chat Title Group & Workspace Badge -->
-    <div class="dt-canvas-title-group">
-        <button type="button" class="dt-workspace-badge" @onclick="() => OnOpenWorkspacePicker.InvokeAsync()" title="Active Workspace: @Session.WorkspacePath">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-            </svg>
-            <span class="dt-workspace-name">@GetWorkspaceFolderName()</span>
-        </button>
-        <h1 class="dt-canvas-title">
-            @(string.IsNullOrWhiteSpace(Conversation?.Title) ? "New Chat" : Conversation.Title)
-        </h1>
-    </div>
 </header>
 
 <!-- Tab Context Menu -->
@@ -142,7 +130,6 @@
     [Parameter] public IReadOnlyList<ConversationSummary>? Conversations { get; set; }
     [Parameter] public EventCallback<string> OnSelectConversation { get; set; }
     [Parameter] public EventCallback OnNewConversation { get; set; }
-    [Parameter] public EventCallback OnOpenWorkspacePicker { get; set; }
     [Parameter] public EventCallback<ConversationSummary> OnAddReferencedChat { get; set; }
 
     private ElementReference tabsScrollRef;
@@ -162,21 +149,6 @@
                 await JSRuntime.InvokeVoidAsync("gramDesktop.enableTabsWheel", tabsScrollRef);
             }
             catch {}
-        }
-    }
-
-    private string GetWorkspaceFolderName()
-    {
-        try
-        {
-            var p = Session.WorkspacePath;
-            if (string.IsNullOrWhiteSpace(p)) return "Workspace";
-            var name = Path.GetFileName(p.TrimEnd('/', '\\'));
-            return string.IsNullOrWhiteSpace(name) ? p : name;
-        }
-        catch
-        {
-            return "Workspace";
         }
     }
 

@@ -13,7 +13,6 @@
                   Conversations="@Conversations"
                   OnSelectConversation="@OnSelectConversation"
                   OnNewConversation="@OnNewConversation"
-                  OnOpenWorkspacePicker="() => isWorkspacePickerOpen = true"
                   OnAddReferencedChat="HandleAddReferencedChat" />
 
     @if (TabService.ActiveTab?.Type == WorkspaceTabType.Terminal)
@@ -31,9 +30,6 @@
 
         <!-- 4. Interactive Security Permission Prompt -->
         <PermissionPromptCard />
-
-        <!-- 5. Workspace Directory Picker Popover Modal -->
-        <WorkspacePickerModal @bind-IsOpen="isWorkspacePickerOpen" />
 
         <!-- 6. Error Notice -->
         @if (!string.IsNullOrWhiteSpace(ErrorMessage))
@@ -81,7 +77,6 @@
     [Parameter] public EventCallback OnCancel { get; set; }
     [Parameter] public EventCallback OnNewConversation { get; set; }
 
-    private bool isWorkspacePickerOpen = false;
     private ComposerDock? composerRef;
 
     public void AddReferencedChat(ConversationSummary chat)

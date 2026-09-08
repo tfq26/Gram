@@ -1143,7 +1143,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, select:focus-
 .dt-canvas-tabs-container {
     flex: 1;
     min-width: 0;
-    margin-right: 20px;
+    margin-right: 0;
     display: flex;
     align-items: center;
     overflow: hidden;
@@ -2118,6 +2118,121 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, select:focus-
     background: rgba(255, 255, 255, 0.08);
     color: var(--dt-text-primary);
     border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Infosheet Workspace Group */
+.dt-workspace-path-box {
+    font-size: 10px;
+    color: var(--dt-text-muted);
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid var(--dt-border-subtle);
+    border-radius: var(--dt-radius-xs);
+    padding: 5px 7px;
+    word-break: break-all;
+    user-select: text;
+    line-height: 1.35;
+}
+
+.dt-workspace-actions-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+}
+
+.dt-workspace-btn-sm {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: var(--dt-radius-xs);
+    background: var(--dt-bg-surface-elevated);
+    border: 1px solid var(--dt-border-subtle);
+    color: var(--dt-text-secondary);
+    font-size: 11px;
+    font-family: var(--dt-font-sans);
+    cursor: pointer;
+    transition: all 0.12s ease;
+}
+
+.dt-workspace-btn-sm:hover {
+    background: var(--dt-bg-hover);
+    border-color: var(--dt-border-default);
+    color: var(--dt-text-primary);
+}
+
+.dt-workspace-btn-sm svg {
+    color: var(--dt-text-muted);
+}
+
+.dt-workspace-edit-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--dt-border-default);
+    border-radius: var(--dt-radius-xs);
+    margin-top: 4px;
+}
+
+.dt-workspace-edit-input {
+    width: 100%;
+    background: var(--dt-bg-surface);
+    border: 1px solid var(--dt-border-subtle);
+    border-radius: var(--dt-radius-xs);
+    color: var(--dt-text-primary);
+    font-size: 11px;
+    padding: 5px 7px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.dt-workspace-edit-input:focus {
+    border-color: var(--dt-accent);
+}
+
+.dt-workspace-err-msg {
+    font-size: 10.5px;
+    color: var(--dt-danger);
+}
+
+.dt-workspace-edit-btns {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.dt-workspace-action-save {
+    padding: 3px 10px;
+    border-radius: var(--dt-radius-xs);
+    background: var(--dt-accent);
+    color: #fff;
+    border: none;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.1s ease;
+}
+
+.dt-workspace-action-save:hover {
+    opacity: 0.9;
+}
+
+.dt-workspace-action-cancel {
+    padding: 3px 8px;
+    border-radius: var(--dt-radius-xs);
+    background: transparent;
+    border: 1px solid var(--dt-border-subtle);
+    color: var(--dt-text-muted);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.dt-workspace-action-cancel:hover {
+    color: var(--dt-text-primary);
+    border-color: var(--dt-border-default);
 }
 
 /* Preloader */
