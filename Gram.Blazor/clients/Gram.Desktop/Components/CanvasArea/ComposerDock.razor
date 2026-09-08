@@ -1,0 +1,410 @@
+@namespace Gram.Desktop.Components.CanvasArea
+@using Gram.Desktop.Components.Platform
+@using Gram.Desktop.Services
+@using Gram.Blazor.Shared
+@inject IPlatformService Platform
+@inject DesktopSession Session
+
+<div class="dt-composer-dock">
+    <div class="dt-composer-box">
+        @if (referencedChats.Count > 0 || pickedFiles.Count > 0)
+        {
+            <div class="dt-composer-references-tray">
+                @foreach (var refChat in referencedChats)
+                {
+                    <div class="dt-reference-pill" title="Referenced chat context: @refChat.Title">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.7;">
+                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                        </svg>
+                        <span class="dt-ref-title">@refChat.Title</span>
+                        <button type="button" class="dt-ref-close" @onclick="() => RemoveReferencedChat(refChat)" title="Remove reference">✕</button>
+                    </div>
+                }
+                @foreach (var file in pickedFiles)
+                {
+                    <div class="dt-reference-pill" title="Workspace file: @file.FilePath (@file.SizeBytes bytes)">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.7;">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                        <span class="dt-ref-title">@(Path.GetFileName(file.FilePath ?? "file"))</span>
+                        <button type="button" class="dt-ref-close" @onclick="() => pickedFiles.Remove(file)" title="Remove file">✕</button>
+                    </div>
+                }
+            </div>
+        }
+
+        <div class="dt-composer-inner">
+            <!-- Left: Attach / Reference previous chats & Local Agent File Picker -->
+            <div class="dt-composer-actions-left" style="position: relative; display: flex; align-items: center; gap: 4px;">
+                <button type="button"
+                        class="dt-btn-composer-icon @(isReferencePickerOpen ? "active" : "")"
+                        title="Reference previous chats or attach context"
+                        aria-label="Reference chats"
+                        @onclick="ToggleReferencePicker">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                    </svg>
+                    @if (referencedChats.Count > 0)
+                    {
+                        <span class="dt-ref-counter">@referencedChats.Count</span>
+                    }
+                </button>
+
+                @if (Session.IsLocalAgentConnected && Session.LocalAgentCapabilities.Any(c => c.Name == "files.pick"))
+                {
+                    <button type="button"
+                            class="dt-btn-composer-icon @(isFilePickerOpen ? "active" : "")"
+                            title="Pick workspace file via Local Agent"
+                            aria-label="Pick workspace file"
+                            @onclick="ToggleFilePicker">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="12" y1="18" x2="12" y2="12"></line>
+                            <line x1="9" y1="15" x2="15" y2="15"></line>
+                        </svg>
+                        @if (pickedFiles.Count > 0)
+                        {
+                            <span class="dt-ref-counter">@pickedFiles.Count</span>
+                        }
+                    </button>
+                }
+
+                @if (isReferencePickerOpen)
+                {
+                    <div class="dt-ref-backdrop" @onclick="() => isReferencePickerOpen = false"></div>
+                    <div class="dt-ref-popover" @onclick:stopPropagation="true">
+                        <div class="dt-ref-popover-header">
+                            <div class="dt-ref-popover-title">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                                </svg>
+                                <span>Reference Previous Chats</span>
+                            </div>
+                            <span class="dt-ref-popover-hint">Select a chat to attach to message context</span>
+                        </div>
+
+                        <div class="dt-ref-search-wrap">
+                            <input type="text"
+                                   class="dt-ref-search-input"
+                                   placeholder="Search chats..."
+                                   value="@refSearchQuery"
+                                   @oninput="HandleRefSearch" />
+                        </div>
+
+                        <div class="dt-ref-list">
+                            @if (FilteredReferenceConversations.Count == 0)
+                            {
+                                <div class="dt-ref-empty">No other chats found</div>
+                            }
+                            else
+                            {
+                                @foreach (var c in FilteredReferenceConversations)
+                                {
+                                    var isAlreadyReferenced = referencedChats.Any(r => r.Id == c.Id);
+                                    <button type="button"
+                                            class="dt-ref-item @(isAlreadyReferenced ? "selected" : "")"
+                                            @onclick="() => ToggleReferenceChat(c)">
+                                        <div class="dt-ref-item-main">
+                                            <span class="dt-ref-item-title">@c.Title</span>
+                                            <span class="dt-ref-item-meta">@c.MessageCount messages • @c.Updated.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                                        </div>
+                                        <div class="dt-ref-item-action">
+                                            @if (isAlreadyReferenced)
+                                            {
+                                                <span class="dt-ref-check">✓</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="dt-ref-add">+</span>
+                                            }
+                                        </div>
+                                    </button>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (isFilePickerOpen)
+                {
+                    <div class="dt-ref-backdrop" @onclick="() => isFilePickerOpen = false"></div>
+                    <div class="dt-ref-popover" @onclick:stopPropagation="true">
+                        <div class="dt-ref-popover-header">
+                            <div class="dt-ref-popover-title">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                </svg>
+                                <span>Pick Workspace File</span>
+                            </div>
+                            <span class="dt-ref-popover-hint">Path relative to workspace</span>
+                        </div>
+
+                        <div class="dt-ref-search-wrap" style="display: flex; gap: 6px;">
+                            <input type="text"
+                                   class="dt-ref-search-input"
+                                   placeholder="e.g. src/Program.cs"
+                                   @bind="filePickerInput"
+                                   @onkeydown="HandleFilePickerKeyDown" />
+                            <button type="button"
+                                    class="dt-btn-composer-send"
+                                    style="height: 32px; padding: 0 12px; font-size: 11.5px;"
+                                    @onclick="PickFileFromLocalAgent"
+                                    disabled="@(string.IsNullOrWhiteSpace(filePickerInput) || isPickingFile)">
+                                @(isPickingFile ? "..." : "Pick")
+                            </button>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(filePickerError))
+                        {
+                            <div style="padding: 6px 12px; color: var(--dt-danger); font-size: 11px;">
+                                @filePickerError
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <!-- Center: Auto-expanding Textarea -->
+            <textarea class="dt-composer-textarea"
+                      placeholder="Message Gram..."
+                      rows="1"
+                      value="@inputText"
+                      @oninput="HandleInput"
+                      @onkeydown="HandleKeyDown"
+                      disabled="@(Conversation == null || IsLoading)"></textarea>
+
+            <!-- Right: Model Picker, Voice, Send/Stop -->
+            <div class="dt-composer-actions-right">
+                @if (Models != null && Models.Count > 0 && string.IsNullOrWhiteSpace(inputText))
+                {
+                    <div class="dt-composer-model-section">
+                        <select class="dt-composer-model-select"
+                                value="@SelectedModelId"
+                                @onchange="HandleModelChange"
+                                disabled="@IsStreaming"
+                                title="Active Model">
+                            @foreach (var model in Models.Where(m => m.IsEnabled))
+                            {
+                                <option value="@model.Id">@model.Name</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                <button type="button"
+                        class="dt-btn-composer-icon @(isVoiceActive ? "active" : "")"
+                        @onclick="ToggleVoice"
+                        title="@(isVoiceActive ? "Stop Voice Input" : "Voice input")">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="22"></line>
+                    </svg>
+                </button>
+
+                @if (IsStreaming)
+                {
+                    <button type="button"
+                            class="dt-btn-composer-send stop-btn"
+                            @onclick="() => OnCancel.InvokeAsync()"
+                            title="Stop generation">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="5" y="5" width="14" height="14" rx="2" />
+                        </svg>
+                    </button>
+                }
+                else
+                {
+                    <button type="button"
+                            class="dt-btn-composer-send"
+                            @onclick="HandleSubmit"
+                            disabled="@(string.IsNullOrWhiteSpace(inputText) || Conversation == null || IsLoading)"
+                            title="Send (@Platform.SubmitShortcutLabel)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="19" x2="12" y2="5"></line>
+                            <polyline points="5 12 12 5 19 12"></polyline>
+                        </svg>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public ConversationDetail? Conversation { get; set; }
+    [Parameter] public IReadOnlyList<ConversationSummary>? Conversations { get; set; }
+    [Parameter] public IReadOnlyList<ModelSummary>? Models { get; set; }
+    [Parameter] public string? SelectedModelId { get; set; }
+    [Parameter] public EventCallback<string> SelectedModelIdChanged { get; set; }
+    [Parameter] public bool IsStreaming { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback<string> OnSendMessage { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string inputText = "";
+    private bool isVoiceActive = false;
+
+    // Reference previous chats
+    private List<ConversationSummary> referencedChats = new();
+    private bool isReferencePickerOpen = false;
+    private string refSearchQuery = "";
+
+    // Local Agent File Picker
+    private List<FilePickResult> pickedFiles = new();
+    private bool isFilePickerOpen = false;
+    private string filePickerInput = "";
+    private bool isPickingFile = false;
+    private string? filePickerError = null;
+
+    private List<ConversationSummary> FilteredReferenceConversations =>
+        (Conversations ?? Array.Empty<ConversationSummary>())
+            .Where(c => c.Id != Conversation?.Id)
+            .Where(c => string.IsNullOrWhiteSpace(refSearchQuery) || c.Title.Contains(refSearchQuery, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    public void AddReferencedChat(ConversationSummary chat)
+    {
+        if (!referencedChats.Any(r => r.Id == chat.Id))
+        {
+            referencedChats.Add(chat);
+            StateHasChanged();
+        }
+    }
+
+    public void SetInputText(string text)
+    {
+        inputText = text;
+        StateHasChanged();
+    }
+
+    private void RemoveReferencedChat(ConversationSummary chat)
+    {
+        referencedChats.Remove(chat);
+    }
+
+    private void ToggleReferencePicker()
+    {
+        isReferencePickerOpen = !isReferencePickerOpen;
+    }
+
+    private void HandleRefSearch(ChangeEventArgs e)
+    {
+        refSearchQuery = e.Value?.ToString() ?? "";
+    }
+
+    private void ToggleReferenceChat(ConversationSummary chat)
+    {
+        var existing = referencedChats.FirstOrDefault(r => r.Id == chat.Id);
+        if (existing != null)
+            referencedChats.Remove(existing);
+        else
+            referencedChats.Add(chat);
+    }
+
+    private void ToggleFilePicker()
+    {
+        isFilePickerOpen = !isFilePickerOpen;
+        if (isFilePickerOpen)
+        {
+            filePickerInput = "";
+            filePickerError = null;
+        }
+    }
+
+    private async Task HandleFilePickerKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await PickFileFromLocalAgent();
+        }
+    }
+
+    private async Task PickFileFromLocalAgent()
+    {
+        if (string.IsNullOrWhiteSpace(filePickerInput) || isPickingFile) return;
+        isPickingFile = true;
+        filePickerError = null;
+        try
+        {
+            var res = await Session.PickWorkspaceFileAsync(filePickerInput.Trim());
+            if (res.Success && !string.IsNullOrEmpty(res.FilePath))
+            {
+                pickedFiles.Add(res);
+                filePickerInput = "";
+                isFilePickerOpen = false;
+            }
+            else
+            {
+                filePickerError = res.Error ?? "Failed to pick file from workspace.";
+            }
+        }
+        catch (Exception ex)
+        {
+            filePickerError = ex.Message;
+        }
+        finally
+        {
+            isPickingFile = false;
+        }
+    }
+
+    private void ToggleVoice()
+    {
+        isVoiceActive = !isVoiceActive;
+    }
+
+    private async Task HandleModelChange(ChangeEventArgs e)
+    {
+        var modelId = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(modelId))
+        {
+            SelectedModelId = modelId;
+            await SelectedModelIdChanged.InvokeAsync(modelId);
+        }
+    }
+
+    private void HandleInput(ChangeEventArgs e)
+    {
+        inputText = e.Value?.ToString() ?? "";
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (IsStreaming || Conversation == null) return;
+
+        bool isSubmit = (e.Key == "Enter" && !e.ShiftKey) ||
+                        (Platform.IsSubmitKeyPressed(e.CtrlKey, e.MetaKey) && e.Key == "Enter");
+        if (isSubmit)
+        {
+            await HandleSubmit();
+        }
+    }
+
+    public async Task HandleSubmit()
+    {
+        if (string.IsNullOrWhiteSpace(inputText) || IsStreaming || Conversation == null) return;
+        var text = inputText.Trim();
+        inputText = "";
+
+        if (referencedChats.Count > 0)
+        {
+            var refs = string.Join("\n", referencedChats.Select(r => $"[Referenced Context: Chat \"{r.Title}\" (ID: {r.Id}) - user referenced this past conversation for context]"));
+            text = $"{refs}\n\n{text}";
+            referencedChats.Clear();
+        }
+
+        if (pickedFiles.Count > 0)
+        {
+            var files = string.Join("\n\n", pickedFiles.Select(f =>
+                $"[Attached Workspace File: {f.FilePath}]\n```\n{(f.Content?.Length > 3000 ? f.Content[..3000] + "\n...[truncated]" : f.Content)}\n```"));
+            text = $"{files}\n\n{text}";
+            pickedFiles.Clear();
+        }
+
+        await OnSendMessage.InvokeAsync(text);
+    }
+}

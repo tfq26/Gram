@@ -1,0 +1,107 @@
+@namespace Gram.Desktop.Components.CanvasArea
+@using Gram.Desktop.Components
+@using Gram.Desktop.Services
+@using Gram.Blazor.Shared
+@inject DesktopSession Session
+
+<div class="dt-messages-scroll">
+    @if (Conversation == null || (Conversation.Messages != null && Conversation.Messages.Count == 0 && string.IsNullOrWhiteSpace(DraftResponse)))
+    {
+        <!-- Clean, Disciplined Workspace Hero -->
+        <div class="dt-hero">
+            <div class="dt-hero-character-stage">
+                <GramCharacter Size="168" State="idle" Interactive="true" AutoWaveOnLoad="false" />
+            </div>
+            <h2 class="dt-hero-title">What would you like to build?</h2>
+            <p class="dt-hero-desc">
+                Gram provides agentic coding, architecture reasoning, test execution, and workspace exploration.
+            </p>
+
+            <div class="dt-hero-actions">
+                <div class="dt-hero-card" @onclick="@(() => OnSuggestionClick.InvokeAsync("Explain the architecture of this project"))">
+                    <strong>Architect:</strong> Explain codebase structure
+                </div>
+                <div class="dt-hero-card" @onclick="@(() => OnSuggestionClick.InvokeAsync("Run the unit tests and inspect recent diffs"))">
+                    <strong>Verify:</strong> Run tests & check diffs
+                </div>
+                <div class="dt-hero-card" @onclick="@(() => OnSuggestionClick.InvokeAsync("Review security and provider boundaries"))">
+                    <strong>Audit:</strong> Check security boundaries
+                </div>
+            </div>
+        </div>
+    }
+    else if (Conversation.Messages != null)
+    {
+        <div class="dt-messages-stack">
+            @foreach (var msg in Conversation.Messages)
+            {
+                var isUser = msg.Role.Equals("user", StringComparison.OrdinalIgnoreCase);
+                <div class="dt-msg-row @(isUser ? "user" : "assistant")">
+                    @if (!isUser)
+                    {
+                        <div class="dt-msg-avatar">
+                            <GramCharacter Size="18" State="idle" Interactive="false" AutoWaveOnLoad="false" />
+                        </div>
+                        <div class="dt-msg-content-assistant">
+                            @if (msg.ToolCalls != null && msg.ToolCalls.Count > 0)
+                            {
+                                <div class="dt-toolcalls-stack">
+                                    @foreach (var tool in msg.ToolCalls)
+                                    {
+                                        <DesktopToolCard ToolCall="@tool" />
+                                    }
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(msg.Text))
+                            {
+                                <MarkdownView Content="@msg.Text" />
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="dt-msg-bubble-user">
+                            @msg.Text
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (IsStreaming)
+            {
+                <div class="dt-msg-row assistant">
+                    <div class="dt-msg-avatar">
+                        <GramCharacter Size="18" State="thinking" Interactive="false" AutoWaveOnLoad="false" />
+                    </div>
+                    <div class="dt-msg-content-assistant">
+                        @if (Session.CurrentStreamingToolCalls.Count > 0)
+                        {
+                            <div class="dt-toolcalls-stack">
+                                @foreach (var tool in Session.CurrentStreamingToolCalls)
+                                {
+                                    <DesktopToolCard ToolCall="@tool" />
+                                }
+                            </div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(DraftResponse))
+                        {
+                            <MarkdownView Content="@DraftResponse" />
+                            <span class="dt-streaming-cursor"></span>
+                        }
+                        else if (Session.CurrentStreamingToolCalls.Count == 0 && Session.ActivePermissionRequest == null)
+                        {
+                            <span style="font-size: 12px; color: var(--dt-text-muted);">Analyzing context...</span>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public ConversationDetail? Conversation { get; set; }
+    [Parameter] public string DraftResponse { get; set; } = "";
+    [Parameter] public bool IsStreaming { get; set; }
+    [Parameter] public EventCallback<string> OnSuggestionClick { get; set; }
+}

@@ -1,0 +1,115 @@
+@namespace Gram.Desktop.Components.CanvasArea
+@using Gram.Desktop.Services
+@using Gram.Blazor.Shared
+@inject DesktopSession Session
+@inject WorkspaceTabService TabService
+
+<div class="dt-terminal-view">
+    <div class="dt-terminal-header">
+        <div class="dt-terminal-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="4 17 10 11 4 5"></polyline>
+                <line x1="12" y1="19" x2="20" y2="19"></line>
+            </svg>
+            <span>Local Terminal — @Session.WorkspacePath</span>
+        </div>
+        <div class="dt-terminal-badge">
+            <span class="dt-dot" style="width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: @(Session.IsLocalAgentConnected ? "var(--dt-success)" : "var(--dt-danger)");"></span>
+            <span>@(Session.IsLocalAgentConnected ? "Connected (:7340)" : "Local Agent Offline")</span>
+        </div>
+    </div>
+
+    <div class="dt-terminal-output" @ref="terminalScrollRef">
+        @if (terminalHistory.Count == 0)
+        {
+            <div class="dt-terminal-empty">
+                <div style="font-weight: 500; margin-bottom: 4px;">Local Agent Terminal Ready</div>
+                <div style="font-size: 11px; opacity: 0.7;">Commands execute securely within your active workspace via Gram.LocalAgent.</div>
+                <div style="font-size: 11px; opacity: 0.5; margin-top: 2px;">Try: <code>dotnet --version</code>, <code>git status</code>, or <code>ls -la</code></div>
+            </div>
+        }
+        else
+        {
+            @foreach (var entry in terminalHistory)
+            {
+                <div class="dt-terminal-entry">
+                    <div class="dt-terminal-cmd-row">
+                        <span class="dt-prompt" style="color: var(--dt-success); font-weight: bold;">$</span>
+                        <span class="dt-cmd">@entry.Command</span>
+                        <span class="dt-meta">
+                            <span class="dt-exit @(entry.ExitCode == 0 ? "success" : "failed")">code @entry.ExitCode</span>
+                            <span class="dt-time">@entry.ElapsedMs ms</span>
+                        </span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(entry.Stdout))
+                    {
+                        <pre class="dt-stdout">@entry.Stdout</pre>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(entry.Stderr))
+                    {
+                        <pre class="dt-stderr">@entry.Stderr</pre>
+                    }
+                </div>
+            }
+        }
+    </div>
+
+    <div class="dt-terminal-input-bar">
+        <span class="dt-prompt" style="color: var(--dt-success); font-weight: bold; font-family: var(--dt-font-mono);">$</span>
+        <input type="text"
+               class="dt-terminal-input"
+               placeholder="Enter shell command to execute in workspace..."
+               @bind="terminalInput"
+               @bind:event="oninput"
+               @onkeydown="HandleTerminalKeyDown"
+               disabled="@(!Session.IsLocalAgentConnected || isTerminalRunning)" />
+        <button type="button"
+                class="dt-terminal-run-btn"
+                @onclick="ExecuteTerminalCommand"
+                disabled="@(!Session.IsLocalAgentConnected || isTerminalRunning || string.IsNullOrWhiteSpace(terminalInput))">
+            @(isTerminalRunning ? "Running..." : "Run")
+        </button>
+        @if (terminalHistory.Count > 0)
+        {
+            <button type="button" class="dt-terminal-clear-btn" @onclick="() => terminalHistory.Clear()" title="Clear terminal">Clear</button>
+        }
+    </div>
+</div>
+
+@code {
+    private sealed record TerminalHistoryEntry(string Command, int ExitCode, string Stdout, string Stderr, long ElapsedMs, DateTimeOffset Timestamp);
+    private readonly List<TerminalHistoryEntry> terminalHistory = new();
+    private string terminalInput = "";
+    private bool isTerminalRunning = false;
+    private ElementReference terminalScrollRef;
+
+    private async Task HandleTerminalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await ExecuteTerminalCommand();
+        }
+    }
+
+    private async Task ExecuteTerminalCommand()
+    {
+        var cmd = terminalInput.Trim();
+        if (string.IsNullOrWhiteSpace(cmd) || isTerminalRunning) return;
+
+        isTerminalRunning = true;
+        terminalInput = "";
+        try
+        {
+            var result = await Session.RunTerminalCommandAsync(cmd);
+            terminalHistory.Add(new TerminalHistoryEntry(cmd, result.ExitCode, result.Stdout, result.Stderr, result.ElapsedMilliseconds, DateTimeOffset.UtcNow));
+        }
+        catch (Exception ex)
+        {
+            terminalHistory.Add(new TerminalHistoryEntry(cmd, -1, "", ex.Message, 0, DateTimeOffset.UtcNow));
+        }
+        finally
+        {
+            isTerminalRunning = false;
+        }
+    }
+}

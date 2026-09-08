@@ -1,0 +1,82 @@
+@namespace Gram.Desktop.Components.CanvasArea
+@using Gram.Desktop.Services
+@using Gram.Blazor.Shared
+@inject DesktopSession Session
+
+@if (Session.ActivePermissionRequest != null)
+{
+    var perm = Session.ActivePermissionRequest;
+    var isCmd = perm.ToolName.Contains("command") || !string.IsNullOrWhiteSpace(perm.Command);
+    var opType = !string.IsNullOrWhiteSpace(perm.OperationType)
+        ? perm.OperationType
+        : (isCmd ? "Terminal Command" : "File Modification");
+    var riskClass = $"risk-{perm.RiskLevel.ToString().ToLowerInvariant()}";
+
+    <div class="dt-permission-card">
+        <div class="dt-perm-header">
+            <div class="dt-perm-icon-wrap">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                </svg>
+            </div>
+            <div class="dt-perm-title-group">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span class="dt-perm-title">Permission: @opType</span>
+                    @if (perm.IsNetworkAccess)
+                    {
+                        <span class="dt-perm-badge network">Network Access</span>
+                    }
+                    <span class="dt-perm-badge @riskClass">@perm.RiskLevel Risk</span>
+                </div>
+                <span class="dt-perm-desc">@perm.Reason</span>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(perm.EstimatedImpact))
+        {
+            <div class="dt-perm-impact">
+                <strong>Estimated Impact:</strong> @perm.EstimatedImpact
+            </div>
+        }
+
+        <div class="dt-perm-details">
+            @if (isCmd)
+            {
+                <div class="dt-perm-code-box">
+                    <div class="dt-perm-code-label">Exact Command / Target</div>
+                    <pre class="dt-perm-code">❯ @(perm.ExactTarget ?? perm.Command)</pre>
+                    @if (!string.IsNullOrWhiteSpace(perm.WorkspaceRoot ?? perm.WorkingDirectory))
+                    {
+                        <div class="dt-perm-meta">Workspace: <code>@(perm.WorkspaceRoot ?? perm.WorkingDirectory)</code></div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="dt-perm-code-box">
+                    <div class="dt-perm-code-label">Target File</div>
+                    <pre class="dt-perm-code">📄 @(perm.ExactTarget ?? perm.FilePath)</pre>
+                    @if (!string.IsNullOrWhiteSpace(perm.WorkspaceRoot))
+                    {
+                        <div class="dt-perm-meta">Workspace: <code>@perm.WorkspaceRoot</code></div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="dt-perm-actions">
+            <button type="button" class="dt-perm-btn primary" @onclick="() => Session.RespondToPermissionAsync(perm.Id, true, false)">
+                Approve Once
+            </button>
+            <button type="button" class="dt-perm-btn secondary" @onclick="() => Session.RespondToPermissionAsync(perm.Id, true, true)">
+                Remember for this Workspace Session
+            </button>
+            <button type="button" class="dt-perm-btn danger" @onclick="() => Session.RespondToPermissionAsync(perm.Id, false, false)">
+                Deny
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+}
