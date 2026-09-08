@@ -334,7 +334,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, select:focus-
 }
 
 .dt-island.expanded .dt-island-chevron {
-    transform: rotate(180deg);
+    display: none !important;
 }
 
 .dt-island-label {
@@ -3702,153 +3702,204 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, select:focus-
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--dt-border-default);
-    background: var(--dt-bg-surface);
+    height: 34px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--dt-border-subtle);
+    background: var(--dt-bg-canvas);
+    flex-shrink: 0;
 }
 
 .dt-terminal-title {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 12px;
+    gap: 7px;
+    font-size: 11px;
     font-weight: 500;
-    font-family: var(--dt-font-mono);
+    font-family: var(--dt-font-sans);
+    color: var(--dt-text-secondary);
 }
 
-.dt-terminal-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
+.dt-terminal-icon {
     color: var(--dt-text-muted);
 }
 
+.dt-terminal-name {
+    font-weight: 600;
+    color: var(--dt-text-primary);
+    letter-spacing: -0.01em;
+}
+
+.dt-terminal-sep {
+    color: var(--dt-text-muted);
+    font-size: 10px;
+}
+
+.dt-terminal-cwd {
+    color: var(--dt-text-muted);
+    font-size: 11px;
+}
+
+.dt-terminal-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dt-terminal-spinner {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--dt-border-default);
+    border-top-color: var(--dt-accent);
+    border-radius: 50%;
+    animation: dt-spin 0.7s linear infinite;
+}
+
+.dt-terminal-action-btn {
+    background: transparent;
+    border: none;
+    color: var(--dt-text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    font-family: var(--dt-font-sans);
+    padding: 2px 6px;
+    border-radius: var(--dt-radius-xs);
+    cursor: pointer;
+    transition: color 0.12s ease, background 0.12s ease;
+}
+
+.dt-terminal-action-btn:hover {
+    color: var(--dt-text-primary);
+    background: var(--dt-bg-hover);
+}
+
+/* Terminal Output Buffer */
 .dt-terminal-output {
     flex: 1;
     overflow-y: auto;
-    padding: 14px 16px;
+    padding: 12px 16px;
     font-family: var(--dt-font-mono);
     font-size: 12px;
-    line-height: 1.5;
+    line-height: 1.55;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
 }
 
-.dt-terminal-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
+.dt-terminal-buffer-info {
     color: var(--dt-text-muted);
-    text-align: center;
+    font-size: 11.5px;
+    font-family: var(--dt-font-mono);
+    opacity: 0.6;
+    padding: 4px 0;
 }
 
 .dt-terminal-entry {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
 }
 
 .dt-terminal-cmd-row {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: 8px;
+    padding: 2px 0;
 }
 
-.dt-terminal-cmd-row .dt-prompt {
-    color: var(--dt-success);
-    font-weight: bold;
+.dt-terminal-prompt {
+    color: var(--dt-text-muted);
+    font-family: var(--dt-font-mono);
+    font-size: 12px;
+    user-select: none;
+    flex-shrink: 0;
 }
 
-.dt-terminal-cmd-row .dt-cmd {
-    font-weight: 600;
+.dt-terminal-cmd {
+    font-weight: 500;
     color: var(--dt-text-primary);
+    font-family: var(--dt-font-mono);
+    word-break: break-all;
 }
 
-.dt-terminal-cmd-row .dt-meta {
+.dt-terminal-meta {
     margin-left: auto;
     display: flex;
+    align-items: baseline;
     gap: 8px;
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--dt-text-muted);
+    font-family: var(--dt-font-mono);
+    flex-shrink: 0;
 }
 
-.dt-exit.success { color: var(--dt-success); }
-.dt-exit.failed { color: var(--dt-danger); }
-
-.dt-stdout {
-    margin: 0;
-    padding: 6px 10px;
-    background: rgba(0, 0, 0, 0.25);
-    border-radius: var(--dt-radius-sm);
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: 11.5px;
-}
-
-.dt-stderr {
-    margin: 0;
-    padding: 6px 10px;
-    background: rgba(239, 68, 68, 0.1);
+.dt-terminal-exit.error {
     color: var(--dt-danger);
-    border-radius: var(--dt-radius-sm);
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: 11.5px;
 }
 
+.dt-terminal-time {
+    opacity: 0.6;
+}
+
+.dt-terminal-stdout {
+    margin: 0;
+    padding: 1px 0 3px 18px;
+    background: transparent;
+    border: none;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--dt-font-mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--dt-text-secondary);
+}
+
+.dt-terminal-stderr {
+    margin: 0;
+    padding: 1px 0 3px 18px;
+    background: transparent;
+    border: none;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--dt-font-mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--dt-danger);
+    opacity: 0.9;
+}
+
+/* Terminal Input Line */
 .dt-terminal-input-bar {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 16px;
-    border-top: 1px solid var(--dt-border-default);
-    background: var(--dt-bg-surface);
+    height: 38px;
+    padding: 0 16px;
+    border-top: 1px solid var(--dt-border-subtle);
+    background: var(--dt-bg-canvas);
+    flex-shrink: 0;
 }
 
 .dt-terminal-input {
     flex: 1;
-    background: var(--dt-bg-input);
-    border: 1px solid var(--dt-border-default);
-    border-radius: var(--dt-radius-sm);
-    padding: 6px 10px;
+    background: transparent;
+    border: none;
+    padding: 0;
     font-family: var(--dt-font-mono);
     font-size: 12px;
     color: var(--dt-text-primary);
-    outline: none;
+    outline: none !important;
+    box-shadow: none !important;
 }
 
-.dt-terminal-input:focus {
-    border-color: var(--dt-border-focus);
-}
-
-.dt-terminal-run-btn {
-    background: var(--dt-btn-primary-bg);
-    color: var(--dt-btn-primary-fg);
-    border: none;
-    border-radius: var(--dt-radius-sm);
-    padding: 6px 14px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-}
-
-.dt-terminal-run-btn:disabled {
+.dt-terminal-input::placeholder {
+    color: var(--dt-text-placeholder);
     opacity: 0.5;
-    cursor: not-allowed;
 }
 
-.dt-terminal-clear-btn {
-    background: transparent;
+.dt-terminal-running-label {
+    font-size: 11px;
     color: var(--dt-text-muted);
-    border: 1px solid var(--dt-border-default);
-    border-radius: var(--dt-radius-sm);
-    padding: 6px 10px;
-    font-size: 11.5px;
-    cursor: pointer;
+    font-family: var(--dt-font-mono);
 }
 
 
