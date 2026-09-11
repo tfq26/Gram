@@ -6,7 +6,8 @@ public enum WorkspaceTabType
     ToolboxOverview,
     ToolConfig,
     Presentation,
-    Terminal
+    Terminal,
+    Git
 }
 
 public sealed class WorkspaceTab
@@ -20,6 +21,7 @@ public sealed class WorkspaceTab
     public string? PresentationPath { get; set; }
     public string? Icon { get; set; } = "💬";
     public bool IsPinned { get; set; }
+    public string? SplitLinkedTabId { get; set; }
 }
 
 public sealed class ToolboxToolInfo

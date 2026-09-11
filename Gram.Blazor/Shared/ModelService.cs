@@ -28,6 +28,10 @@ public sealed class GramModel
     public bool IsFavorite { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTimeOffset AddedAt { get; set; } = DateTimeOffset.UtcNow;
+    public ModelCodingSupportTier CodingTier { get; set; } = ModelCodingSupportTier.VerifiedAutonomous;
+    public bool IsChatSupported { get; set; } = true;
+    public ModelQualificationResult? QualificationResult { get; set; }
+    public string? UnsupportedReason { get; set; }
 }
 
 public sealed class ProviderConfig
@@ -66,6 +70,14 @@ public sealed class ModelService
     public List<ProviderConfig> Providers { get; private set; } = new();
     private readonly Dictionary<string, string> secureKeys = new(StringComparer.OrdinalIgnoreCase); // User BYOK Keys
     private readonly Dictionary<string, string> systemKeys = new(StringComparer.OrdinalIgnoreCase); // Internal System Keys
+
+    public string CurrentReasoningEffort { get; set; } = ReasoningEffort.Medium;
+
+    public void SetReasoningEffort(string effort)
+    {
+        CurrentReasoningEffort = ReasoningEffort.Normalize(effort);
+        OnChange?.Invoke();
+    }
 
     public ModelService(StorageService? storageService = null)
     {
@@ -133,7 +145,6 @@ public sealed class ModelService
                 var list = JsonSerializer.Deserialize<List<GramModel>>(json);
                 if (list != null && list.Count > 0)
                 {
-                    // Ensure canonical descriptions for default engines
                     var qModel = list.FirstOrDefault(m => m.Id.Equals(GramModelIds.GramQ, StringComparison.OrdinalIgnoreCase));
                     if (qModel != null)
                     {
@@ -141,17 +152,32 @@ public sealed class ModelService
                         qModel.Provider = "Google";
                         qModel.Description = "Fast everyday intelligence · Powered by Gemini 3.1 Flash Lite";
                         qModel.ContextLength = 1000000;
+                        qModel.IsFavorite = true;
+                        qModel.IsEnabled = true;
                     }
-                    var qPlusModel = list.FirstOrDefault(m => m.Id.Equals(GramModelIds.GramQPlus, StringComparison.OrdinalIgnoreCase));
-                    if (qPlusModel != null)
+                    else
                     {
-                        qPlusModel.Name = "Gram Q+";
-                        qPlusModel.Provider = "Vercel";
-                        qPlusModel.Description = "Agentic coding and structured-output model · Powered by Muse Spark Contributor";
-                        qPlusModel.ContextLength = 1000000;
+                        list.Insert(0, new GramModel
+                        {
+                            Id = GramModelIds.GramQ,
+                            Name = "Gram Q",
+                            Provider = "Google",
+                            Description = "Fast everyday intelligence · Powered by Gemini 3.1 Flash Lite",
+                            ContextLength = 1000000,
+                            IsFavorite = true,
+                            IsEnabled = true
+                        });
                     }
+
+                    EnsureRoleModel(list, GramModelIds.GramQPlus, "Gram Q+", "Vercel", "Agentic coding and structured-output model · Powered by Muse Spark Contributor", 1000000, false);
                     EnsureRoleModel(list, GramModelIds.GramQPlusPlus, "Gram Q++", "Google", "Compatibility model · Powered by Gemini 3.1 Flash Lite", 1000000, false);
-                        EnsureRoleModel(list, GramModelIds.LingTinyFree, "Ling Free", "Vercel", "Free lightweight model for testing and simple tasks", 256000, false);
+                    EnsureRoleModel(list, GramModelIds.LingTinyFree, "Ling Free", "Vercel", "Free lightweight model for testing and simple tasks", 256000, false);
+
+                    // Consolidate sub-models so only Gram Q is exposed in active model pickers
+                    var qp = list.FirstOrDefault(m => m.Id.Equals(GramModelIds.GramQPlus, StringComparison.OrdinalIgnoreCase));
+                    if (qp != null) qp.IsEnabled = false;
+                    var qpp = list.FirstOrDefault(m => m.Id.Equals(GramModelIds.GramQPlusPlus, StringComparison.OrdinalIgnoreCase));
+                    if (qpp != null) qpp.IsEnabled = false;
 
                     Models = list;
                     SaveModels();
@@ -164,7 +190,7 @@ public sealed class ModelService
             Console.WriteLine($"[ModelService] Error loading models: {ex.Message}");
         }
 
-        // Default seed models (Gram Q, Gram Q+, and BYOK models)
+        // Default seed models (Gram Q as unified flagship, sub-roles internal)
         Models =
         [
             new GramModel
@@ -174,7 +200,8 @@ public sealed class ModelService
                 Provider = "Google",
                 Description = "Fast everyday intelligence · Powered by Gemini 3.1 Flash Lite",
                 ContextLength = 1000000,
-                IsFavorite = true 
+                IsFavorite = true,
+                IsEnabled = true
             },
             new GramModel 
             { 
@@ -183,7 +210,8 @@ public sealed class ModelService
                 Provider = "Vercel",
                 Description = "Agentic coding and structured-output model · Powered by Muse Spark Contributor",
                 ContextLength = 1000000,
-                IsFavorite = true 
+                IsFavorite = false,
+                IsEnabled = false
             },
             new GramModel
             {
@@ -192,7 +220,8 @@ public sealed class ModelService
                 Provider = "Google",
                 Description = "Compatibility model · Powered by Gemini 3.1 Flash Lite",
                 ContextLength = 1000000,
-                IsFavorite = false
+                IsFavorite = false,
+                IsEnabled = false
             },
             new GramModel
             {
@@ -200,7 +229,8 @@ public sealed class ModelService
                 Name = "Ling Free",
                 Provider = "Vercel",
                 Description = "Free lightweight model for testing and simple tasks",
-                ContextLength = 256000
+                ContextLength = 256000,
+                IsEnabled = true
             },
             new GramModel 
             { 
@@ -1005,11 +1035,14 @@ public sealed class ModelService
         string modelId,
         List<Message> history,
         string? systemPrompt = null,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
+        string? reasoningEffort = null)
     {
         var isGramQ = modelId.Equals(GramModelIds.GramQ, StringComparison.OrdinalIgnoreCase);
         var isGramQPlus = modelId.Equals(GramModelIds.GramQPlus, StringComparison.OrdinalIgnoreCase);
         var isGramQPlusPlus = modelId.Equals(GramModelIds.GramQPlusPlus, StringComparison.OrdinalIgnoreCase);
+
+        var eff = ReasoningEffort.Normalize(reasoningEffort ?? CurrentReasoningEffort);
 
         var model = Models.FirstOrDefault(m => m.Id.Equals(modelId, StringComparison.OrdinalIgnoreCase))
                     ?? new GramModel { Id = modelId, Name = modelId, Provider = "OpenRouter" };
@@ -1018,15 +1051,28 @@ public sealed class ModelService
         var provider = Providers.FirstOrDefault(p => p.Id.Equals(providerId, StringComparison.OrdinalIgnoreCase) || p.Name.Equals(model.Provider, StringComparison.OrdinalIgnoreCase));
         
         string? apiKey;
-        if (isGramQ || isGramQPlusPlus)
+        if (isGramQ)
         {
-            apiKey = GetSystemApiKey("google") ?? GetUserApiKey("google");
-            providerId = "google";
+            if (eff == ReasoningEffort.Medium)
+            {
+                apiKey = GetSystemApiKey("vercel") ?? GetUserApiKey("vercel");
+                providerId = "vercel";
+            }
+            else
+            {
+                apiKey = GetSystemApiKey("google") ?? GetUserApiKey("google");
+                providerId = "google";
+            }
         }
         else if (isGramQPlus)
         {
             apiKey = GetSystemApiKey("vercel") ?? GetUserApiKey("vercel");
             providerId = "vercel";
+        }
+        else if (isGramQPlusPlus)
+        {
+            apiKey = GetSystemApiKey("google") ?? GetUserApiKey("google");
+            providerId = "google";
         }
         else
         {
@@ -1064,7 +1110,28 @@ public sealed class ModelService
         }
         else
         {
-            var actualModel = (isGramQ || isGramQPlusPlus) ? GramModelIds.GoogleGeminiFlashLite : (isGramQPlus ? GramModelIds.MuseSparkContributor : (modelId.Equals(GramModelIds.LingTinyFree, StringComparison.OrdinalIgnoreCase) ? GramModelIds.VercelLingTinyFree : modelId));
+            string actualModel;
+            if (isGramQ)
+            {
+                actualModel = eff == ReasoningEffort.Medium ? GramModelIds.MuseSparkContributor : GramModelIds.GoogleGeminiFlashLite;
+            }
+            else if (isGramQPlus)
+            {
+                actualModel = GramModelIds.MuseSparkContributor;
+            }
+            else if (isGramQPlusPlus)
+            {
+                actualModel = GramModelIds.GoogleGeminiFlashLite;
+            }
+            else if (modelId.Equals(GramModelIds.LingTinyFree, StringComparison.OrdinalIgnoreCase))
+            {
+                actualModel = GramModelIds.VercelLingTinyFree;
+            }
+            else
+            {
+                actualModel = modelId;
+            }
+
             var endpoint = providerId switch
             {
                 "groq" => "https://api.groq.com/openai/v1/chat/completions",
@@ -1076,7 +1143,7 @@ public sealed class ModelService
                 _ => $"{provider?.BaseUrl ?? "https://openrouter.ai/api/v1"}/chat/completions"
             };
 
-            await foreach (var chunk in StreamOpenAICompatibleAsync(endpoint, actualModel, history, systemPrompt, apiKey ?? "", providerId == "openrouter", cancellationToken))
+            await foreach (var chunk in StreamOpenAICompatibleAsync(endpoint, actualModel, history, systemPrompt, apiKey ?? "", providerId == "openrouter", cancellationToken, eff))
             {
                 yield return chunk;
             }
@@ -1169,7 +1236,8 @@ public sealed class ModelService
         string? systemPrompt,
         string apiKey,
         bool isOpenRouter,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken,
+        string? reasoningEffort = null)
     {
         var messages = new List<object>();
         if (!string.IsNullOrWhiteSpace(systemPrompt))
@@ -1185,14 +1253,23 @@ public sealed class ModelService
             }
         }
 
+        var isReasoningModel = modelId.StartsWith("o1") || modelId.StartsWith("o3") || modelId.Contains("gpt-5");
+        string? passedReasoningEffort = null;
+        if (isReasoningModel)
+        {
+            passedReasoningEffort = ReasoningEffort.Normalize(reasoningEffort ?? CurrentReasoningEffort);
+        }
+        else if (modelId.Equals(GramModelIds.MuseSparkContributor, StringComparison.OrdinalIgnoreCase))
+        {
+            passedReasoningEffort = "none";
+        }
+
         var payload = new
         {
             model = modelId,
             messages,
             stream = true,
-            // Muse can spend the entire completion budget on hidden reasoning;
-            // Gram Q+ is intended for concise, directly usable coding output.
-            reasoning_effort = modelId.Equals(GramModelIds.MuseSparkContributor, StringComparison.OrdinalIgnoreCase) ? "none" : null
+            reasoning_effort = passedReasoningEffort
         };
 
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
@@ -1235,10 +1312,10 @@ public sealed class ModelService
         using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
 
-        while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+        while (!cancellationToken.IsCancellationRequested)
         {
             var line = await reader.ReadLineAsync(cancellationToken);
-            if (line == null) continue;
+            if (line == null) break;
             line = line.Trim();
             if (string.IsNullOrEmpty(line)) continue;
             if (!line.StartsWith("data:")) continue;
@@ -1328,9 +1405,10 @@ public sealed class ModelService
         using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
 
-        while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+        while (!cancellationToken.IsCancellationRequested)
         {
             var line = await reader.ReadLineAsync(cancellationToken);
+            if (line == null) break;
             if (string.IsNullOrWhiteSpace(line)) continue;
 
             string? token = null;
@@ -1427,10 +1505,10 @@ public sealed class ModelService
         using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
 
-        while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+        while (!cancellationToken.IsCancellationRequested)
         {
             var line = await reader.ReadLineAsync(cancellationToken);
-            if (line == null) continue;
+            if (line == null) break;
             line = line.Trim();
             if (!line.StartsWith("data:")) continue;
 

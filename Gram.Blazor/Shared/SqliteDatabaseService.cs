@@ -153,6 +153,19 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
             CREATE INDEX IF NOT EXISTS idx_reset_code ON password_reset_tokens(code);
             CREATE INDEX IF NOT EXISTS idx_reset_token ON password_reset_tokens(token);
             CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
+
+            CREATE TABLE IF NOT EXISTS terminal_logs (
+                id TEXT PRIMARY KEY,
+                workspace_path TEXT NOT NULL,
+                command TEXT NOT NULL,
+                exit_code INTEGER NOT NULL,
+                stdout TEXT,
+                stderr TEXT,
+                elapsed_ms INTEGER NOT NULL,
+                timestamp TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_terminal_logs_ws ON terminal_logs(workspace_path);
+            CREATE INDEX IF NOT EXISTS idx_terminal_logs_time ON terminal_logs(timestamp);
             CREATE INDEX IF NOT EXISTS idx_sandbox_jobs_status ON sandbox_jobs(status, created_at);
             CREATE INDEX IF NOT EXISTS idx_sandbox_outbox_pending ON sandbox_outbox(published_at, created_at);
         ";
@@ -962,6 +975,78 @@ public sealed class SqliteDatabaseService : IDatabaseProvider
         var bytes = new byte[16];
         RandomNumberGenerator.Fill(bytes);
         return Convert.ToBase64String(bytes);
+    }
+
+    public async Task SaveTerminalLogAsync(TerminalLogRecord record, CancellationToken ct = default)
+    {
+        using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            INSERT OR REPLACE INTO terminal_logs (id, workspace_path, command, exit_code, stdout, stderr, elapsed_ms, timestamp)
+            VALUES (@id, @ws, @cmd, @code, @out, @err, @ms, @time);
+        ";
+        cmd.Parameters.AddWithValue("@id", record.Id);
+        cmd.Parameters.AddWithValue("@ws", record.WorkspacePath ?? "");
+        cmd.Parameters.AddWithValue("@cmd", record.Command ?? "");
+        cmd.Parameters.AddWithValue("@code", record.ExitCode);
+        cmd.Parameters.AddWithValue("@out", record.Stdout ?? "");
+        cmd.Parameters.AddWithValue("@err", record.Stderr ?? "");
+        cmd.Parameters.AddWithValue("@ms", record.ElapsedMs);
+        cmd.Parameters.AddWithValue("@time", record.Timestamp.ToString("o"));
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<List<TerminalLogRecord>> ListTerminalLogsAsync(string? workspacePath = null, int limit = 100, CancellationToken ct = default)
+    {
+        using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        using var cmd = conn.CreateCommand();
+        if (!string.IsNullOrWhiteSpace(workspacePath))
+        {
+            cmd.CommandText = "SELECT id, workspace_path, command, exit_code, stdout, stderr, elapsed_ms, timestamp FROM terminal_logs WHERE workspace_path = @ws ORDER BY timestamp DESC LIMIT @limit;";
+            cmd.Parameters.AddWithValue("@ws", workspacePath);
+        }
+        else
+        {
+            cmd.CommandText = "SELECT id, workspace_path, command, exit_code, stdout, stderr, elapsed_ms, timestamp FROM terminal_logs ORDER BY timestamp DESC LIMIT @limit;";
+        }
+        cmd.Parameters.AddWithValue("@limit", Math.Max(1, limit));
+
+        var list = new List<TerminalLogRecord>();
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            list.Add(new TerminalLogRecord(
+                reader.GetString(0),
+                reader.IsDBNull(1) ? "" : reader.GetString(1),
+                reader.IsDBNull(2) ? "" : reader.GetString(2),
+                reader.GetInt32(3),
+                reader.IsDBNull(4) ? "" : reader.GetString(4),
+                reader.IsDBNull(5) ? "" : reader.GetString(5),
+                reader.GetInt64(6),
+                DateTimeOffset.Parse(reader.GetString(7))
+            ));
+        }
+        list.Reverse();
+        return list;
+    }
+
+    public async Task ClearTerminalLogsAsync(string? workspacePath = null, CancellationToken ct = default)
+    {
+        using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        using var cmd = conn.CreateCommand();
+        if (!string.IsNullOrWhiteSpace(workspacePath))
+        {
+            cmd.CommandText = "DELETE FROM terminal_logs WHERE workspace_path = @ws;";
+            cmd.Parameters.AddWithValue("@ws", workspacePath);
+        }
+        else
+        {
+            cmd.CommandText = "DELETE FROM terminal_logs;";
+        }
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private static string HashPassword(string password, string salt)

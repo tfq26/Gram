@@ -5,6 +5,7 @@
     [Parameter] public string? ModelId { get; set; }
     [Parameter] public int Size { get; set; } = 16;
     [Parameter] public string Class { get; set; } = "";
+    [Parameter] public bool LineStyle { get; set; } = true;
 
     private string ResolvedLogoSrc
     {
@@ -13,11 +14,20 @@
             var modelKey = (ModelId ?? "").Trim().ToLowerInvariant();
             var vendorKey = (Vendor ?? "").Trim().ToLowerInvariant();
 
-            // 1. Gram flagship models (Gram Q, Gram Q+) and any Gram model ALWAYS display the Gram logo
-            if (modelKey.StartsWith("gram") || modelKey.Contains("gram-q") || modelKey.Contains("gram-q-plus") ||
-                vendorKey.StartsWith("gram") || (string.IsNullOrWhiteSpace(modelKey) && string.IsNullOrWhiteSpace(vendorKey)))
+            // 1. Gram flagship models (Gram Q, Gram Q+, Gram Q++) and any Gram or Q-series model
+            bool isGramOrQModel =
+                modelKey.StartsWith("gram") ||
+                modelKey.Contains("gram-q") ||
+                modelKey.Equals("q") ||
+                modelKey.StartsWith("q-") ||
+                modelKey.StartsWith("q+") ||
+                modelKey.StartsWith("q/") ||
+                vendorKey.StartsWith("gram") ||
+                (string.IsNullOrWhiteSpace(modelKey) && string.IsNullOrWhiteSpace(vendorKey));
+
+            if (isGramOrQModel)
             {
-                return "icons/gram-logo.svg";
+                return LineStyle ? "icons/gram-lines.svg" : "icons/gram-logo.svg";
             }
 
             // 2. Specific AI Provider / Vendor / Model matchers
@@ -59,7 +69,7 @@
             }
 
             // Default fallback is the Gram logo
-            return "icons/gram-logo.svg";
+            return LineStyle ? "icons/gram-lines.svg" : "icons/gram-logo.svg";
         }
     }
 
@@ -70,7 +80,7 @@
             if (!string.IsNullOrWhiteSpace(ModelId))
             {
                 var m = ModelId.ToLowerInvariant();
-                if (m.StartsWith("gram") || m.Contains("gram-q")) return "Gram";
+                if (m.StartsWith("gram") || m.Contains("gram-q") || m.Equals("q") || m.StartsWith("q-") || m.StartsWith("q+")) return "Gram";
                 return ModelId;
             }
             if (!string.IsNullOrWhiteSpace(Vendor)) return Vendor;

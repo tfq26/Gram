@@ -6,7 +6,11 @@
         <div class="artifact-toolbar">
             <div class="artifact-title"><span>@SelectedArtifact.FileName</span><Badge Variant="outline" Style="font-size: 10px;">@SelectedArtifact.Language</Badge></div>
             <div class="artifact-actions">
-                @if (WebCodingEnabled)
+                @if (IsPlanArtifact(SelectedArtifact))
+                {
+                    <Button Variant="default" Size="sm" OnClick="() => ExecutePlan.InvokeAsync(SelectedArtifact)">Approve &amp; Execute</Button>
+                }
+                else if (WebCodingEnabled)
                 {
                     <Button Variant="default" Size="sm" OnClick="() => Apply.InvokeAsync(SelectedArtifact)">Apply to Workspace</Button>
                 }
@@ -50,7 +54,9 @@
     [Parameter] public bool WebCodingEnabled { get; set; }
     [Parameter] public EventCallback<ArtifactInfo> View { get; set; }
     [Parameter] public EventCallback<ArtifactInfo> Apply { get; set; }
+    [Parameter] public EventCallback<ArtifactInfo> ExecutePlan { get; set; }
     [Parameter] public EventCallback Back { get; set; }
 
     private static bool IsMarkup(ArtifactInfo artifact) => artifact.Language?.Equals("html", StringComparison.OrdinalIgnoreCase) == true || artifact.FileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase) || artifact.FileName.EndsWith(".svg", StringComparison.OrdinalIgnoreCase);
+    private static bool IsPlanArtifact(ArtifactInfo artifact) => artifact.FileName.EndsWith("plan.md", StringComparison.OrdinalIgnoreCase) || artifact.Title?.Contains("plan", StringComparison.OrdinalIgnoreCase) == true;
 }

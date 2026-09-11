@@ -4,7 +4,7 @@
 
 <div @ref="elementRef"
      id="@elementId"
-     class="gram-character-container @Class @(isWaving ? "state-wave" : "") @(isThinking ? "state-thinking" : "") @(isLookingDown ? "state-lookdown" : "") @(isResearching ? "state-researching" : "") @(isDesigning ? "state-designing" : "") @(isReviewing ? "state-reviewing" : "") @(isComplete ? "state-complete" : "") @(isLanding ? "state-landing is-jumping" : "") @(isTypingName ? "state-typing-name is-recognizing" : "") @(isTypingPassword ? "state-typing-password is-covering-eyes" : "") @(isVoiceListening ? "state-voice-listening is-voice-listening" : "") @(isVoiceThinking ? "state-voice-thinking is-voice-thinking" : "") @(isVoiceSpeaking ? "state-voice-speaking is-voice-speaking" : "") @(isVoiceInterrupted ? "state-voice-interrupted is-voice-interrupted" : "")"
+     class="gram-character-container @Class state-@NormalizedState @(isWaving ? "state-wave" : "") @(isThinking ? "state-thinking" : "") @(isLookingDown ? "state-lookdown" : "") @(isResearching ? "state-researching" : "") @(isDesigning ? "state-designing" : "") @(isReviewing ? "state-reviewing" : "") @(isComplete ? "state-complete" : "") @(isLanding ? "state-landing is-jumping" : "") @(isTypingName ? "state-typing-name is-recognizing" : "") @(isTypingPassword ? "state-typing-password is-covering-eyes" : "") @(isVoiceListening ? "state-voice-listening is-voice-listening" : "") @(isVoiceThinking ? "state-voice-thinking is-voice-thinking" : "") @(isVoiceSpeaking ? "state-voice-speaking is-voice-speaking" : "") @(isVoiceInterrupted ? "state-voice-interrupted is-voice-interrupted" : "")"
      style="width: @(Size)px; height: @(Size)px; display: inline-flex; align-items: center; justify-content: center; position: relative; overflow: visible; @Style"
      @onclick="HandleClick">
     
@@ -76,6 +76,72 @@
                 <line x1="0" y1="0" x2="0" y2="-5" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" />
                 <line x1="0" y1="0" x2="4" y2="0" stroke="#38bdf8" stroke-width="1.2" stroke-linecap="round" />
                 <circle cx="0" cy="0" r="13" stroke="rgba(56, 189, 248, 0.4)" stroke-width="0.6" stroke-dasharray="2 2" />
+            </g>
+
+            <!-- Holographic Props & Expressive Accessories -->
+            <!-- 1. Floating Zzz for Sleep States -->
+            <g class="gram-char-sleep-zzz" transform="translate(86, 26)" style="opacity: 0;">
+                <text class="gram-char-zzz gram-char-zzz-1" x="0" y="0" font-family="sans-serif" font-weight="900" font-size="13" fill="#c084fc">Z</text>
+                <text class="gram-char-zzz gram-char-zzz-2" x="10" y="-10" font-family="sans-serif" font-weight="900" font-size="10" fill="#a855f7">z</text>
+                <text class="gram-char-zzz gram-char-zzz-3" x="19" y="-18" font-family="sans-serif" font-weight="900" font-size="7.5" fill="#e9d5ff">z</text>
+            </g>
+
+            <!-- 2. Steaming Coffee Mug (Caffeine Rush) -->
+            <g class="gram-char-coffee-mug" transform="translate(92, 70)" style="opacity: 0;">
+                <rect x="-8" y="-11" width="16" height="18" rx="3.5" fill="#1e1b4b" stroke="#818cf8" stroke-width="1.2" />
+                <path d="M 8 -7 C 12 -7, 12 1, 8 1" fill="none" stroke="#818cf8" stroke-width="1.5" stroke-linecap="round" />
+                <text x="-4" y="2" font-family="sans-serif" font-weight="bold" font-size="5" fill="#c4b5fd">GRM</text>
+                <path class="gram-char-steam gram-char-steam-1" d="M -3 -15 Q -1 -19 -3 -23" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.2" stroke-linecap="round" />
+                <path class="gram-char-steam gram-char-steam-2" d="M 3 -15 Q 5 -19 3 -23" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.2" stroke-linecap="round" />
+            </g>
+
+            <!-- 3. Eureka Lightbulb -->
+            <g class="gram-char-lightbulb" transform="translate(64, -2)" style="opacity: 0;">
+                <circle cx="0" cy="0" r="11" fill="#facc15" filter="url(#@($"holoGlow_{uniqueId}"))" />
+                <path d="M -4.5 9 L 4.5 9 L 3 14 L -3 14 Z" fill="#78350f" />
+                <line x1="-15" y1="-9" x2="-21" y2="-13" stroke="#fde047" stroke-width="2" stroke-linecap="round" />
+                <line x1="15" y1="-9" x2="21" y2="-13" stroke="#fde047" stroke-width="2" stroke-linecap="round" />
+                <line x1="0" y1="-15" x2="0" y2="-21" stroke="#fde047" stroke-width="2" stroke-linecap="round" />
+            </g>
+
+            <!-- 4. Cool Pixel Sunglasses (Theme Switch / Swagger) -->
+            <g class="gram-char-sunglasses" transform="translate(64, 61)" style="opacity: 0;">
+                <rect x="-34" y="-8" width="30" height="16" rx="2.5" fill="#09090b" stroke="#38bdf8" stroke-width="1.2" />
+                <rect x="4" y="-8" width="30" height="16" rx="2.5" fill="#09090b" stroke="#38bdf8" stroke-width="1.2" />
+                <line x1="-4" y1="-2" x2="4" y2="-2" stroke="#38bdf8" stroke-width="2.5" />
+                <rect x="-30" y="-5" width="6" height="4" fill="#ffffff" opacity="0.9" />
+                <rect x="8" y="-5" width="6" height="4" fill="#ffffff" opacity="0.9" />
+            </g>
+
+            <!-- 5. Floating Heart Bubbles (Love / Adoration) -->
+            <g class="gram-char-hearts" transform="translate(64, 45)" style="opacity: 0;">
+                <path class="gram-char-heart-item gram-char-heart-l" d="M -24 -24 C -28 -30, -38 -30, -38 -20 C -38 -10, -24 0, -24 0 C -24 0, -10 -10, -10 -20 C -10 -30, -20 -30, -24 -24 Z" fill="#f43f5e" filter="url(#@($"holoGlow_{uniqueId}"))" transform="scale(0.5)" />
+                <path class="gram-char-heart-item gram-char-heart-r" d="M 24 -24 C 20 -30, 10 -30, 10 -20 C 10 -10, 24 0, 24 0 C 24 0, 38 -10, 38 -20 C 38 -30, 28 -30, 24 -24 Z" fill="#ec4899" filter="url(#@($"holoGlow_{uniqueId}"))" transform="scale(0.5)" />
+            </g>
+
+            <!-- 6. Glowing Cyan Yo-Yo (Idle Toy) -->
+            <g class="gram-char-yoyo" transform="translate(94, 72)" style="opacity: 0;">
+                <line class="gram-char-yoyo-string" x1="0" y1="0" x2="0" y2="34" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="2 1" />
+                <ellipse class="gram-char-yoyo-disc" cx="0" cy="34" rx="8" ry="6" fill="#06b6d4" stroke="#a5f3fc" stroke-width="1" filter="url(#@($"holoGlow_{uniqueId}"))" />
+            </g>
+
+            <!-- 7. Expanding Bubblegum Plasma (Idle Toy) -->
+            <g class="gram-char-bubblegum" transform="translate(64, 73)" style="opacity: 0;">
+                <circle class="gram-char-bubblegum-ball" cx="0" cy="0" r="14" fill="rgba(217, 70, 239, 0.72)" stroke="#f0abfc" stroke-width="1.5" filter="url(#@($"holoGlow_{uniqueId}"))" />
+                <ellipse cx="-4" cy="-5" rx="4" ry="2.5" fill="rgba(255, 255, 255, 0.75)" />
+            </g>
+
+            <!-- 8. Radio Antenna (Searching for Signal / Idle Ping) -->
+            <g class="gram-char-antenna" transform="translate(64, 9)" style="opacity: 0;">
+                <line x1="0" y1="0" x2="0" y2="-24" stroke="#c084fc" stroke-width="2" stroke-linecap="round" />
+                <circle cx="0" cy="-26" r="3.5" fill="#f43f5e" filter="url(#@($"holoGlow_{uniqueId}"))" />
+                <path class="gram-char-antenna-wave" d="M -8 -30 A 10 10 0 0 1 8 -30" fill="none" stroke="#f43f5e" stroke-width="1.2" opacity="0.8" />
+            </g>
+
+            <!-- 9. Rage Steam Puffs (Angry) -->
+            <g class="gram-char-rage-steam" transform="translate(64, 18)" style="opacity: 0;">
+                <path class="gram-char-steam-l" d="M -22 0 Q -30 -10 -26 -20" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" />
+                <path class="gram-char-steam-r" d="M 22 0 Q 30 -10 26 -20" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" />
             </g>
 
             <!-- Articulated Floating Robot Hand (Wave, Check Watch, Glass Tap) -->
@@ -209,6 +275,12 @@
                     </g>
                 </g>
 
+                <!-- Soft Cybernetic Cheek Blush (Embarrassed / Love) -->
+                <g class="gram-char-blush" style="opacity: 0;">
+                    <ellipse cx="40" cy="74" rx="6" ry="3.5" fill="#f43f5e" opacity="0.65" filter="blur(1px)" />
+                    <ellipse cx="88" cy="74" rx="6" ry="3.5" fill="#f43f5e" opacity="0.65" filter="blur(1px)" />
+                </g>
+
                 <!-- Handheld voice microphone; state CSS moves it between user-facing and speaking positions. -->
                 <g class="gram-char-voice-mic" aria-hidden="true">
                     <path class="gram-char-voice-mic-arm" d="M 111 82 C 101 82, 94 78, 87 74" fill="none" stroke="#6b21a8" stroke-width="5" stroke-linecap="round" />
@@ -232,6 +304,8 @@
     [Parameter] public string Class { get; set; } = "";
     [Parameter] public string Style { get; set; } = "";
     [Parameter] public string? ViewBox { get; set; }
+
+    private string NormalizedState => State?.ToLowerInvariant().Replace("_", "-") ?? "idle";
 
     private string ComputedViewBox => !string.IsNullOrWhiteSpace(ViewBox)
         ? ViewBox
@@ -293,8 +367,15 @@
         if (!Interactive) return;
         try
         {
-            // Rotate through rich noticeable interactions on user click
-            var actions = new[] { "wave", "body_spin", "tap_glass", "check_watch" };
+            // Extensive roster of playful animations on companion click
+            var actions = new[] { 
+                "wave", "body_spin", "tap_glass", "check_watch", "curious", 
+                "thumbs_up", "peace_sign", "salute", "finger_guns", "smug", 
+                "ecstatic", "shrug", "caffeine_rush", "eureka", "dizzy", 
+                "victory_dance", "screen_high_five", "love", "mind_blown",
+                "applause", "secret_shh", "matrix_zen", "test_passed",
+                "idle_yoyo", "idle_bubblegum", "theme_sunglasses"
+            };
             var randomAction = actions[Random.Shared.Next(actions.Length)];
             await JSRuntime.InvokeVoidAsync("gramCharacter.setState", elementId, randomAction, 2800);
         }

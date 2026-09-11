@@ -136,7 +136,7 @@
                 <div class="model-dropdown-wrapper">
                     <button type="button" 
                             class="model-dropdown-trigger @(isModelMenuOpen ? "open" : "")" 
-                            @onclick="() => isModelMenuOpen = !isModelMenuOpen"
+                            @onclick="ToggleModelMenu"
                             title="Switch AI model">
                         <ModelIcon ModelId="@activeModelId" Size="14" />
                         <span class="model-trigger-name">@(ActiveModel?.Name ?? activeModelId)</span>
@@ -149,33 +149,66 @@
                     {
                         <div class="model-dropdown-backdrop" @onclick="() => isModelMenuOpen = false"></div>
                         <div class="model-dropdown-menu" @onclick:stopPropagation="true">
-                            @foreach (var model in ModelService.Models.OrderByDescending(m => m.IsFavorite))
+                            @if (!isBrowsingModels)
                             {
-                                var isSelected = model.Id == activeModelId;
-                                var quota = GetModelQuotaDisplay(model);
-                                <button type="button" 
-                                        class="model-dropdown-item @(isSelected ? "active" : "")" 
-                                        @onclick="() => SelectModel(model.Id)">
-                                    <div class="model-item-info">
-                                        <ModelIcon ModelId="@model.Id" Size="14" />
-                                        <div class="model-item-text">
-                                            <span class="model-item-label">@model.Name</span>
-                                            <span class="model-item-quota @quota.CssClass">@quota.Text</span>
+                                <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px 6px; border-bottom: 1px solid var(--border-color);">
+                                    <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Model & Effort</span>
+                                    <span style="font-size: 11px; color: var(--text-muted);">Click model to switch</span>
+                                </div>
+                                <div class="model-current-card-btn"
+                                     role="button"
+                                     tabindex="0"
+                                     @onclick="() => isBrowsingModels = true"
+                                     title="Click to choose a different model">
+                                    <div class="model-current-info" style="display: flex; align-items: center; gap: 8px;">
+                                        <ModelIcon ModelId="@activeModelId" Size="16" />
+                                        <div style="display: flex; flex-direction: column; text-align: left;">
+                                            <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">@(ActiveModel?.Name ?? activeModelId)</span>
+                                            <span style="font-size: 10px; color: var(--text-muted);">@(ActiveModel?.Provider ?? "")</span>
                                         </div>
                                     </div>
-                                    <div class="model-item-trailing">
-                                        @if (model.IsFavorite)
-                                        {
-                                            <span class="model-item-favorite" title="Favorite model">★</span>
-                                        }
-                                        @if (isSelected)
-                                        {
-                                            <svg class="model-item-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <polyline points="20 6 9 17 4 12"></polyline>
-                                            </svg>
-                                        }
-                                    </div>
-                                </button>
+                                    <span style="font-size: 11px; font-weight: 500; color: var(--text-secondary); background: var(--bg-surface); border: 1px solid var(--border-color); padding: 2px 7px; border-radius: 4px;">Switch ▾</span>
+                                </div>
+                                <div style="padding: 6px 12px 10px; border-top: 1px solid var(--border-color); margin-top: 4px;">
+                                    <ReasoningEffortControl ModelId="@activeModelId" Compact="false" />
+                                </div>
+                            }
+                            else
+                            {
+                                <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-color);">
+                                    <button type="button" class="model-card-back-btn" @onclick="() => isBrowsingModels = false" title="Back to model settings">
+                                        ‹ Back
+                                    </button>
+                                    <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Select Model</span>
+                                </div>
+                                @foreach (var model in ModelService.Models.Where(m => m.IsEnabled).OrderByDescending(m => m.IsFavorite))
+                                {
+                                    var isSelected = model.Id == activeModelId;
+                                    var quota = GetModelQuotaDisplay(model);
+                                    <button type="button" 
+                                            class="model-dropdown-item @(isSelected ? "active" : "")" 
+                                            @onclick="() => SelectModel(model.Id)">
+                                        <div class="model-item-info">
+                                            <ModelIcon ModelId="@model.Id" Size="14" />
+                                            <div class="model-item-text">
+                                                <span class="model-item-label">@model.Name</span>
+                                                <span class="model-item-quota @quota.CssClass">@quota.Text</span>
+                                            </div>
+                                        </div>
+                                        <div class="model-item-trailing">
+                                            @if (model.IsFavorite)
+                                            {
+                                                <span class="model-item-favorite" title="Favorite model">★</span>
+                                            }
+                                            @if (isSelected)
+                                            {
+                                                <svg class="model-item-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                                </svg>
+                                            }
+                                        </div>
+                                    </button>
+                                }
                             }
                         </div>
                     }
@@ -550,6 +583,19 @@
                     }
                 </div>
             }*@
+            @if (ActiveModel?.CodingTier == ModelCodingSupportTier.ChatOnly || ActiveModel?.IsChatSupported == false)
+            {
+                <div class="chat-only-banner" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; margin-bottom: 8px; background: var(--card-bg, #1a1b1e); border: 1px solid var(--border-color, #2e3238); border-radius: 6px; font-size: 11px; color: var(--text-muted, #9da5b4);">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-weight: 600; color: var(--text-color, #e0e0e0);">Chat-Only Mode</span>
+                        <span>File modification and terminal tools are disabled for @ActiveModel?.Name.</span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(ActiveModel?.UnsupportedReason))
+                    {
+                        <span style="opacity: 0.8;">@ActiveModel.UnsupportedReason</span>
+                    }
+                </div>
+            }
 
             <div class="composer-box">
                 <MentionSuggestionPopover IsOpen="showMentionPopup" Items="filteredMentions.Select(item => new MentionPickerItem(item.Id, item.Kind, item.Title, item.Description, item.Category, item.Target)).ToList()" SelectedIndex="selectedMentionIndex" Select="SelectMentionFromPicker" />
@@ -858,7 +904,7 @@
                 }
                 else if (activeSidecarTab == SidecarTab.Artifact)
                 {
-                    <ArtifactPanel Artifacts="Active.Artifacts" SelectedArtifact="selectedArtifact" WebCodingEnabled="WebCodingEnabled" View="ViewArtifact" Apply="ApplyArtifact" Back="ClearSelectedArtifact" />
+                    <ArtifactPanel Artifacts="Active.Artifacts" SelectedArtifact="selectedArtifact" WebCodingEnabled="WebCodingEnabled" View="ViewArtifact" Apply="ApplyArtifact" ExecutePlan="ExecutePlanArtifact" Back="ClearSelectedArtifact" />
                 }
                 else if (activeSidecarTab == SidecarTab.GitDiff)
                 {
@@ -1396,6 +1442,13 @@
         }
     }
 
+    private async Task ExecutePlanArtifact(ArtifactInfo? art)
+    {
+        if (art == null) return;
+        draft = $"The project plan '{art.Title ?? art.FileName}' has been approved. Please execute the plan: initialize the project structure, scaffold all required files using write_file, and run test verification.";
+        await Send();
+    }
+
     private Task ClearSelectedArtifact()
     {
         selectedArtifact = null;
@@ -1675,11 +1728,22 @@
         return new MarkupString($"<svg viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'>{path}</svg>");
     }
 
+    private bool isBrowsingModels = false;
+
+    private void ToggleModelMenu()
+    {
+        isModelMenuOpen = !isModelMenuOpen;
+        if (isModelMenuOpen)
+        {
+            isBrowsingModels = false;
+        }
+    }
+
     private void SelectModel(string modelId)
     {
         activeModelId = modelId;
         Active.ModelId = modelId;
-        isModelMenuOpen = false;
+        isBrowsingModels = false;
         StateHasChanged();
         _ = SaveConversationThroughApiAsync(Active);
     }

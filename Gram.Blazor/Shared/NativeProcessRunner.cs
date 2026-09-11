@@ -14,6 +14,7 @@ public sealed class ProcessExecutionOptions
     public bool ScrubEnvironment { get; set; } = true;
     public bool EnforceProcessTreeKill { get; set; } = true;
     public string? RunId { get; set; }
+    public Action<string>? OutputLineHandler { get; set; }
 }
 
 public sealed class ProcessExecutionResult
@@ -58,7 +59,7 @@ public sealed class NativeProcessRunner : INativeProcessRunner
         ArgumentException.ThrowIfNullOrWhiteSpace(options.CommandLine);
 
         var sw = Stopwatch.StartNew();
-        var cmd = options.CommandLine.Trim();
+        var cmd = NormalizeNonInteractiveCommand(options.CommandLine);
         var workDir = Directory.Exists(options.WorkingDirectory)
             ? options.WorkingDirectory
             : (Directory.Exists(options.WorkspaceRoot) ? options.WorkspaceRoot : Directory.GetCurrentDirectory());
@@ -70,11 +71,18 @@ public sealed class NativeProcessRunner : INativeProcessRunner
             FileName = shell,
             Arguments = shellArgs,
             WorkingDirectory = workDir,
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
+
+        // Ensure automated executions are non-interactive to prevent input freezing
+        psi.Environment["CI"] = "true";
+        psi.Environment["DEBIAN_FRONTEND"] = "noninteractive";
+        psi.Environment["NONINTERACTIVE"] = "1";
+        psi.Environment["npm_config_yes"] = "true";
 
         if (options.ScrubEnvironment)
         {
@@ -87,11 +95,19 @@ public sealed class NativeProcessRunner : INativeProcessRunner
 
         proc.OutputDataReceived += (_, e) =>
         {
-            if (e.Data != null) stdoutCollector.AppendLine(e.Data);
+            if (e.Data != null)
+            {
+                stdoutCollector.AppendLine(e.Data);
+                try { options.OutputLineHandler?.Invoke(e.Data); } catch { }
+            }
         };
         proc.ErrorDataReceived += (_, e) =>
         {
-            if (e.Data != null) stderrCollector.AppendLine(e.Data);
+            if (e.Data != null)
+            {
+                stderrCollector.AppendLine(e.Data);
+                try { options.OutputLineHandler?.Invoke(e.Data); } catch { }
+            }
         };
 
         var result = new ProcessExecutionResult();
@@ -103,6 +119,7 @@ public sealed class NativeProcessRunner : INativeProcessRunner
         try
         {
             proc.Start();
+            proc.StandardInput.Close();
             proc.BeginOutputReadLine();
             proc.BeginErrorReadLine();
 
@@ -186,6 +203,21 @@ public sealed class NativeProcessRunner : INativeProcessRunner
         var unixShell = File.Exists("/bin/bash") ? "/bin/bash" : (File.Exists("/bin/sh") ? "/bin/sh" : "sh");
         var unixEscaped = command.Replace("\"", "\\\"");
         return (unixShell, $"-c \"{unixEscaped}\"");
+    }
+
+    public static string NormalizeNonInteractiveCommand(string command)
+    {
+        if (string.IsNullOrWhiteSpace(command)) return command;
+        var trimmed = command.Trim();
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^npm\s+init(?!\s+--yes|\s+-y)(\s+|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            return trimmed + " -y";
+        }
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^npx\s+(?!-y|--yes)(create-[\w-]+|degit)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            return System.Text.RegularExpressions.Regex.Replace(trimmed, @"^npx\s+", "npx --yes ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+        return trimmed;
     }
 
     private static void RecordAuditLog(ProcessAuditEntry entry)

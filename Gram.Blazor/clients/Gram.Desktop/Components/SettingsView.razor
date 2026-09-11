@@ -480,6 +480,7 @@
                                             title="@(model.IsFavorite ? "Remove default" : "Set as default")">
                                         @(model.IsFavorite ? "★" : "☆")
                                     </button>
+                                    <Gram.Blazor.Components.ModelIcon ModelId="@model.Id" Vendor="@model.Provider" Size="18" />
                                     <div class="model-info-block">
                                         <div class="model-title-row">
                                             <span class="model-name">@model.Name</span>

@@ -32,10 +32,10 @@ internal static class Program
                 http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             var backendClient = new GramBackendClient(http, token);
-            var session = new DesktopSession(backendClient, backendUrl);
             var platformService = new PlatformService();
             var storageService = new StorageService();
             var tabService = new WorkspaceTabService(storageService);
+            var session = new DesktopSession(backendClient, backendUrl, tabService: tabService);
             var modelService = new ModelService(storageService);
             var toolboxService = new ToolboxManagerService(storageService);
             var gitService = new GitService(storageService, http);
@@ -43,6 +43,9 @@ internal static class Program
             var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
             var settingsService = new SettingsService(config, storageService);
             var layoutService = new DesktopLayoutService(storageService);
+            var topBarService = new TopBarService();
+            var companionTaskService = new CompanionTaskService();
+            var actionService = new DesktopActionService();
 
             appBuilder.Services.AddSingleton(http);
             appBuilder.Services.AddSingleton(backendClient);
@@ -57,6 +60,14 @@ internal static class Program
             appBuilder.Services.AddSingleton(themeService);
             appBuilder.Services.AddSingleton(settingsService);
             appBuilder.Services.AddSingleton(layoutService);
+            appBuilder.Services.AddSingleton(topBarService);
+            appBuilder.Services.AddSingleton(companionTaskService);
+            appBuilder.Services.AddSingleton(actionService);
+            appBuilder.Services.AddSingleton<PtyTerminalService>();
+            appBuilder.Services.AddSingleton<WorkspaceFileService>();
+            appBuilder.Services.AddSingleton<ISonnerService, SonnerService>();
+            appBuilder.Services.AddSingleton<GitGramService>();
+            appBuilder.Services.AddSingleton<CommandPaletteService>();
 
             // Photino selectors are supplied without the CSS '#' prefix.
             appBuilder.RootComponents.Add<App>("app");
@@ -118,6 +129,21 @@ internal static class Program
             {
                 Console.Error.WriteLine($"[Gram Desktop Error] {error.ExceptionObject}");
             };
+
+            var iconPath = ResolveAppIcon();
+            if (!string.IsNullOrEmpty(iconPath))
+            {
+                try
+                {
+                    app.MainWindow.SetIconFile(iconPath);
+                }
+                catch {}
+            }
+
+            if (OperatingSystem.IsMacOS())
+            {
+                MacOsIntegration.Initialize(actionService, iconPath);
+            }
 
             app.Run();
             return 0;
@@ -198,5 +224,22 @@ internal static class Program
             return document.RootElement.TryGetProperty("contentDelta", out var value) ? value.GetString() : null;
         }
         catch (JsonException) { return null; }
+    }
+
+    private static string? ResolveAppIcon()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "Resources", "AppIcon.icns"),
+            Path.Combine(AppContext.BaseDirectory, "Resources", "AppIcon.ico"),
+            Path.Combine(AppContext.BaseDirectory, "Resources", "AppIcon.png"),
+            Path.Combine(AppContext.BaseDirectory, "..", "Resources", "AppIcon.icns"),
+            Path.Combine(AppContext.BaseDirectory, "wwwroot", "icons", "gram-lines.svg"),
+            Path.Combine(Directory.GetCurrentDirectory(), "Gram.Blazor", "clients", "Gram.Desktop", "Resources", "AppIcon.icns"),
+            Path.Combine(Directory.GetCurrentDirectory(), "Gram.Blazor", "clients", "Gram.Desktop", "Resources", "AppIcon.ico"),
+            Path.Combine(Directory.GetCurrentDirectory(), "Gram.Blazor", "clients", "Gram.Desktop", "Resources", "AppIcon.png"),
+            Path.Combine(Directory.GetCurrentDirectory(), "Resources", "AppIcon.icns")
+        };
+        return candidates.FirstOrDefault(File.Exists);
     }
 }

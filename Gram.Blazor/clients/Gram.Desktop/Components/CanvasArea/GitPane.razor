@@ -1,0 +1,403 @@
+@namespace Gram.Desktop.Components.CanvasArea
+@using Gram.Blazor.Shared
+@using Gram.Desktop.Services
+@inject GitGramService GitService
+@inject DesktopSession Session
+@inject WorkspaceTabService TabService
+@inject TopBarService TopBarService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<div class="dt-git-pane">
+    <!-- Top Bar Toolbar for Git -->
+    <div class="dt-git-header">
+        <div class="dt-git-header-left">
+            <span class="dt-git-branch-pill">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <circle cx="18" cy="18" r="3"></circle>
+                    <circle cx="6" cy="6" r="3"></circle>
+                    <path d="M6 9v12"></path>
+                    <path d="M18 9a9 9 0 0 0-9-9"></path>
+                </svg>
+                <span>@RepoState.CurrentBranch</span>
+            </span>
+
+            <span class="dt-git-changes-summary">
+                @if (RepoState.IsClean)
+                {
+                    <span class="dt-git-status-clean">✓ Working tree clean</span>
+                }
+                else
+                {
+                    <span>@RepoState.ChangedFiles.Count change@(RepoState.ChangedFiles.Count > 1 ? "s" : "")</span>
+                    <span class="dt-git-meta-detail">(@RepoState.ModifiedFileCount mod, @RepoState.StagedFileCount staged, @RepoState.UntrackedFileCount untracked)</span>
+                }
+            </span>
+        </div>
+
+        <div class="dt-git-header-right">
+            @if (!RepoState.IsClean)
+            {
+                <button type="button" class="dt-git-btn" @onclick="HandleStageAll" title="Stage all changes (git add -A)">
+                    Stage All
+                </button>
+                <button type="button" class="dt-git-btn" @onclick="HandleStash" title="Stash changes">
+                    Stash
+                </button>
+            }
+            <button type="button" class="dt-git-btn" @onclick="HandlePopStash" title="Pop latest stash">
+                Pop Stash
+            </button>
+            <button type="button" class="dt-git-btn-review" @onclick="HandleAskGramToReview" title="Ask Gram to review all uncommitted changes">
+                ⚡ Ask Gram to Review
+            </button>
+            <button type="button" class="dt-git-btn-icon" @onclick="RefreshAsync" title="Refresh Git Status">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Split: Files list on Left, Diff Inspector on Right -->
+    <div class="dt-git-body">
+        <!-- Left: Changed Files List & Commit Box -->
+        <div class="dt-git-sidebar">
+            <div class="dt-git-commit-box">
+                <input type="text"
+                       class="dt-git-commit-input"
+                       placeholder="Commit message (e.g. feat: add git inspector)..."
+                       @bind="commitMessage"
+                       @onkeydown="HandleCommitKeyDown" />
+                <button type="button"
+                        class="dt-git-commit-btn"
+                        @onclick="HandleCommit"
+                        disabled="@(string.IsNullOrWhiteSpace(commitMessage) || isCommitting)">
+                    @(isCommitting ? "Committing..." : "Commit")
+                </button>
+            </div>
+
+            <div class="dt-git-files-header">
+                <span>Changes</span>
+                <span class="dt-git-files-count">@RepoState.ChangedFiles.Count</span>
+            </div>
+
+            <div class="dt-git-files-list">
+                @if (RepoState.ChangedFiles.Count == 0)
+                {
+                    <div class="dt-git-empty-files">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.4;">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                        <span>No local changes</span>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var file in RepoState.ChangedFiles)
+                    {
+                        var isSelected = selectedFilePath == file.RelativePath;
+                        <div class="dt-git-file-row @(isSelected ? "selected" : "")"
+                             @onclick="() => SelectFile(file.RelativePath)">
+                            <div class="dt-git-file-info">
+                                <span class="dt-git-status-badge @GetStatusClass(file.Status)">@file.Status</span>
+                                <span class="dt-git-file-name" title="@file.RelativePath">
+                                    @(Path.GetFileName(file.RelativePath))
+                                </span>
+                                <span class="dt-git-file-dir" title="@file.RelativePath">
+                                    @(Path.GetDirectoryName(file.RelativePath)?.Replace('\\', '/'))
+                                </span>
+                            </div>
+
+                            <div class="dt-git-file-actions" @onclick:stopPropagation="true">
+                                @if (file.IsStaged)
+                                {
+                                    <button type="button" class="dt-git-file-btn" @onclick="() => HandleUnstageFile(file.RelativePath)" title="Unstage file">
+                                        −
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="dt-git-file-btn" @onclick="() => HandleStageFile(file.RelativePath)" title="Stage file">
+                                        +
+                                    </button>
+                                }
+                                <button type="button" class="dt-git-file-btn danger" @onclick="() => HandleDiscardFile(file.RelativePath)" title="Discard changes (git restore)">
+                                    ↺
+                                </button>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- Right: Interactive Diff Viewer -->
+        <div class="dt-git-diff-view">
+            @if (!string.IsNullOrWhiteSpace(selectedFilePath))
+            {
+                <div class="dt-git-diff-header">
+                    <div class="dt-git-diff-path">
+                        <span class="dt-git-file-title">@selectedFilePath</span>
+                    </div>
+                    <div class="dt-git-diff-actions">
+                        <button type="button" class="dt-git-btn" @onclick="() => HandleStageFile(selectedFilePath)">
+                            Stage
+                        </button>
+                        <button type="button" class="dt-git-btn danger" @onclick="() => HandleDiscardFile(selectedFilePath)">
+                            Discard
+                        </button>
+                        <button type="button" class="dt-git-btn" @onclick="() => HandleAskGramAboutFile(selectedFilePath)">
+                            ⚡ Explain File
+                        </button>
+                    </div>
+                </div>
+
+                <div class="dt-git-diff-content">
+                    @if (isLoadingDiff)
+                    {
+                        <div class="dt-git-diff-loading">Loading diff...</div>
+                    }
+                    else if (selectedFileDiffModel != null && selectedFileDiffModel.Lines.Count > 0)
+                    {
+                        <Gram.Blazor.Components.InteractiveDiffViewer Diff="@selectedFileDiffModel" />
+                    }
+                    else if (!string.IsNullOrWhiteSpace(rawSelectedDiff))
+                    {
+                        <pre class="dt-git-raw-diff">@rawSelectedDiff</pre>
+                    }
+                    else
+                    {
+                        <div class="dt-git-empty-diff">No diff output available for this file.</div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="dt-git-diff-placeholder">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.3;">
+                        <line x1="6" y1="3" x2="6" y2="15"></line>
+                        <circle cx="18" cy="6" r="3"></circle>
+                        <circle cx="6" cy="18" r="3"></circle>
+                        <path d="M18 9a9 9 0 0 1-9 9"></path>
+                    </svg>
+                    <span class="dt-placeholder-title">Select a file to inspect diff</span>
+                    <span class="dt-placeholder-sub">Review changes line-by-line, stage parts, or discard edits</span>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private GitGramRepoState RepoState => GitService.ActiveRepoState;
+    private string selectedFilePath = "";
+    private string rawSelectedDiff = "";
+    private DiffFileItem? selectedFileDiffModel = null;
+    private bool isLoadingDiff = false;
+    private string commitMessage = "";
+    private bool isCommitting = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        GitService.OnStateChanged += HandleStateChanged;
+        await RefreshAsync();
+    }
+
+    private void HandleStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
+        {
+            await GitService.RefreshAsync(Session.WorkspacePath);
+            if (!string.IsNullOrWhiteSpace(selectedFilePath))
+            {
+                await LoadDiffForSelectedFileAsync();
+            }
+            else if (RepoState.ChangedFiles.Count > 0)
+            {
+                await SelectFile(RepoState.ChangedFiles[0].RelativePath);
+            }
+        }
+    }
+
+    private async Task SelectFile(string relativePath)
+    {
+        selectedFilePath = relativePath;
+        await LoadDiffForSelectedFileAsync();
+    }
+
+    private async Task LoadDiffForSelectedFileAsync()
+    {
+        if (string.IsNullOrWhiteSpace(selectedFilePath) || string.IsNullOrWhiteSpace(Session.WorkspacePath))
+        {
+            selectedFileDiffModel = null;
+            rawSelectedDiff = "";
+            return;
+        }
+
+        isLoadingDiff = true;
+        StateHasChanged();
+
+        try
+        {
+            rawSelectedDiff = await GitService.GetFileDiffAsync(Session.WorkspacePath, selectedFilePath);
+            if (!string.IsNullOrWhiteSpace(rawSelectedDiff))
+            {
+                selectedFileDiffModel = DiffEngine.ParseUnifiedDiff(rawSelectedDiff, selectedFilePath);
+            }
+            else
+            {
+                selectedFileDiffModel = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            rawSelectedDiff = $"Failed to load diff: {ex.Message}";
+            selectedFileDiffModel = null;
+        }
+        finally
+        {
+            isLoadingDiff = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleStageAll()
+    {
+        if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
+        {
+            await GitService.ExecuteControlledActionAsync("stage_all", null, Session.WorkspacePath);
+            await RefreshAsync();
+        }
+    }
+
+    private async Task HandleStageFile(string relativePath)
+    {
+        if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
+        {
+            await GitService.StageFileAsync(relativePath, Session.WorkspacePath);
+            await RefreshAsync();
+        }
+    }
+
+    private async Task HandleUnstageFile(string relativePath)
+    {
+        if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
+        {
+            await GitService.UnstageFileAsync(relativePath, Session.WorkspacePath);
+            await RefreshAsync();
+        }
+    }
+
+    private async Task HandleDiscardFile(string relativePath)
+    {
+        if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
+        {
+            await GitService.DiscardFileChangesAsync(relativePath, Session.WorkspacePath);
+            await RefreshAsync();
+        }
+    }
+
+    private async Task HandleStash()
+    {
+        if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
+        {
+            await GitService.StashChangesAsync(Session.WorkspacePath);
+            await RefreshAsync();
+        }
+    }
+
+    private async Task HandlePopStash()
+    {
+        if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
+        {
+            await GitService.PopStashAsync(Session.WorkspacePath);
+            await RefreshAsync();
+        }
+    }
+
+    private async Task HandleCommitKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await HandleCommit();
+        }
+    }
+
+    private async Task HandleCommit()
+    {
+        if (string.IsNullOrWhiteSpace(commitMessage) || isCommitting || string.IsNullOrWhiteSpace(Session.WorkspacePath))
+            return;
+
+        isCommitting = true;
+        StateHasChanged();
+
+        try
+        {
+            var success = await GitService.CommitChangesAsync(commitMessage.Trim(), Session.WorkspacePath);
+            if (success)
+            {
+                commitMessage = "";
+            }
+            await RefreshAsync();
+        }
+        finally
+        {
+            isCommitting = false;
+            StateHasChanged();
+        }
+    }
+
+    private void HandleAskGramToReview()
+    {
+        var prompt = "Please review all uncommitted git changes in this workspace. Identify any regressions, subtle bugs, missing edge cases, or code improvements.";
+        NavigateToChatAndPrompt(prompt);
+    }
+
+    private void HandleAskGramAboutFile(string relativePath)
+    {
+        var prompt = $"Please explain the recent changes made to `{relativePath}` based on the current git diff, and verify whether the modifications are correct.";
+        NavigateToChatAndPrompt(prompt);
+    }
+
+    private void NavigateToChatAndPrompt(string prompt)
+    {
+        var chatTab = TabService.OpenTabs.FirstOrDefault(t => t.Type == WorkspaceTabType.Chat);
+        if (chatTab != null)
+        {
+            TabService.SelectTab(chatTab.Id);
+        }
+        else
+        {
+            TabService.OpenChatTab("default", "Chat");
+        }
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(200);
+            await Session.SendAsync(prompt);
+        });
+    }
+
+    private string GetStatusClass(string status) => status.Trim().ToLowerInvariant() switch
+    {
+        "m" => "modified",
+        "a" => "added",
+        "d" => "deleted",
+        "??" => "untracked",
+        _ => "modified"
+    };
+
+    public void Dispose()
+    {
+        GitService.OnStateChanged -= HandleStateChanged;
+    }
+}

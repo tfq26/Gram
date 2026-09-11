@@ -12,7 +12,12 @@ public sealed record PatchResult(
 
 public static class SurgicalPatchEngine
 {
-    public static PatchResult ApplyPatch(string originalText, string targetContent, string replacementContent)
+    public static PatchResult ApplyPatch(
+        string originalText,
+        string targetContent,
+        string replacementContent,
+        int? startLine = null,
+        int? endLine = null)
     {
         ArgumentNullException.ThrowIfNull(originalText);
         ArgumentNullException.ThrowIfNull(targetContent);
@@ -25,6 +30,48 @@ public static class SurgicalPatchEngine
                 PatchedText: originalText,
                 AppliedTier: 0,
                 ErrorMessage: "Target content cannot be empty.");
+        }
+
+        // Handle line-anchored slicing if startLine and/or endLine are provided
+        if (startLine.HasValue || endLine.HasValue)
+        {
+            var isCrlf = originalText.Contains("\r\n");
+            var eol = isCrlf ? "\r\n" : "\n";
+            var normalized = originalText.Replace("\r\n", "\n");
+            var lines = normalized.Split('\n');
+
+            int s = Math.Max(1, Math.Min(startLine ?? 1, lines.Length));
+            int e = Math.Max(s, Math.Min(endLine ?? lines.Length, lines.Length));
+
+            var beforeLines = lines.Take(s - 1).ToList();
+            var sliceLines = lines.Skip(s - 1).Take(e - s + 1).ToArray();
+            var afterLines = lines.Skip(e).ToList();
+
+            var sliceText = string.Join("\n", sliceLines);
+            var innerResult = ApplyPatch(sliceText, targetContent, replacementContent);
+            if (innerResult.Success)
+            {
+                var combined = new List<string>(beforeLines);
+                combined.Add(innerResult.PatchedText.Replace("\r\n", "\n"));
+                combined.AddRange(afterLines);
+
+                var joined = string.Join("\n", combined);
+                var finalOutput = isCrlf ? joined.Replace("\n", "\r\n") : joined;
+                return new PatchResult(
+                    Success: true,
+                    PatchedText: finalOutput,
+                    AppliedTier: innerResult.AppliedTier,
+                    DiagnosticDetails: $"Applied within line range [{s}-{e}] (Tier {innerResult.AppliedTier}).");
+            }
+
+            // If line-anchored match failed, return diagnosis focused on that slice
+            var sliceDiagnosis = BuildFailureDiagnosis(sliceLines, targetContent.Replace("\r\n", "\n").Split('\n'), s);
+            return new PatchResult(
+                Success: false,
+                PatchedText: originalText,
+                AppliedTier: 0,
+                ErrorMessage: $"Target content was not found within specified lines [{s}-{e}].\n{sliceDiagnosis}",
+                DiagnosticDetails: sliceDiagnosis);
         }
 
         // ==========================================
@@ -94,7 +141,7 @@ public static class SurgicalPatchEngine
         }
 
         // ==========================================
-        // All Tiers Failed: Diagnostic Failure Report
+        // All Tiers Failed: Actionable Diagnostic Failure Report
         // ==========================================
         var failureDiagnosis = BuildFailureDiagnosis(origLines, targetLines);
         return new PatchResult(
@@ -223,35 +270,70 @@ public static class SurgicalPatchEngine
         return match.Success ? match.Value : "";
     }
 
-    private static string BuildFailureDiagnosis(string[] origLines, string[] targetLines)
+    private static string BuildFailureDiagnosis(string[] origLines, string[] targetLines, int baseLine = 1)
     {
         var sb = new StringBuilder();
         var firstTarget = targetLines.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))?.Trim();
 
         if (firstTarget != null)
         {
-            var closeMatches = new List<(int Line, string Text)>();
+            int bestMatchIndex = -1;
+            double bestScore = 0.0;
+
             for (int i = 0; i < origLines.Length; i++)
             {
                 var lineTrim = origLines[i].Trim();
-                if (lineTrim.Contains(firstTarget, StringComparison.OrdinalIgnoreCase) ||
-                    firstTarget.Contains(lineTrim, StringComparison.OrdinalIgnoreCase) && lineTrim.Length > 8)
+                if (string.IsNullOrWhiteSpace(lineTrim)) continue;
+
+                double score = 0.0;
+                if (lineTrim.Equals(firstTarget, StringComparison.OrdinalIgnoreCase))
                 {
-                    closeMatches.Add((i + 1, origLines[i]));
+                    score = 1.0;
+                }
+                else if (lineTrim.Contains(firstTarget, StringComparison.OrdinalIgnoreCase) || firstTarget.Contains(lineTrim, StringComparison.OrdinalIgnoreCase))
+                {
+                    score = 0.8;
+                }
+                else
+                {
+                    // Word overlap similarity
+                    var wordsTarget = firstTarget.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    var wordsLine = lineTrim.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    var overlap = wordsTarget.Intersect(wordsLine, StringComparer.OrdinalIgnoreCase).Count();
+                    if (overlap > 0)
+                    {
+                        score = (double)overlap / Math.Max(wordsTarget.Length, wordsLine.Length);
+                    }
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestMatchIndex = i;
                 }
             }
 
-            if (closeMatches.Count > 0)
+            if (bestMatchIndex >= 0 && bestScore >= 0.25)
             {
-                sb.AppendLine("Closest matching lines in file:");
-                foreach (var (line, text) in closeMatches.Take(3))
+                int matchLineNum = baseLine + bestMatchIndex;
+                int startWin = Math.Max(0, bestMatchIndex - 4);
+                int endWin = Math.Min(origLines.Length - 1, bestMatchIndex + 5);
+
+                sb.AppendLine($"Target line '{firstTarget}' was not found. Closest match found near line {matchLineNum}:");
+                sb.AppendLine("--------------------------------------------------");
+                for (int i = startWin; i <= endWin; i++)
                 {
-                    sb.AppendLine($"  Line {line}: {text.Trim()}");
+                    int lineNum = baseLine + i;
+                    var marker = (i == bestMatchIndex) ? ">" : " ";
+                    sb.AppendLine($"{marker}{lineNum,4}: {origLines[i]}");
                 }
+                sb.AppendLine("--------------------------------------------------");
+                sb.AppendLine($"Actionable hint: Inspect the exact whitespace above or invoke view_file with startLine: {baseLine + startWin}, endLine: {baseLine + endWin}.");
             }
             else
             {
-                sb.AppendLine($"First target line '{firstTarget}' was not found anywhere in the file.");
+                sb.AppendLine($"Target anchor line '{firstTarget}' was not found in the file.");
+                sb.AppendLine("Actionable hint: Call view_file to confirm current file contents before re-attempting edit.");
             }
         }
 

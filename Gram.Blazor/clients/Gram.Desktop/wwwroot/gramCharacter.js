@@ -75,7 +75,34 @@
                 'idle-nod',
                 'idle-body-spin',
                 'idle-check-watch',
-                'idle-tap-glass'
+                'idle-tap-glass',
+                'idle-lens-buff',
+                'idle-antenna-twitch',
+                'idle-shoulder-shimmy',
+                'idle-float-dip',
+                'idle-eye-roll',
+                'idle-sigh-deflate',
+                'idle-side-to-side-sway',
+                'idle-yoyo',
+                'idle-rubiks-cube',
+                'idle-bubblegum',
+                'idle-paper-airplane',
+                'idle-gameboy',
+                'idle-laser-pointer',
+                'idle-juggling-bits',
+                'idle-look-at-cursor',
+                'idle-fly-swat',
+                'idle-screen-smudge-wipe',
+                'idle-binocular-gaze',
+                'idle-mirror-check',
+                'idle-foot-tap',
+                'idle-twiddle-thumbs',
+                'idle-drowsy-head-drop',
+                'idle-deep-sleep',
+                'idle-hiccups',
+                'idle-magnet-clasp',
+                'idle-thruster-sputter',
+                'idle-stretchy-limbs'
             ];
 
             // Interpolation coordinates for fluid 60fps eye tracking & 2.5D parallax head tilt
@@ -116,26 +143,17 @@
         applyState(stateName) {
             this.clearIdleAnimation();
             this.state = stateName;
-            this.root.classList.remove(
-                'state-wave', 'is-waving',
-                'state-bodyspin', 'is-spinning',
-                'state-checkwatch', 'is-checking-watch',
-                'state-tapglass', 'is-tapping-glass',
-                'state-sidebar-open', 'is-sidebar-open',
-                'state-sidebar-close', 'is-sidebar-close',
-                'state-sidebar-react', 'idle-sidebar-react',
-                'state-lookdown', 'is-typing',
-                'state-thinking', 'is-thinking',
-                'state-researching', 'state-designing', 'state-reviewing', 'state-complete',
-                'state-landing', 'is-jumping',
-                'state-typing-name', 'is-recognizing',
-                'state-typing-password', 'is-covering-eyes',
-                'state-voice-listening', 'is-voice-listening',
-                'state-voice-thinking', 'is-voice-thinking',
-                'state-voice-speaking', 'is-voice-speaking',
-                'state-voice-interrupted', 'is-voice-interrupted'
-            );
 
+            // Remove previous dynamic state classes
+            const classesToRemove = Array.from(this.root.classList).filter(c => c.startsWith('state-') || c.startsWith('is-'));
+            for (const c of classesToRemove) {
+                this.root.classList.remove(c);
+            }
+
+            const normalized = (stateName || 'idle').toLowerCase().replace(/_/g, '-');
+            this.root.classList.add('state-' + normalized);
+
+            // Contextual & backward compatibility aliases
             if (stateName === 'voice_listening' || stateName === 'listening') {
                 this.root.classList.add('state-voice-listening', 'is-voice-listening');
             } else if (stateName === 'voice_thinking') {
@@ -152,46 +170,30 @@
                 this.root.classList.add('state-typing-password', 'is-covering-eyes');
             } else if (stateName === 'wave') {
                 this.root.classList.add('state-wave', 'is-waving');
-            } else if (stateName === 'sidebar_open' || stateName === 'sidebar_react' || stateName === 'sidebar') {
-                this.root.classList.add('state-sidebar-open', 'state-sidebar-react');
-            } else if (stateName === 'sidebar_close') {
-                this.root.classList.add('state-sidebar-close');
-            } else if (stateName === 'glance_left' || stateName === 'glanceleft') {
-                this.root.classList.add('idle-glance-left');
-            } else if (stateName === 'curious') {
-                this.root.classList.add('idle-curious');
-            } else if (stateName === 'nod') {
-                this.root.classList.add('idle-nod');
-            } else if (stateName === 'tilt') {
-                this.root.classList.add('idle-tilt');
             } else if (stateName === 'body_spin' || stateName === 'bodyspin') {
-                this.root.classList.add('state-bodyspin', 'is-spinning', 'idle-body-spin');
+                this.root.classList.add('state-bodyspin', 'is-spinning');
             } else if (stateName === 'check_watch' || stateName === 'checkwatch') {
-                this.root.classList.add('state-checkwatch', 'is-checking-watch', 'idle-check-watch');
+                this.root.classList.add('state-checkwatch', 'is-checking-watch');
             } else if (stateName === 'tap_glass' || stateName === 'tapglass') {
-                this.root.classList.add('state-tapglass', 'is-tapping-glass', 'idle-tap-glass');
+                this.root.classList.add('state-tapglass', 'is-tapping-glass');
             } else if (stateName === 'look_down' || stateName === 'typing') {
                 this.root.classList.add('state-lookdown', 'is-typing');
             } else if (stateName === 'thinking') {
                 this.root.classList.add('state-thinking', 'is-thinking');
-            } else if (stateName === 'researching' || stateName === 'planning') {
-                this.root.classList.add('state-researching');
-            } else if (stateName === 'designing' || stateName === 'assembling') {
-                this.root.classList.add('state-designing');
-            } else if (stateName === 'reviewing') {
-                this.root.classList.add('state-reviewing');
-            } else if (stateName === 'complete') {
-                this.root.classList.add('state-complete');
+            } else if (stateName === 'sidebar_open' || stateName === 'sidebar_react' || stateName === 'sidebar') {
+                this.root.classList.add('state-sidebar-open', 'state-sidebar-react');
             }
 
             if (stateName === 'idle') {
-                this.scheduleIdleAnimation(2200);
+                this.scheduleIdleAnimation(2000);
+            } else if (window.gramDesktop?.notifyCharacterAnimation) {
+                window.gramDesktop.notifyCharacterAnimation(stateName);
             }
         }
 
         scheduleIdleAnimation(initialDelay = 0) {
             if (this.state !== 'idle' || this.idleAnimationTimer) return;
-            const delay = initialDelay || (2400 + Math.random() * 2600);
+            const delay = initialDelay || (2200 + Math.random() * 2400);
 
             this.idleAnimationTimer = setTimeout(() => {
                 this.idleAnimationTimer = null;
@@ -200,38 +202,67 @@
                     return;
                 }
 
-                // Weighted selection prioritizing lively, delightful behaviors
-                const roll = Math.random();
-                let animationClass = 'idle-body-spin';
-                let duration = 2400;
+                const inactiveMs = Date.now() - (window._gramLastActivity || Date.now());
+                let animationClass = 'idle-blink';
+                let duration = 1800;
 
-                if (roll < 0.22) {
-                    // 1. Body Spin (eyes lock forward, hexagonal shell spins 360)
-                    animationClass = 'idle-body-spin';
-                    duration = 2000;
-                } else if (roll < 0.42) {
-                    // 2. Tapping the screen glass at the user with ripple
-                    animationClass = 'idle-tap-glass';
-                    duration = 2400;
-                } else if (roll < 0.60) {
-                    // 3. Checking holographic watch for time
-                    animationClass = 'idle-check-watch';
+                if (inactiveMs > 150000) {
+                    // Stage 4 (> 2.5 min inactive): Deep Sleep with floating Zzz
+                    animationClass = 'idle-deep-sleep';
+                    duration = 5500;
+                } else if (inactiveMs > 75000) {
+                    // Stage 3 (> 75s inactive): Drowsy / heavy fatigue
+                    const drowsyOptions = ['idle-drowsy-head-drop', 'idle-sigh-deflate', 'idle-twiddle-thumbs', 'idle-foot-tap'];
+                    animationClass = drowsyOptions[Math.floor(Math.random() * drowsyOptions.length)];
+                    duration = 3200;
+                } else if (inactiveMs > 30000) {
+                    // Stage 2 (> 30s inactive): Boredom & gadget play
+                    const boredOptions = [
+                        'idle-yoyo', 'idle-bubblegum', 'idle-foot-tap', 'idle-eye-roll',
+                        'idle-sigh-deflate', 'idle-antenna-twitch', 'idle-lens-buff', 'idle-hiccups'
+                    ];
+                    animationClass = boredOptions[Math.floor(Math.random() * boredOptions.length)];
                     duration = 2600;
-                } else if (roll < 0.76) {
-                    // 4. Curious head tilt & raised brow
-                    animationClass = 'idle-curious';
-                    duration = 1900;
-                } else if (roll < 0.88) {
-                    // 5. Glance look left/right
-                    animationClass = roll < 0.82 ? 'idle-glance-left' : 'idle-glance-right';
-                    duration = 1800;
                 } else {
-                    // 6. Attentive double blink
-                    animationClass = 'idle-double-blink';
-                    duration = 750;
+                    // Stage 1 (Standard lively idle): weighted variety across all behaviors
+                    const livelyPool = [
+                        { cls: 'idle-body-spin', dur: 2000 },
+                        { cls: 'idle-tap-glass', dur: 2400 },
+                        { cls: 'idle-check-watch', dur: 2600 },
+                        { cls: 'idle-curious', dur: 2000 },
+                        { cls: 'idle-glance-left', dur: 1900 },
+                        { cls: 'idle-glance-right', dur: 1900 },
+                        { cls: 'idle-tilt', dur: 1600 },
+                        { cls: 'idle-nod', dur: 1500 },
+                        { cls: 'idle-blink', dur: 600 },
+                        { cls: 'idle-double-blink', dur: 750 },
+                        { cls: 'idle-lens-buff', dur: 2200 },
+                        { cls: 'idle-antenna-twitch', dur: 2400 },
+                        { cls: 'idle-float-dip', dur: 2000 },
+                        { cls: 'idle-eye-roll', dur: 1600 },
+                        { cls: 'idle-side-to-side-sway', dur: 3000 },
+                        { cls: 'idle-yoyo', dur: 2800 },
+                        { cls: 'idle-bubblegum', dur: 2800 },
+                        { cls: 'idle-hiccups', dur: 1600 },
+                        { cls: 'idle-shoulder-shimmy', dur: 2000 }
+                    ];
+                    const pick = livelyPool[Math.floor(Math.random() * livelyPool.length)];
+                    animationClass = pick.cls;
+                    duration = pick.dur;
                 }
 
                 this.root.classList.add(animationClass);
+                if (window.gramDesktop?.notifyCharacterAnimation) {
+                    const talkativeIdles = [
+                        'idle-deep-sleep', 'idle-drowsy-head-drop', 'idle-yoyo', 
+                        'idle-bubblegum', 'idle-check-watch', 'idle-tap-glass', 
+                        'idle-lens-buff', 'idle-antenna-twitch', 'idle-sigh-deflate',
+                        'idle-body-spin', 'idle-curious'
+                    ];
+                    if (talkativeIdles.includes(animationClass)) {
+                        window.gramDesktop.notifyCharacterAnimation(animationClass);
+                    }
+                }
                 this.idleAnimationEndTimer = setTimeout(() => {
                     this.root.classList.remove(animationClass);
                     this.idleAnimationEndTimer = null;
@@ -268,9 +299,16 @@
             this.root.classList.add('gram-char-click-squish');
             setTimeout(() => this.root.classList.remove('gram-char-click-squish'), 450);
 
-            const playfulActions = ['wave', 'body_spin', 'tap_glass', 'check_watch', 'curious', 'landing'];
+            const playfulActions = [
+                'wave', 'body_spin', 'tap_glass', 'check_watch', 'curious',
+                'thumbs_up', 'peace_sign', 'salute', 'finger_guns', 'smug',
+                'ecstatic', 'shrug', 'caffeine_rush', 'eureka', 'dizzy',
+                'victory_dance', 'screen_high_five', 'love', 'mind_blown',
+                'applause', 'secret_shh', 'matrix_zen', 'test_passed',
+                'idle_yoyo', 'idle_bubblegum', 'theme_sunglasses'
+            ];
             const chosen = playfulActions[Math.floor(Math.random() * playfulActions.length)];
-            this.triggerAction(chosen, 2400);
+            this.triggerAction(chosen, 2600);
         }
 
         onMouseMove(e) {
@@ -389,6 +427,23 @@
         });
     }
 
+    // Global User Inactivity Tracking & Sleep/Wake System
+    window._gramLastActivity = Date.now();
+    function onUserGlobalActivity() {
+        const wasDeepSleep = (Date.now() - window._gramLastActivity) > 120000;
+        window._gramLastActivity = Date.now();
+        if (wasDeepSleep) {
+            for (const inst of instances) {
+                if (inst.state === 'idle' || inst.root.classList.contains('idle-deep-sleep')) {
+                    inst.triggerAction('wake_startled', 1800);
+                }
+            }
+        }
+    }
+    window.addEventListener('mousemove', onUserGlobalActivity, { passive: true });
+    window.addEventListener('keydown', onUserGlobalActivity, { passive: true });
+    window.addEventListener('pointerdown', onUserGlobalActivity, { passive: true });
+
     // Public API
     window.gramCharacter = {
         init: function (elementOrId, options = {}) {
@@ -402,10 +457,11 @@
 
         setState: function (elementOrId, stateName, durationMs = 0) {
             const root = typeof elementOrId === 'string' ? document.getElementById(elementOrId) : elementOrId;
+            const continuousStates = new Set(['idle', 'thinking', 'look_down', 'typing', 'voice_listening', 'voice_thinking', 'voice_speaking', 'deep_sleep', 'matrix_zen', 'researching', 'designing', 'reviewing']);
             for (const inst of instances) {
                 if (!root || inst.root === root) {
-                    if (durationMs > 0 || stateName === 'wave' || stateName === 'body_spin' || stateName === 'check_watch' || stateName === 'tap_glass') {
-                        inst.triggerAction(stateName, durationMs || 2800);
+                    if (durationMs > 0 || (!continuousStates.has(stateName) && durationMs === 0)) {
+                        inst.triggerAction(stateName, durationMs || 2600);
                     } else {
                         inst.applyState(stateName);
                     }

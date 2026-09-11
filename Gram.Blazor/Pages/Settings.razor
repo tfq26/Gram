@@ -250,6 +250,7 @@
                                     title="@(model.IsFavorite ? "Remove favorite" : "Add to favorites")">
                                 @(model.IsFavorite ? "★" : "☆")
                             </button>
+                            <ModelIcon ModelId="@model.Id" Vendor="@model.Provider" Size="18" />
                             <div class="model-info-block">
                                 <div class="model-title-row">
                                     <span class="model-name">@model.Name</span>

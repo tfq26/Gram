@@ -36,6 +36,7 @@ Properties/launchSettings.json
 
 # Logs and Scratch Files
 *.log
+.logs/
 scratch/
 test-results/
 __pycache__/

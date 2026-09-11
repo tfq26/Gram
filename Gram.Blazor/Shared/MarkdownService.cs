@@ -17,10 +17,21 @@ public sealed class MarkdownService
         @"<pre class=""mermaid"">(.*?)</pre>",
         RegexOptions.Compiled | RegexOptions.Singleline);
 
+    // Matches <table>...</table> to wrap in responsive scroll container with copy action
+    private static readonly Regex TableRegex = new(
+        @"<table>[\s\S]*?</table>",
+        RegexOptions.Compiled);
+
+    // Matches file:// links to convert them into interactive workspace file deep links
+    private static readonly Regex FileLinkRegex = new(
+        @"<a\s+href=""(file://[^""]+)""(.*?)>(.*?)</a>",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+
     public MarkdownService()
     {
         _pipeline = new MarkdownPipelineBuilder()
             .UseAdvancedExtensions()
+            .UseAlertBlocks()
             .UseSoftlineBreakAsHardlineBreak()
             .UseDiagrams()
             .UseMathematics()
@@ -91,23 +102,62 @@ public sealed class MarkdownService
 </div>";
             });
 
-            // 2. Enhance standard code blocks with custom header and copy button
+            // 2. Enhance standard code blocks with custom header (supporting filenames) and copy button
             processedHtml = CodeBlockRegex.Replace(processedHtml, match =>
             {
-                var rawLang = match.Groups[1].Value;
-                var lang = FormatLanguageName(rawLang);
+                var rawLang = match.Groups[1].Value?.Trim() ?? string.Empty;
+                string langPart = rawLang;
+                string? fileName = null;
+
+                if (rawLang.Contains(':'))
+                {
+                    var split = rawLang.Split(':', 2);
+                    langPart = split[0].Trim();
+                    fileName = split[1].Trim();
+                }
+                else if (rawLang.Contains('.') && !rawLang.Contains(' '))
+                {
+                    fileName = rawLang;
+                    var ext = System.IO.Path.GetExtension(rawLang).TrimStart('.');
+                    if (!string.IsNullOrEmpty(ext))
+                    {
+                        langPart = ext;
+                    }
+                }
+
+                var cleanLang = langPart.ToLowerInvariant();
+                var langDisplayName = FormatLanguageName(langPart);
                 var codeContent = match.Groups[2].Value;
 
-                return $@"<div class=""code-block-wrapper"">
-    <div class=""code-block-header"">
-        <div class=""code-block-lang-label"">
+                string headerLeft;
+                if (!string.IsNullOrEmpty(fileName))
+                {
+                    headerLeft = $@"<div class=""code-block-lang-label has-file"">
+            <svg width=""13"" height=""13"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round"" class=""code-header-icon file-icon"">
+                <path d=""M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z""></path>
+                <polyline points=""14 2 14 8 20 8""></polyline>
+                <line x1=""16"" y1=""13"" x2=""8"" y2=""13""></line>
+                <line x1=""16"" y1=""17"" x2=""8"" y2=""17""></line>
+            </svg>
+            <span class=""code-filename"" title=""{System.Net.WebUtility.HtmlEncode(fileName)}"">{System.Net.WebUtility.HtmlEncode(fileName)}</span>
+            <span class=""code-lang-tag"">{langDisplayName}</span>
+        </div>";
+                }
+                else
+                {
+                    headerLeft = $@"<div class=""code-block-lang-label"">
             <svg width=""12"" height=""12"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2.2"" stroke-linecap=""round"" stroke-linejoin=""round"" class=""code-header-icon"">
                 <polyline points=""16 18 22 12 16 6""></polyline>
                 <polyline points=""8 6 2 12 8 18""></polyline>
             </svg>
-            <span class=""code-lang"">{lang}</span>
-        </div>
-        <button class=""btn-copy-code"" onclick=""gramAudio.copyCode(this)"" title=""Copy code"">
+            <span class=""code-lang"">{langDisplayName}</span>
+        </div>";
+                }
+
+                return $@"<div class=""code-block-wrapper"">
+    <div class=""code-block-header"">
+        {headerLeft}
+        <button type=""button"" class=""btn-copy-code"" onclick=""gramAudio.copyCode(this)"" title=""Copy code"">
             <svg width=""12"" height=""12"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round"">
                 <rect x=""9"" y=""9"" width=""13"" height=""13"" rx=""2"" ry=""2""></rect>
                 <path d=""M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1""></path>
@@ -115,8 +165,46 @@ public sealed class MarkdownService
             <span>Copy</span>
         </button>
     </div>
-    <pre><code class=""language-{rawLang}"">{codeContent}</code></pre>
+    <pre><code class=""language-{cleanLang}"">{codeContent}</code></pre>
 </div>";
+            });
+
+            // 3. Wrap tables in responsive container with header toolbar and copy button
+            processedHtml = TableRegex.Replace(processedHtml, match =>
+            {
+                return $@"<div class=""dt-table-wrapper"">
+    <div class=""dt-table-toolbar"">
+        <span class=""dt-table-label"">
+            <svg width=""12"" height=""12"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round"">
+                <rect x=""3"" y=""3"" width=""18"" height=""18"" rx=""2"" ry=""2""></rect>
+                <line x1=""3"" y1=""9"" x2=""21"" y2=""9""></line>
+                <line x1=""3"" y1=""15"" x2=""21"" y2=""15""></line>
+                <line x1=""9"" y1=""3"" x2=""9"" y2=""21""></line>
+            </svg>
+            <span>Table</span>
+        </span>
+        <button type=""button"" class=""btn-copy-table"" onclick=""gramAudio.copyTable(this)"" title=""Copy table as Markdown"">
+            <svg width=""12"" height=""12"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round"">
+                <rect x=""9"" y=""9"" width=""13"" height=""13"" rx=""2"" ry=""2""></rect>
+                <path d=""M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1""></path>
+            </svg>
+            <span>Copy Table</span>
+        </button>
+    </div>
+    <div class=""dt-table-scroll"">
+        {match.Value}
+    </div>
+</div>";
+            });
+
+            // 4. Enhance file:// links into clickable workspace deep links
+            processedHtml = FileLinkRegex.Replace(processedHtml, match =>
+            {
+                var fileUri = match.Groups[1].Value;
+                var remainingAttrs = match.Groups[2].Value;
+                var label = match.Groups[3].Value;
+
+                return $@"<a href=""{fileUri}"" class=""dt-file-link"" title=""Open {System.Net.WebUtility.HtmlEncode(fileUri)}""{remainingAttrs}><svg width=""12"" height=""12"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round"" class=""dt-file-icon""><path d=""M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z""></path><polyline points=""14 2 14 8 20 8""></polyline></svg><span>{label}</span></a>";
             });
 
             return processedHtml;
@@ -137,6 +225,8 @@ public sealed class MarkdownService
             "c" => "C",
             "js" or "javascript" => "JavaScript",
             "ts" or "typescript" => "TypeScript",
+            "jsx" => "JSX",
+            "tsx" => "TSX",
             "py" or "python" => "Python",
             "html" => "HTML",
             "css" => "CSS",
@@ -151,14 +241,51 @@ public sealed class MarkdownService
             "rust" or "rs" => "Rust",
             "go" or "golang" => "Go",
             "razor" => "Razor",
+            "diff" or "patch" => "Diff",
             "md" or "markdown" => "Markdown",
             _ => string.IsNullOrWhiteSpace(raw) ? "Code" : raw
         };
     }
 
+    private static string StabilizeStreamingMarkdown(string markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown)) return markdown;
+
+        // Auto-close unclosed fenced code blocks (```)
+        var backtickMatches = Regex.Matches(markdown, @"(?m)^[ \t]*```");
+        if (backtickMatches.Count % 2 != 0)
+        {
+            markdown += "\n```";
+        }
+
+        // Auto-close unclosed tilde code blocks (~~~)
+        var tildeMatches = Regex.Matches(markdown, @"(?m)^[ \t]*~~~");
+        if (tildeMatches.Count % 2 != 0)
+        {
+            markdown += "\n~~~";
+        }
+
+        // Auto-close unclosed display math blocks ($$)
+        var mathMatches = Regex.Matches(markdown, @"\$\$");
+        if (mathMatches.Count % 2 != 0)
+        {
+            markdown += "\n$$";
+        }
+
+        return markdown;
+    }
+
+    // Protects fenced code blocks (``` or ~~~) and inline code spans (`...`) from prose normalization.
+    private static readonly Regex CodeSpanOrBlockRegex = new(
+        @"(`{3,}[\s\S]*?`{3,}|~{3,}[\s\S]*?~{3,}|`[^`\r\n]+`)",
+        RegexOptions.Compiled);
+
     private static string NormalizeModelMarkdown(string markdown)
     {
         var normalized = markdown.Replace("\r\n", "\n").Replace("\r", "\n");
+
+        // Stabilize streaming markdown: virtually auto-close unclosed blocks
+        normalized = StabilizeStreamingMarkdown(normalized);
 
         // Some provider responses contain escaped newlines instead of actual line breaks.
         // Decode those only when the entire response has no real newlines, so literal
@@ -177,7 +304,41 @@ public sealed class MarkdownService
         // Unicode minus signs that models frequently insert into formulas.
         normalized = normalized.Replace("−", "-", StringComparison.Ordinal);
 
+        // Normalize over-escaped characters in prose (e.g. Gram\'s, it\'s, user\\'s) outside of code blocks
+        normalized = NormalizeEscapedCharacters(normalized);
+
         return NormalizeMathDelimiters(normalized);
+    }
+
+    private static string NormalizeEscapedCharacters(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown)) return markdown;
+
+        // Split markdown so that code blocks (fenced ``` and inline `) are protected from alteration.
+        // Captured code blocks appear at odd indices (1, 3, 5, ...); prose at even indices (0, 2, 4, ...).
+        var parts = CodeSpanOrBlockRegex.Split(markdown);
+        for (int i = 0; i < parts.Length; i += 2)
+        {
+            var prose = parts[i];
+            if (string.IsNullOrEmpty(prose)) continue;
+
+            // 1. Normalize escaped contractions and possessives: Gram\'s, Gram\\'s, it\'s, user\'s, don\'t
+            prose = Regex.Replace(prose, @"(?<=\w)\\{1,3}'(?=\w)", "'");
+
+            // 2. Normalize over-escaped single quotes in prose (e.g. \'word\')
+            prose = Regex.Replace(prose, @"\\+'", "'");
+
+            // 3. Normalize over-escaped double quotes in prose outside code
+            prose = Regex.Replace(prose, @"(?<=^|\s)\\{1,3}""(?=\w)", "\"");
+            prose = Regex.Replace(prose, @"(?<=\w)\\{1,3}""(?=[\s.,;:!?]|$)", "\"");
+
+            // 4. Normalize concatenated sentence boundaries outside code blocks (e.g. "codebase.Mapped", "layout.Explored", "implementation.I've")
+            prose = Regex.Replace(prose, @"(?<=[a-z]{2,}[.!?])(?=[A-Z][a-z]{2,}|I've|I'll|I\s|\[Agent)", "\n\n");
+
+            parts[i] = prose;
+        }
+
+        return string.Concat(parts);
     }
 
     private static string NormalizeMathDelimiters(string markdown)
@@ -201,9 +362,9 @@ public sealed class MarkdownService
             IsLikelyMath(match.Groups[1].Value) ? $"$$\n{match.Groups[1].Value.Trim()}\n$$" : match.Value,
             RegexOptions.Singleline);
 
-        // Convert short mathematical parentheticals such as (x), (a = 2), and
-        // (\Delta < 0), without changing ordinary prose parentheses.
-        markdown = Regex.Replace(markdown, @"(?<!\\)\(([^()\r\n]{1,240})\)", match =>
+        // Convert short mathematical parentheticals such as (a = 2) and (\Delta < 0).
+        // Require preceding whitespace, line-start, or math operator so attached plurals like file(s) are never touched.
+        markdown = Regex.Replace(markdown, @"(?<=^|[\s=+\-*/<>~,(])\(([^()\r\n]{1,240})\)", match =>
             IsLikelyMath(match.Groups[1].Value) ? $"${match.Groups[1].Value.Trim()}$" : match.Value,
             RegexOptions.Singleline);
 
@@ -220,13 +381,25 @@ public sealed class MarkdownService
     private static bool IsLikelyMath(string value)
     {
         var candidate = value.Trim();
-        if (Regex.IsMatch(candidate, @"^[A-Za-z](?:[_^][A-Za-z0-9]+)?$")) return true;
-        if (Regex.IsMatch(candidate, @"^[+-]?\d+(?:\.\d+)?$")) return true;
-        return candidate.Contains('=')
-            || candidate.Contains('^')
-            || candidate.Contains('_')
-            || candidate.Contains('\\')
-            || candidate.Contains('Δ')
-            || Regex.IsMatch(candidate, @"\s[+\-*/<>]\s");
+        if (candidate.Length == 0) return false;
+
+        // Never consider bare letters (e.g. (s), (a), (x)), numbers ((1), (2)),
+        // or Roman numerals ((i), (iv)) as math.
+        if (Regex.IsMatch(candidate, @"^(?:[A-Za-z]{1,3}|\d+|[ivxIVX]+)$")) return false;
+
+        // If it contains quotes, colons, or code structure, it's code/prose, not math
+        if (candidate.Contains('"') || candidate.Contains('\'') || candidate.Contains(": ") || candidate.Contains(';') || candidate.Contains('{') || candidate.Contains('}'))
+            return false;
+
+        // LaTeX math commands (e.g. \Delta, \alpha, \frac, \sqrt, \sum, \int, \le, \ge, \neq, \approx)
+        if (Regex.IsMatch(candidate, @"\\(?:[A-Za-z]+|pm|mp|times|cdot|leq|geq|neq|approx|alpha|beta|gamma|delta|theta|pi|sigma|omega|Delta|Sigma|Omega|sqrt|frac|sum|int|partial|infty)\b"))
+            return true;
+
+        // Math relations / operators between variables/numbers (e.g. a = 2, x + y = z, \Delta < 0)
+        if (Regex.IsMatch(candidate, @"^[A-Za-z0-9\s.+\-*/^=<>~]+$") &&
+            (candidate.Contains('^') || Regex.IsMatch(candidate, @"\b[A-Za-z0-9]+\s*[=<>≤≥≠≈~]\s*[A-Za-z0-9\-+]")))
+            return true;
+
+        return false;
     }
 }

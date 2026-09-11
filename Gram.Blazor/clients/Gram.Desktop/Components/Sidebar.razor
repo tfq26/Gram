@@ -10,8 +10,19 @@
 @inject IJSRuntime JSRuntime
 
 <aside class="dt-sidebar @(IsOpen ? "open" : "closed") @Platform.PlatformCssClass" data-ui-region="sidebar" role="navigation" aria-label="Conversations">
-    <!-- Header: Search + New Chat Button -->
+    <!-- Header: Toggle + Search + New Chat Button -->
     <div class="dt-sidebar-header">
+        <button type="button"
+                class="dt-icon-btn dt-sidebar-toggle-btn"
+                data-action="toggle-sidebar"
+                @onclick="OnToggle"
+                title="Toggle Sidebar (@Platform.ModifierKeyLabel+B)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+        </button>
+
         <div class="dt-search-input-wrap">
             <svg class="dt-search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="8"></circle>
@@ -40,16 +51,69 @@
 
         @if (string.IsNullOrWhiteSpace(searchQuery))
         {
-            <button type="button"
-                    class="dt-icon-btn dt-sidebar-new-btn"
-                    @onclick="OnNewConversation"
-                    disabled="@(IsStreaming || IsLoading)"
-                    title="New Chat (@Platform.ModifierKeyLabel+N)">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-            </button>
+            <div class="dt-sidebar-new-wrap">
+                <button type="button"
+                        class="dt-icon-btn dt-sidebar-new-btn @(isNewMenuOpen ? "active" : "")"
+                        data-action="new-chat"
+                        @onmousedown="HandleNewButtonMouseDown"
+                        @onmouseup="HandleNewButtonMouseUp"
+                        @onmouseleave="HandleNewButtonMouseLeave"
+                        @onclick="HandleNewButtonClick"
+                        @oncontextmenu="HandleNewButtonContextMenu"
+                        @oncontextmenu:preventDefault="true"
+                        disabled="@(IsStreaming || IsLoading)"
+                        title="New Chat (@Platform.ModifierKeyLabel+T) — Hold or right-click for options">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                </button>
+
+                @if (isNewMenuOpen)
+                {
+                    <div class="dt-context-backdrop" @onclick="() => isNewMenuOpen = false"></div>
+                    <div class="dt-new-menu-popover" @onclick:stopPropagation="true">
+                        <button type="button" class="dt-new-menu-item" @onclick="HandleMenuNewChat">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            <span class="dt-new-menu-label">New Chat</span>
+                            <kbd class="dt-new-menu-shortcut">@Platform.ModifierKeyLabel+N</kbd>
+                        </button>
+
+                        <button type="button" class="dt-new-menu-item" @onclick="HandleMenuNewTerminal">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="4 17 10 11 4 5"></polyline>
+                                <line x1="12" y1="19" x2="20" y2="19"></line>
+                            </svg>
+                            <span class="dt-new-menu-label">New Terminal</span>
+                            <kbd class="dt-new-menu-shortcut">⌥T</kbd>
+                        </button>
+
+                        <button type="button" class="dt-new-menu-item" @onclick="HandleMenuOpenGit">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="18" cy="18" r="3"></circle>
+                                <circle cx="6" cy="6" r="3"></circle>
+                                <path d="M6 9v12"></path>
+                                <path d="M18 9a9 9 0 0 0-9-9"></path>
+                            </svg>
+                            <span class="dt-new-menu-label">Git Changes</span>
+                            <kbd class="dt-new-menu-shortcut">⌥G</kbd>
+                        </button>
+
+                        <div class="dt-new-menu-divider"></div>
+
+                        <button type="button" class="dt-new-menu-item @(TabService.IsSplitView ? "active" : "")" @onclick="HandleMenuToggleSplit">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="12" y1="3" x2="12" y2="21"></line>
+                            </svg>
+                            <span class="dt-new-menu-label">@(TabService.IsSplitView ? "Unlink Split View" : "Split Current View")</span>
+                            <kbd class="dt-new-menu-shortcut">⌥\</kbd>
+                        </button>
+                    </div>
+                }
+            </div>
         }
     </div>
 
@@ -169,20 +233,114 @@
         }
     </div>
 
-    <!-- Sidebar Footer -->
+    <!-- Sidebar Footer: Settings & Context Tracker -->
     <div class="dt-sidebar-footer">
-        <div class="dt-footer-profile">
-            <div class="dt-footer-avatar">
-                <GramCharacter Size="16" State="idle" Interactive="false" AutoWaveOnLoad="false" />
-            </div>
-            <div class="dt-footer-info">
-                <span class="dt-footer-name">Gram</span>
-                <span class="dt-footer-sub">@Platform.PlatformName Native</span>
-            </div>
+        <button type="button"
+                class="dt-sidebar-footer-btn"
+                @onclick="OnOpenSettings"
+                title="Settings (@Platform.ModifierKeyLabel+,)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span>Settings</span>
+        </button>
+
+        @{
+            var activeModel = Models?.FirstOrDefault(m => m.Id == SelectedModelId)
+                              ?? Session.Models?.FirstOrDefault(m => m.Id == SelectedModelId)
+                              ?? Session.Models?.FirstOrDefault(m => m.IsEnabled);
+            var breakdown = ContextMeterService.CalculateBreakdown(
+                Session.ActiveConversation?.Messages,
+                Session.DraftResponse,
+                null,
+                SelectedModelId,
+                activeModel?.ContextLength,
+                Session.CurrentStreamingToolCalls
+            );
+            var healthClass = breakdown.HealthStatus.ToString().ToLowerInvariant();
+        }
+        <div class="dt-token-meter-wrapper dt-footer-token-meter">
+            <button type="button"
+                    class="dt-token-meter-pill @healthClass"
+                    @onclick="ToggleContextHud"
+                    title="Context Window: @ContextMeterService.FormatTokens(breakdown.TotalTokens) / @ContextMeterService.FormatTokens(breakdown.ContextLimit) (@ContextMeterService.FormatPercentage(breakdown.UsagePercentage)) - Click to inspect">
+                <span class="dt-token-meter-dot"></span>
+                <span class="dt-token-meter-text mono">@ContextMeterService.FormatTokens(breakdown.TotalTokens)</span>
+                <span class="dt-token-meter-pct">@ContextMeterService.FormatPercentage(breakdown.UsagePercentage)</span>
+            </button>
+
+            @if (isContextHudOpen)
+            {
+                <div class="dt-context-backdrop" @onclick="() => isContextHudOpen = false"></div>
+                <div class="dt-context-hud-popover pop-up" @onclick:stopPropagation="true">
+                    <div class="dt-hud-popover-header">
+                        <div class="dt-hud-popover-title-row">
+                            <span class="dt-hud-popover-title">Context Window</span>
+                            <span class="dt-hud-status-badge @healthClass">
+                                @breakdown.HealthStatus
+                            </span>
+                        </div>
+                        <div class="dt-hud-popover-model">@(activeModel?.Name ?? SelectedModelId ?? "Default Model")</div>
+                    </div>
+
+                    <!-- Proportional segmented bar -->
+                    <div class="dt-hud-meter-track" title="@ContextMeterService.FormatPercentage(breakdown.UsagePercentage) used">
+                        <div class="dt-hud-bar-segment sys" style="width: @(breakdown.SystemPercentage.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%" title="System: @ContextMeterService.FormatTokens(breakdown.SystemTokens)"></div>
+                        <div class="dt-hud-bar-segment msg" style="width: @(breakdown.MessagesPercentage.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%" title="Messages: @ContextMeterService.FormatTokens(breakdown.MessagesTokens)"></div>
+                        <div class="dt-hud-bar-segment tool" style="width: @(breakdown.ToolPercentage.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%" title="Tools: @ContextMeterService.FormatTokens(breakdown.ToolTokens)"></div>
+                        @if (breakdown.DraftPercentage > 0.1)
+                        {
+                            <div class="dt-hud-bar-segment draft" style="width: @(breakdown.DraftPercentage.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%" title="Draft: @ContextMeterService.FormatTokens(breakdown.DraftTokens)"></div>
+                        }
+                    </div>
+
+                    <!-- Details breakdown list -->
+                    <div class="dt-hud-popover-details">
+                        <div class="dt-hud-popover-row">
+                            <div class="dt-hud-popover-legend-label">
+                                <span class="dt-hud-legend-dot sys"></span>
+                                <span>System & Instructions</span>
+                            </div>
+                            <span class="dt-hud-popover-val mono">@ContextMeterService.FormatTokens(breakdown.SystemTokens)</span>
+                        </div>
+                        <div class="dt-hud-popover-row">
+                            <div class="dt-hud-popover-legend-label">
+                                <span class="dt-hud-legend-dot msg"></span>
+                                <span>Conversation Messages (@breakdown.MessageCount)</span>
+                            </div>
+                            <span class="dt-hud-popover-val mono">@ContextMeterService.FormatTokens(breakdown.MessagesTokens)</span>
+                        </div>
+                        <div class="dt-hud-popover-row">
+                            <div class="dt-hud-popover-legend-label">
+                                <span class="dt-hud-legend-dot tool"></span>
+                                <span>Tool Execution Results (@breakdown.ToolCallCount)</span>
+                            </div>
+                            <span class="dt-hud-popover-val mono">@ContextMeterService.FormatTokens(breakdown.ToolTokens)</span>
+                        </div>
+                        @if (breakdown.DraftTokens > 0)
+                        {
+                            <div class="dt-hud-popover-row">
+                                <div class="dt-hud-popover-legend-label">
+                                    <span class="dt-hud-legend-dot draft"></span>
+                                    <span>Active Draft</span>
+                                </div>
+                                <span class="dt-hud-popover-val mono">@ContextMeterService.FormatTokens(breakdown.DraftTokens)</span>
+                            </div>
+                        }
+                        <div class="dt-hud-popover-divider"></div>
+                        <div class="dt-hud-popover-row highlight">
+                            <span>Remaining Headroom</span>
+                            <span class="dt-hud-popover-val mono text-success">@ContextMeterService.FormatTokens(breakdown.RemainingTokens)</span>
+                        </div>
+                        <div class="dt-hud-popover-row muted">
+                            <span>Total Window Limit</span>
+                            <span class="dt-hud-popover-val mono">@ContextMeterService.FormatTokens(breakdown.ContextLimit)</span>
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
-        <span style="font-size: 10.5px; color: var(--dt-text-muted); font-variant-numeric: tabular-nums;">
-            @(FilteredConversations.Count) sessions
-        </span>
     </div>
 
     <!-- Chat Context Menu -->
@@ -234,6 +392,17 @@
     [Parameter] public EventCallback<string> OnSelectConversation { get; set; }
     [Parameter] public EventCallback OnNewConversation { get; set; }
     [Parameter] public EventCallback<ConversationSummary> OnAddReference { get; set; }
+    [Parameter] public EventCallback OnOpenSettings { get; set; }
+    [Parameter] public string? SelectedModelId { get; set; }
+    [Parameter] public IReadOnlyList<ModelSummary>? Models { get; set; }
+
+    private bool isContextHudOpen = false;
+    private void ToggleContextHud() => isContextHudOpen = !isContextHudOpen;
+
+    // Long-press New button state
+    private bool isNewMenuOpen = false;
+    private CancellationTokenSource? newButtonPressCts;
+    private bool isLongPress = false;
 
     private string searchQuery = "";
     private HashSet<string> archivedChatIds = new();
@@ -509,5 +678,88 @@
             await File.WriteAllTextAsync(filePath, json);
         }
         catch {}
+    }
+
+    private void HandleNewButtonMouseDown(MouseEventArgs e)
+    {
+        if (e.Button != 0) return;
+        isLongPress = false;
+        newButtonPressCts?.Cancel();
+        newButtonPressCts?.Dispose();
+        newButtonPressCts = new CancellationTokenSource();
+        var token = newButtonPressCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(350, token);
+                if (!token.IsCancellationRequested)
+                {
+                    isLongPress = true;
+                    await InvokeAsync(() =>
+                    {
+                        isNewMenuOpen = true;
+                        StateHasChanged();
+                    });
+                }
+            }
+            catch (TaskCanceledException) { }
+        });
+    }
+
+    private void HandleNewButtonMouseUp(MouseEventArgs e)
+    {
+        if (e.Button != 0) return;
+        newButtonPressCts?.Cancel();
+    }
+
+    private void HandleNewButtonMouseLeave()
+    {
+        newButtonPressCts?.Cancel();
+    }
+
+    private void HandleNewButtonContextMenu()
+    {
+        newButtonPressCts?.Cancel();
+        isLongPress = false;
+        isNewMenuOpen = true;
+    }
+
+    private async Task HandleNewButtonClick()
+    {
+        if (isLongPress)
+        {
+            isLongPress = false;
+            return;
+        }
+
+        if (isNewMenuOpen) return;
+
+        await OnNewConversation.InvokeAsync();
+    }
+
+    private async Task HandleMenuNewChat()
+    {
+        isNewMenuOpen = false;
+        await OnNewConversation.InvokeAsync();
+    }
+
+    private void HandleMenuNewTerminal()
+    {
+        isNewMenuOpen = false;
+        TabService.OpenTerminalTab();
+    }
+
+    private void HandleMenuOpenGit()
+    {
+        isNewMenuOpen = false;
+        TabService.OpenGitTab();
+    }
+
+    private void HandleMenuToggleSplit()
+    {
+        isNewMenuOpen = false;
+        TabService.ToggleSplitView();
     }
 }

@@ -152,71 +152,26 @@ else if (IsSubagentTool)
         </div>
 
         @if (isExpanded)
+        @if (isExpanded)
         {
-            <div class="tool-step-body subagent-expanded-body">
-                <div class="subagent-banner-card">
-                    <div class="subagent-banner-top">
-                        <div class="subagent-identity">
-                            <span class="subagent-persona-chip">@agentType</span>
-                            <span class="subagent-role-name">@roleTitle</span>
-                        </div>
-                        <div class="subagent-badges">
-                            @if (!string.IsNullOrWhiteSpace(sandboxId))
-                            {
-                                <span class="subagent-env-text sandbox">
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
-                                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-                                        <line x1="6" y1="6" x2="6.01" y2="6"></line>
-                                        <line x1="6" y1="18" x2="6.01" y2="6"></line>
-                                    </svg>
-                                    <span>Gram Box Sandbox</span>
-                                </span>
-                            }
-                            else
-                            {
-                                <span class="subagent-env-text workspace">Workspace</span>
-                            }
-                        </div>
+            <div class="tool-step-output-area">
+                @if (!string.IsNullOrWhiteSpace(taskPrompt))
+                {
+                    <div class="tool-subagent-prompt-bar">
+                        <span class="subagent-persona-chip">@agentType</span>
+                        <span class="tool-subagent-prompt-text">@taskPrompt</span>
                     </div>
+                }
 
-                    @if (!string.IsNullOrWhiteSpace(taskPrompt))
-                    {
-                        <div class="subagent-mission-box">
-                            <span class="subagent-mission-label">Task Assignment</span>
-                            <p class="subagent-mission-text">@taskPrompt</p>
-                        </div>
-                    }
-                </div>
-
-                <!-- Subagent Output as Formatted Prose Text -->
                 @if (!string.IsNullOrWhiteSpace(ToolCall.Result))
                 {
-                    <div class="subagent-report-card">
-                        <div class="subagent-report-header">
-                            <div class="subagent-report-title-group">
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                    <polyline points="14 2 14 8 20 8"></polyline>
-                                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                                </svg>
-                                <span class="subagent-report-title">Findings & Output</span>
-                            </div>
-
-                            <button type="button" class="tool-copy-action-btn" @onclick="CopyOutput" title="Copy report text">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                </svg>
-                                <span>Copy</span>
-                            </button>
-                        </div>
-
-                        <div class="subagent-report-prose @(ToolCall.IsError ? "is-error-report" : "")">
-                            <MarkdownView Content="@ToolCall.Result" />
-                        </div>
+                    <div class="subagent-report-prose @(ToolCall.IsError ? "is-error-report" : "")">
+                        <MarkdownView Content="@ToolCall.Result" />
                     </div>
+                }
+                else
+                {
+                    <div class="tool-empty-output">(No findings returned)</div>
                 }
             </div>
         }
@@ -312,6 +267,17 @@ else
                     </span>
                 }
 
+                @if (isExpanded)
+                {
+                    <button type="button" class="tool-copy-action-btn" @onclick:stopPropagation="true" @onclick="CopyOutput" title="Copy output">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        <span>Copy</span>
+                    </button>
+                }
+
                 <button type="button" class="tool-step-chevron-btn @(isExpanded ? "expanded" : "")" aria-label="Toggle details">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="6 9 12 15 18 9"></polyline>
@@ -322,52 +288,22 @@ else
 
         @if (isExpanded)
         {
-            <div class="tool-step-body">
-                @if (ParsedArguments.Count > 0)
+            <div class="tool-step-output-area">
+                @if (ComputedDiff != null && ComputedDiff.Lines.Count > 0)
                 {
-                    <div class="tool-drawer-section">
-                        <div class="tool-drawer-header">
-                            <span class="tool-drawer-label">Parameters</span>
-                            <button type="button" class="tool-copy-action-btn" @onclick="CopyArguments" title="Copy arguments">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                </svg>
-                                <span>Copy</span>
-                            </button>
-                        </div>
-                        <div class="tool-params-table">
-                            @foreach (var kv in ParsedArguments)
-                            {
-                                <div class="tool-param-row">
-                                    <span class="tool-param-key">@kv.Key</span>
-                                    <span class="tool-param-val">@kv.Value</span>
-                                </div>
-                            }
-                        </div>
-                    </div>
+                    <InteractiveDiffViewer Diff="@ComputedDiff" />
+                    @if (!string.IsNullOrWhiteSpace(ToolCall.Result))
+                    {
+                        <div class="dt-tool-result-note">@ToolCall.Result</div>
+                    }
                 }
-
-                @if (!string.IsNullOrWhiteSpace(ToolCall.Result))
+                else if (!string.IsNullOrWhiteSpace(ToolCall.Result))
                 {
-                    <div class="tool-drawer-section">
-                        <div class="tool-drawer-header">
-                            <span class="tool-drawer-label">Console Output</span>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span class="tool-output-meta">@(GetOutputLineCount()) lines</span>
-                                <button type="button" class="tool-copy-action-btn" @onclick="CopyOutput" title="Copy output">
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                    </svg>
-                                    <span>Copy</span>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="tool-console-output @(ToolCall.IsError ? "has-error" : "")">
-                            <pre class="tool-console-code">@ToolCall.Result</pre>
-                        </div>
-                    </div>
+                    <pre class="tool-console-code @(ToolCall.IsError ? "has-error" : "")">@ToolCall.Result</pre>
+                }
+                else
+                {
+                    <div class="tool-empty-output">(No output returned)</div>
                 }
             </div>
         }
@@ -379,6 +315,38 @@ else
     private bool isExpanded = false;
 
     private bool IsWebSearchTool => ToolCall.ToolName.Equals("search_web", StringComparison.OrdinalIgnoreCase);
+
+    private DiffFileItem? ComputedDiff => GetDiffModel();
+
+    private DiffFileItem? GetDiffModel()
+    {
+        var name = ToolCall.ToolName.ToLowerInvariant();
+        var isEditOrWrite = name.Contains("edit_file") || name.Contains("replace_file") || name.Contains("write_file") || name.Contains("write_to_file");
+        if (!isEditOrWrite) return null;
+
+        var args = ParsedArguments;
+        var filePath = GetCleanPath(GetFullTargetFilePath());
+        var target = args.GetValueOrDefault("targetContent") ?? args.GetValueOrDefault("TargetContent") ?? "";
+        var replacement = args.GetValueOrDefault("replacementContent") ?? args.GetValueOrDefault("ReplacementContent") ?? args.GetValueOrDefault("CodeContent") ?? args.GetValueOrDefault("content") ?? "";
+
+        if (!string.IsNullOrEmpty(target) || !string.IsNullOrEmpty(replacement))
+        {
+            return DiffEngine.ComputeDiff(filePath, target, replacement);
+        }
+
+        if (!string.IsNullOrWhiteSpace(ToolCall.Result) && (ToolCall.Result.Contains("@@") || ToolCall.Result.Contains("[diff_block_start]")))
+        {
+            return DiffEngine.ParseUnifiedDiff(ToolCall.Result, filePath);
+        }
+
+        return null;
+    }
+
+    private string GetFullTargetFilePath()
+    {
+        var args = ParsedArguments;
+        return args.GetValueOrDefault("filePath") ?? args.GetValueOrDefault("AbsolutePath") ?? args.GetValueOrDefault("TargetFile") ?? args.GetValueOrDefault("path") ?? "";
+    }
 
     private bool IsSubagentTool => 
         ToolCall.ToolName.Contains("subagent", StringComparison.OrdinalIgnoreCase) ||

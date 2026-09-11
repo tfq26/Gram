@@ -336,4 +336,58 @@ public sealed class WorkspaceTabServiceUnitTests : IDisposable
         Assert.Equal("Legacy Chat 1", tabService.OpenTabs[0].Title);
         Assert.Equal("Legacy Chat 2", tabService.OpenTabs[1].Title);
     }
+
+    [Fact]
+    public void LinkTabs_CreatesPairedSplitTabInTabSelector()
+    {
+        var tabService = new WorkspaceTabService(_storageService);
+        tabService.OpenChatTab("chat-1", "Chat 1");
+        tabService.OpenChatTab("chat-2", "Chat 2");
+
+        var tab1 = tabService.OpenTabs.First(t => t.ChatId == "chat-1");
+        var tab2 = tabService.OpenTabs.First(t => t.ChatId == "chat-2");
+
+        tabService.LinkTabs(tab1.Id, tab2.Id);
+
+        Assert.True(tabService.IsSplitView);
+        Assert.Equal(tab1.Id, tabService.ActiveTabId);
+        Assert.Equal(tab2.Id, tabService.SecondaryTabId);
+        Assert.Equal(tab2.Id, tab1.SplitLinkedTabId);
+        Assert.Equal(tab1.Id, tab2.SplitLinkedTabId);
+
+        // Stably resolves left and right tabs
+        Assert.Equal(tab1.Id, tabService.GetSplitLeftTab()?.Id);
+        Assert.Equal(tab2.Id, tabService.GetSplitRightTab()?.Id);
+
+        // Unlinking restores normal standalone tabs
+        tabService.UnlinkTabs(tab1.Id);
+        Assert.False(tabService.IsSplitView);
+        Assert.Null(tabService.SecondaryTabId);
+        Assert.Null(tab1.SplitLinkedTabId);
+        Assert.Null(tab2.SplitLinkedTabId);
+    }
+
+    [Fact]
+    public void CloseTab_WhenPart_OfLinkedPair_LeavesPartnerAsSingleTab()
+    {
+        var tabService = new WorkspaceTabService(_storageService);
+        tabService.OpenChatTab("chat-1", "Chat 1");
+        tabService.OpenChatTab("chat-2", "Chat 2");
+
+        var tab1 = tabService.OpenTabs.First(t => t.ChatId == "chat-1");
+        var tab2 = tabService.OpenTabs.First(t => t.ChatId == "chat-2");
+
+        tabService.LinkTabs(tab1.Id, tab2.Id);
+        Assert.True(tabService.IsSplitView);
+
+        // Close tab2 (the secondary side)
+        tabService.CloseTab(tab2.Id);
+
+        Assert.False(tabService.IsSplitView);
+        Assert.Null(tabService.SecondaryTabId);
+        Assert.Null(tab1.SplitLinkedTabId);
+        Assert.Equal(tab1.Id, tabService.ActiveTabId);
+        Assert.Contains(tabService.OpenTabs, t => t.Id == tab1.Id);
+        Assert.DoesNotContain(tabService.OpenTabs, t => t.Id == tab2.Id);
+    }
 }

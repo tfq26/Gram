@@ -47,8 +47,12 @@ if ! command -v dotnet >/dev/null 2>&1; then
     exit 1
 fi
 
+LOGS_DIR="${ROOT_DIR}/.logs"
+mkdir -p "${LOGS_DIR}"
+
 DOTNET_VERSION=$(dotnet --version)
 echo -e "Using .NET SDK: ${GREEN}${DOTNET_VERSION}${NC}"
+echo -e "Real-time logs:  ${CYAN}${LOGS_DIR}/gram-activity.log${NC}"
 
 # 2. Check or launch Gram Backend
 echo -n "Checking Gram backend at ${BACKEND_URL}... "
@@ -57,9 +61,9 @@ if curl -s -f -m 2 "${BACKEND_URL}/api/v1/models" >/dev/null 2>&1; then
 else
     echo -e "${YELLOW}Not running. Starting backend in background...${NC}"
     cd "${ROOT_DIR}"
-    dotnet run --project Gram.Blazor/Gram.Blazor.csproj >/dev/null 2>&1 &
+    dotnet run --project Gram.Blazor/Gram.Blazor.csproj >> "${LOGS_DIR}/backend.log" 2>&1 &
     BACKEND_PID=$!
-    echo -e "Backend process launched (PID: ${BACKEND_PID}). Waiting for health check..."
+    echo -e "Backend process launched (PID: ${BACKEND_PID}). Logging to ${CYAN}${LOGS_DIR}/backend.log${NC}"
 
     RETRIES=30
     READY=0
@@ -74,7 +78,7 @@ else
     if [[ ${READY} -eq 1 ]]; then
         echo -e "${GREEN}Backend is healthy and listening on ${BACKEND_URL}.${NC}"
     else
-        echo -e "${RED}Timed out waiting for backend to start.${NC}"
+        echo -e "${RED}Timed out waiting for backend to start. Check ${LOGS_DIR}/backend.log${NC}"
         exit 1
     fi
 fi
@@ -86,9 +90,9 @@ if curl -s -f -m 1 "${LOCAL_AGENT_URL}/local/v1/health" >/dev/null 2>&1; then
 else
     echo -e "${YELLOW}Not running. Starting Local Agent in background...${NC}"
     cd "${ROOT_DIR}"
-    dotnet run --project Gram.Blazor/clients/Gram.LocalAgent/Gram.LocalAgent.csproj >/dev/null 2>&1 &
+    dotnet run --project Gram.Blazor/clients/Gram.LocalAgent/Gram.LocalAgent.csproj >> "${LOGS_DIR}/local-agent.log" 2>&1 &
     LOCAL_AGENT_PID=$!
-    echo -e "Local Agent launched (PID: ${LOCAL_AGENT_PID})."
+    echo -e "Local Agent launched (PID: ${LOCAL_AGENT_PID}). Logging to ${CYAN}${LOGS_DIR}/local-agent.log${NC}"
     sleep 1
 fi
 
@@ -98,7 +102,7 @@ cd "${ROOT_DIR}"
 if [[ "${1:-}" == "--cli" || "${1:-}" == "--message" ]]; then
     MESSAGE="${2:-Hello Gram}"
     echo -e "${CYAN}Launching in Headless CLI Mode: \"${MESSAGE}\"${NC}"
-    exec dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj -- --backend "${BACKEND_URL}" --message "${MESSAGE}"
+    exec dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj -- --backend "${BACKEND_URL}" --message "${MESSAGE}" 2>&1 | tee -a "${LOGS_DIR}/desktop.log"
 fi
 
 # 5. Native GUI Launch
@@ -109,5 +113,5 @@ if [[ "${1:-}" == "--bundle" && -d "${ROOT_DIR}/Gram.app" ]]; then
     open -W "${ROOT_DIR}/Gram.app"
 else
     echo -e "Press ${YELLOW}Ctrl+C${NC} in this terminal to exit.\n"
-    dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj -- --backend "${BACKEND_URL}"
+    dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj -- --backend "${BACKEND_URL}" 2>&1 | tee -a "${LOGS_DIR}/desktop.log"
 fi

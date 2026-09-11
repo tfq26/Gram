@@ -280,11 +280,27 @@ public sealed class ThemeService
         var accent = !string.IsNullOrEmpty(ActiveColors.Accent) ? ActiveColors.Accent : ActiveColors.Color5;
         var accentText = !string.IsNullOrEmpty(ActiveColors.AccentText) ? ActiveColors.AccentText : ActiveColors.Color5;
 
+        // Focus border calculation:
+        // Avoid harsh 100% white or glaring high-contrast rings that look cheap.
+        // For white/monochrome accents, use a refined, subtle 22% white border.
+        // For colored accents, blend subtly with border (45% accent, 55% border) for disciplined contrast.
+        bool isLightAccent = accent.Equals("#ffffff", StringComparison.OrdinalIgnoreCase) ||
+                             accent.Equals("#fff", StringComparison.OrdinalIgnoreCase) ||
+                             accent.Equals("#f4f4f5", StringComparison.OrdinalIgnoreCase) ||
+                             accent.Equals("#f5f5f5", StringComparison.OrdinalIgnoreCase) ||
+                             accent.Equals("#f4f7f5", StringComparison.OrdinalIgnoreCase) ||
+                             accent.Equals("#eee5e9", StringComparison.OrdinalIgnoreCase);
+
+        var borderFocus = isLightAccent
+            ? "rgba(255, 255, 255, 0.22)"
+            : $"color-mix(in srgb, {accent} 45%, {border})";
+
         return $"--bg-body: {bgBody}; " +
                $"--bg-panel: {bgPanel}; " +
                $"--bg-panel-subtle: {bgSubtle}; " +
                $"--border-color: {border}; " +
-               $"--border-focus: {accent}; " +
+               $"--border-focus: {borderFocus}; " +
+               $"--focus-ring: transparent; " +
                $"--text-primary: {textPrimary}; " +
                $"--text-secondary: {textSecondary}; " +
                $"--text-muted: {textSecondary}; " +
@@ -293,6 +309,8 @@ public sealed class ThemeService
                $"--accent: {accent}; " +
                $"--accent-hover: {accent}; " +
                $"--accent-text: {accentText}; " +
+               $"--tabs-scroll-thumb: {border}; " +
+               $"--tabs-scroll-thumb-hover: {accent}; " +
                $"--accent-light: {border}; " +
                $"--accent-grad: linear-gradient(135deg, {accent} 0%, {bgSubtle} 100%);";
     }

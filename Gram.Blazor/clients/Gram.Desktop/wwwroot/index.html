@@ -8,6 +8,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&family=Geist:wght@100..900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="lib/xterm/xterm.css" />
+    <link rel="stylesheet" href="lib/prism/prism.css" />
     <link rel="stylesheet" href="css/desktop.css" />
 </head>
 <body class="desktop-body">
@@ -17,7 +19,11 @@
             <span>Starting Gram Desktop...</span>
         </div>
     </app>
+    <script src="lib/xterm/xterm.js"></script>
+    <script src="lib/xterm/addon-fit.js"></script>
+    <script src="terminal-pty.js"></script>
     <script src="gramCharacter.js"></script>
+    <script src="lib/prism/prism.js"></script>
     <script src="desktop.js"></script>
     <script src="_framework/blazor.webview.js"></script>
 </body>

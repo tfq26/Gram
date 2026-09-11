@@ -90,6 +90,18 @@ public sealed class DesktopOfflineCache
                     expected_version INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS ix_queued_edits_conversation ON offline_queued_edits (conversation_id);
+                CREATE TABLE IF NOT EXISTS terminal_logs (
+                    id TEXT PRIMARY KEY,
+                    workspace_path TEXT NOT NULL,
+                    command TEXT NOT NULL,
+                    exit_code INTEGER NOT NULL,
+                    stdout TEXT,
+                    stderr TEXT,
+                    elapsed_ms INTEGER NOT NULL,
+                    timestamp TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_terminal_logs_workspace ON terminal_logs (workspace_path);
+                CREATE INDEX IF NOT EXISTS ix_terminal_logs_timestamp ON terminal_logs (timestamp);
             ";
             cmd.ExecuteNonQuery();
         }
@@ -283,6 +295,105 @@ public sealed class DesktopOfflineCache
             ));
         }
         return results;
+    }
+
+    public void SaveTerminalLog(TerminalLogRecord log)
+    {
+        lock (_gate)
+        {
+            if (!_isSqlite || string.IsNullOrWhiteSpace(_sqliteConnectionString)) return;
+            try
+            {
+                using var conn = new SqliteConnection(_sqliteConnectionString);
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT OR REPLACE INTO terminal_logs (id, workspace_path, command, exit_code, stdout, stderr, elapsed_ms, timestamp)
+                    VALUES (@id, @ws, @cmd, @code, @out, @err, @ms, @time);
+                ";
+                cmd.Parameters.AddWithValue("@id", log.Id);
+                cmd.Parameters.AddWithValue("@ws", log.WorkspacePath ?? "");
+                cmd.Parameters.AddWithValue("@cmd", log.Command ?? "");
+                cmd.Parameters.AddWithValue("@code", log.ExitCode);
+                cmd.Parameters.AddWithValue("@out", log.Stdout ?? "");
+                cmd.Parameters.AddWithValue("@err", log.Stderr ?? "");
+                cmd.Parameters.AddWithValue("@ms", log.ElapsedMs);
+                cmd.Parameters.AddWithValue("@time", log.Timestamp.ToString("o"));
+                cmd.ExecuteNonQuery();
+            }
+            catch {}
+        }
+    }
+
+    public IReadOnlyList<TerminalLogRecord> GetTerminalLogs(string? workspacePath = null, int limit = 100)
+    {
+        lock (_gate)
+        {
+            if (!_isSqlite || string.IsNullOrWhiteSpace(_sqliteConnectionString)) return [];
+            try
+            {
+                using var conn = new SqliteConnection(_sqliteConnectionString);
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                if (!string.IsNullOrWhiteSpace(workspacePath))
+                {
+                    cmd.CommandText = "SELECT id, workspace_path, command, exit_code, stdout, stderr, elapsed_ms, timestamp FROM terminal_logs WHERE workspace_path = @ws ORDER BY timestamp DESC LIMIT @limit;";
+                    cmd.Parameters.AddWithValue("@ws", workspacePath);
+                }
+                else
+                {
+                    cmd.CommandText = "SELECT id, workspace_path, command, exit_code, stdout, stderr, elapsed_ms, timestamp FROM terminal_logs ORDER BY timestamp DESC LIMIT @limit;";
+                }
+                cmd.Parameters.AddWithValue("@limit", Math.Max(1, limit));
+
+                var results = new List<TerminalLogRecord>();
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    results.Add(new TerminalLogRecord(
+                        reader.GetString(0),
+                        reader.IsDBNull(1) ? "" : reader.GetString(1),
+                        reader.IsDBNull(2) ? "" : reader.GetString(2),
+                        reader.GetInt32(3),
+                        reader.IsDBNull(4) ? "" : reader.GetString(4),
+                        reader.IsDBNull(5) ? "" : reader.GetString(5),
+                        reader.GetInt64(6),
+                        DateTimeOffset.Parse(reader.GetString(7))
+                    ));
+                }
+                results.Reverse();
+                return results;
+            }
+            catch
+            {
+                return [];
+            }
+        }
+    }
+
+    public void ClearTerminalLogs(string? workspacePath = null)
+    {
+        lock (_gate)
+        {
+            if (!_isSqlite || string.IsNullOrWhiteSpace(_sqliteConnectionString)) return;
+            try
+            {
+                using var conn = new SqliteConnection(_sqliteConnectionString);
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                if (!string.IsNullOrWhiteSpace(workspacePath))
+                {
+                    cmd.CommandText = "DELETE FROM terminal_logs WHERE workspace_path = @ws;";
+                    cmd.Parameters.AddWithValue("@ws", workspacePath);
+                }
+                else
+                {
+                    cmd.CommandText = "DELETE FROM terminal_logs;";
+                }
+                cmd.ExecuteNonQuery();
+            }
+            catch {}
+        }
     }
 
     private static DesktopCacheSnapshot Sanitize(DesktopCacheSnapshot snapshot)

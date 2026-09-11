@@ -172,6 +172,40 @@
                         </svg>
                     </div>
                 </div>
+
+                <!-- 2b. Context Window Utilization Gauge -->
+                <div class="dt-hud-divider"></div>
+                {
+                    var activeModel = Models?.FirstOrDefault(m => m.Id == SelectedModelId);
+                    var breakdown = ContextMeterService.CalculateBreakdown(
+                        Session.ActiveConversation?.Messages,
+                        Session.DraftResponse,
+                        null,
+                        SelectedModelId,
+                        activeModel?.ContextLength,
+                        Session.CurrentStreamingToolCalls
+                    );
+                    var healthClass = breakdown.HealthStatus.ToString().ToLowerInvariant();
+
+                    <div class="dt-hud-context-row">
+                        <div class="dt-hud-context-header">
+                            <span class="dt-hud-row-label">Context</span>
+                            <span class="dt-hud-context-stats mono">
+                                @ContextMeterService.FormatTokens(breakdown.TotalTokens) / @ContextMeterService.FormatTokens(breakdown.ContextLimit)
+                                <span class="dt-hud-context-pct @healthClass">(@ContextMeterService.FormatPercentage(breakdown.UsagePercentage))</span>
+                            </span>
+                        </div>
+                        <div class="dt-hud-meter-track mini" title="@ContextMeterService.FormatTokens(breakdown.RemainingTokens) headroom remaining">
+                            <div class="dt-hud-bar-segment sys" style="width: @(breakdown.SystemPercentage.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                            <div class="dt-hud-bar-segment msg" style="width: @(breakdown.MessagesPercentage.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                            <div class="dt-hud-bar-segment tool" style="width: @(breakdown.ToolPercentage.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                            @if (breakdown.DraftPercentage > 0.1)
+                            {
+                                <div class="dt-hud-bar-segment draft" style="width: @(breakdown.DraftPercentage.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                            }
+                        </div>
+                    </div>
+                }
             }
 
             <!-- 3. Stop Action (if streaming) -->

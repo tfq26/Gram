@@ -201,6 +201,72 @@ public sealed class AgentToolsExecutionTests
         }
     }
 
+    [Fact]
+    public void AgentTools_DatabaseTools_ExposedForDatabaseIntent()
+    {
+        var (registry, _, tempDir) = CreateTestContext();
+        using (tempDir)
+        {
+            var tools = registry.GetAvailableTools(isLocalEnvironment: true, intent: "Inspect SQLite database schema and run a query");
+            Assert.Contains(tools, t => t.Name == "db_list_tables");
+            Assert.Contains(tools, t => t.Name == "db_inspect_schema");
+            Assert.Contains(tools, t => t.Name == "db_query_readonly");
+            Assert.Contains(tools, t => t.Name == "db_execute_dml");
+        }
+    }
+
+    [Fact]
+    public async Task AgentTools_DbTools_ExecuteAgainstSqliteDatabase()
+    {
+        var (registry, _, tempDir) = CreateTestContext();
+        using (tempDir)
+        {
+            var dbPath = Path.Combine(tempDir.Path, "app.db");
+            using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "CREATE TABLE products (id INTEGER PRIMARY KEY, title TEXT, price REAL); INSERT INTO products VALUES (1, 'Keyboard', 99.99);";
+                cmd.ExecuteNonQuery();
+            }
+
+            // 1. db_list_tables
+            var listArgs = new JsonObject
+            {
+                ["engine"] = "sqlite",
+                ["connectionOrPath"] = "app.db"
+            }.ToJsonString();
+
+            var listRes = await registry.ExecuteToolAsync("db_list_tables", "call-db-1", listArgs, tempDir.Path);
+            Assert.False(listRes.IsError, listRes.Output);
+            Assert.Contains("products", listRes.Output);
+
+            // 2. db_query_readonly
+            var queryArgs = new JsonObject
+            {
+                ["engine"] = "sqlite",
+                ["connectionOrPath"] = "app.db",
+                ["query"] = "SELECT * FROM products"
+            }.ToJsonString();
+
+            var queryRes = await registry.ExecuteToolAsync("db_query_readonly", "call-db-2", queryArgs, tempDir.Path);
+            Assert.False(queryRes.IsError, queryRes.Output);
+            Assert.Contains("Keyboard", queryRes.Output);
+
+            // 3. db_query_readonly rejects stacked injection
+            var badQueryArgs = new JsonObject
+            {
+                ["engine"] = "sqlite",
+                ["connectionOrPath"] = "app.db",
+                ["query"] = "SELECT 1; DROP TABLE products;"
+            }.ToJsonString();
+
+            var badRes = await registry.ExecuteToolAsync("db_query_readonly", "call-db-3", badQueryArgs, tempDir.Path);
+            Assert.True(badRes.IsError);
+            Assert.Contains("Multi-statement", badRes.Output);
+        }
+    }
+
     private sealed class TemporaryDirectory : IDisposable
     {
         public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "gram-test-" + Guid.NewGuid().ToString("N"));

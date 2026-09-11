@@ -19,7 +19,7 @@
                 <button type="button" 
                         class="model-dropdown-trigger @(isModelMenuOpen ? "open" : "")" 
                         style="height: 28px; font-size: 11.5px; padding: 2px 8px;"
-                        @onclick="() => isModelMenuOpen = !isModelMenuOpen"
+                        @onclick="ToggleModelMenu"
                         title="Switch AI model for Split B">
                     <ModelIcon ModelId="@activeModelId" Size="13" />
                     <span class="model-trigger-name" style="max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@(ActiveModel?.Name ?? activeModelId)</span>
@@ -31,27 +31,60 @@
                 @if (isModelMenuOpen)
                 {
                     <div class="model-dropdown-backdrop" @onclick="() => isModelMenuOpen = false"></div>
-                    <div class="model-dropdown-menu" style="top: 32px; left: 0;" @onclick:stopPropagation="true">
-                        @foreach (var model in ModelService.Models.OrderByDescending(m => m.IsFavorite))
+                    <div class="model-dropdown-menu" style="top: 32px; left: 0; min-width: 250px;" @onclick:stopPropagation="true">
+                        @if (!isBrowsingModels)
                         {
-                            var isSelected = model.Id == activeModelId;
-                            <button type="button" 
-                                    class="model-dropdown-item @(isSelected ? "active" : "")" 
-                                    @onclick="() => SelectModel(model.Id)">
-                                <div class="model-item-info">
-                                    <ModelIcon ModelId="@model.Id" Size="13" />
-                                    <div class="model-item-text">
-                                        <span class="model-item-label" style="font-size: 12px;">@model.Name</span>
-                                        <span class="model-item-vendor" style="font-size: 10px;">@model.Provider</span>
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px 4px; border-bottom: 1px solid var(--border-color);">
+                                <span style="font-size: 11px; font-weight: 600; color: var(--text-primary);">Model & Effort</span>
+                                <span style="font-size: 10px; color: var(--text-muted);">Click model to switch</span>
+                            </div>
+                            <div class="model-current-card-btn"
+                                 role="button"
+                                 tabindex="0"
+                                 @onclick="() => isBrowsingModels = true"
+                                 title="Click to choose a different model">
+                                <div class="model-current-info" style="display: flex; align-items: center; gap: 8px;">
+                                    <ModelIcon ModelId="@activeModelId" Size="14" />
+                                    <div style="display: flex; flex-direction: column; text-align: left;">
+                                        <span style="font-size: 11.5px; font-weight: 600; color: var(--text-primary);">@(ActiveModel?.Name ?? activeModelId)</span>
+                                        <span style="font-size: 10px; color: var(--text-muted);">@(ActiveModel?.Provider ?? "")</span>
                                     </div>
                                 </div>
-                                @if (isSelected)
-                                {
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent);">
-                                        <polyline points="20 6 9 17 4 12"></polyline>
-                                    </svg>
-                                }
-                            </button>
+                                <span style="font-size: 10px; font-weight: 500; color: var(--text-secondary); background: var(--bg-surface); border: 1px solid var(--border-color); padding: 2px 6px; border-radius: 4px;">Switch ▾</span>
+                            </div>
+                            <div style="padding: 4px 8px 8px; border-top: 1px solid var(--border-color); margin-top: 4px;">
+                                <ReasoningEffortControl ModelId="@activeModelId" Compact="false" />
+                            </div>
+                        }
+                        else
+                        {
+                            <div style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border-color);">
+                                <button type="button" class="model-card-back-btn" @onclick="() => isBrowsingModels = false" title="Back to model settings">
+                                    ‹ Back
+                                </button>
+                                <span style="font-size: 11px; font-weight: 600; color: var(--text-primary);">Select Model</span>
+                            </div>
+                            @foreach (var model in ModelService.Models.Where(m => m.IsEnabled).OrderByDescending(m => m.IsFavorite))
+                            {
+                                var isSelected = model.Id == activeModelId;
+                                <button type="button" 
+                                        class="model-dropdown-item @(isSelected ? "active" : "")" 
+                                        @onclick="() => SelectModel(model.Id)">
+                                    <div class="model-item-info">
+                                        <ModelIcon ModelId="@model.Id" Size="13" />
+                                        <div class="model-item-text">
+                                            <span class="model-item-label" style="font-size: 12px;">@model.Name</span>
+                                            <span class="model-item-vendor" style="font-size: 10px;">@model.Provider</span>
+                                        </div>
+                                    </div>
+                                    @if (isSelected)
+                                    {
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent);">
+                                            <polyline points="20 6 9 17 4 12"></polyline>
+                                        </svg>
+                                    }
+                                </button>
+                            }
                         }
                     </div>
                 }
@@ -219,6 +252,7 @@
 
     private string activeModelId = "gram-q";
     private bool isModelMenuOpen = false;
+    private bool isBrowsingModels = false;
     private string draft = "";
     private bool isGenerating = false;
     private CancellationTokenSource? cts;
@@ -227,17 +261,26 @@
     private int dialogueRound = 1;
     private int dialogueMaxRounds = 3;
 
-    private GramModel? ActiveModel => ModelService.Models.FirstOrDefault(m => m.Id.Equals(activeModelId, StringComparison.OrdinalIgnoreCase));
+    private GramModel? ActiveModel => ModelService.Models.FirstOrDefault(m => m.Id == activeModelId);
 
     protected override void OnInitialized()
     {
         TabService.OnCrossChatRequested += HandleCrossChatRequested;
     }
 
+    private void ToggleModelMenu()
+    {
+        isModelMenuOpen = !isModelMenuOpen;
+        if (isModelMenuOpen)
+        {
+            isBrowsingModels = false;
+        }
+    }
+
     private void SelectModel(string modelId)
     {
         activeModelId = modelId;
-        isModelMenuOpen = false;
+        isBrowsingModels = false;
     }
 
     private async Task OnChatSelected(ChangeEventArgs e)

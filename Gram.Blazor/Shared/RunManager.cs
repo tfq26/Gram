@@ -22,6 +22,7 @@ public sealed class RunManager
 
     private async Task ExecuteAsync(string runId, string modelId, Conversation conversation, SendMessageRequest request)
     {
+        GramLog.Info("RunManager", $"Starting run {runId} | Model: {modelId} | Prompt: \"{request.Text}\" | Workspace: {request.WorkspacePath}");
         try
         {
             using var scope = _scopeFactory.CreateScope();
@@ -31,6 +32,7 @@ public sealed class RunManager
             void OnPermissionReq(PendingPermissionRequest permReq)
             {
                 var runScopedReq = permReq with { RunId = runId };
+                GramLog.Info("RunManager", $"Permission requested: {permReq.ToolName} | Action: {permReq.Reason}");
                 _tracker.Update(runId, AgentRunStatus.Executing, $"Approval required: {permReq.ToolName}", toolName: permReq.ToolName);
                 _tracker.EmitPayload(runId, "permission.requested", JsonSerializer.Serialize(runScopedReq, BackendJson.Options));
             }
@@ -54,18 +56,30 @@ public sealed class RunManager
                         {
                             existing.Result = tc.Result;
                             existing.IsError = tc.IsError;
+                            GramLog.Info("RunManager", $"[Tool Result] {existing.ToolName} (Id: {existing.Id}) | Error: {existing.IsError} | Output: {existing.Result}");
                         }
                         else
                         {
                             runToolCalls.Add(tc);
+                            GramLog.Info("RunManager", $"[Tool Call] {tc.ToolName} (Id: {tc.Id}) | Args: {tc.Arguments}");
                         }
                     }
 
-                    _tracker.Update(runId, AgentRunStatus.Executing, step.ToolCall is null ? "Generating response" : $"Using {ToolNameHelper.GetDisplayName(step.ToolCall.ToolName)}", toolName: step.ToolCall?.ToolName);
-                    _tracker.EmitPayload(runId, "run.step", JsonSerializer.Serialize(new { step.ContentDelta, step.ThinkingDelta, step.ToolCall, step.ErrorMessage, step.IsComplete }, BackendJson.Options));
-                    if (step.ErrorMessage is not null) { _tracker.Complete(runId, AgentRunStatus.Failed, step.ErrorMessage); return; }
+                    var statusText = !string.IsNullOrWhiteSpace(step.StepCommentary)
+                        ? step.StepCommentary
+                        : (step.ToolCall is null ? "Generating response" : $"Using {ToolNameHelper.GetDisplayName(step.ToolCall.ToolName)}");
+
+                    _tracker.Update(runId, AgentRunStatus.Executing, statusText, toolName: step.ToolCall?.ToolName);
+                    _tracker.EmitPayload(runId, "run.step", JsonSerializer.Serialize(new { step.ContentDelta, step.ThinkingDelta, step.StepCommentary, step.ToolCall, step.ErrorMessage, step.IsComplete }, BackendJson.Options));
+                    if (step.ErrorMessage is not null)
+                    {
+                        GramLog.Error("RunManager", $"Run {runId} step error: {step.ErrorMessage}");
+                        _tracker.Complete(runId, AgentRunStatus.Failed, step.ErrorMessage);
+                        return;
+                    }
                 }
                 _tracker.Complete(runId);
+                GramLog.Info("RunManager", $"Run {runId} completed successfully.");
                 using var saveScope = _scopeFactory.CreateScope();
                 var service = saveScope.ServiceProvider.GetRequiredService<ConversationService>();
                 await service.InitializeAsync();
@@ -94,7 +108,15 @@ public sealed class RunManager
             }
             catch { /* Memory capture must never fail an otherwise successful run. */ }
         }
-        catch (OperationCanceledException) { _tracker.Complete(runId, AgentRunStatus.Cancelled, "Generation cancelled."); }
-        catch (Exception ex) { _tracker.Complete(runId, AgentRunStatus.Failed, ex.Message); }
+        catch (OperationCanceledException)
+        {
+            GramLog.Warn("RunManager", $"Run {runId} cancelled.");
+            _tracker.Complete(runId, AgentRunStatus.Cancelled, "Generation cancelled.");
+        }
+        catch (Exception ex)
+        {
+            GramLog.Error("RunManager", $"Run {runId} execution failed: {ex.Message}", ex);
+            _tracker.Complete(runId, AgentRunStatus.Failed, ex.Message);
+        }
     }
 }

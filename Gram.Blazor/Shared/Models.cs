@@ -111,6 +111,7 @@ public sealed class Message
     public List<ToolCallInfo>? ToolCalls { get; set; }
     public List<MentionReference> Mentions { get; set; } = [];
     public string? SandboxId { get; set; }
+    public int? Rating { get; set; }
 
     public Message() {}
     public Message(string role, string text)
@@ -237,13 +238,31 @@ public sealed class DiffLine
     public int? NewLineNumber { get; set; }
 }
 
+public sealed class DiffHunk
+{
+    public int HunkIndex { get; set; }
+    public string Header { get; set; } = "";
+    public int OldStartLine { get; set; }
+    public int OldLineCount { get; set; }
+    public int NewStartLine { get; set; }
+    public int NewLineCount { get; set; }
+    public List<DiffLine> Lines { get; set; } = [];
+    public bool IsAccepted { get; set; }
+    public bool IsRejected { get; set; }
+    public int AdditionsCount => Lines.Count(l => l.Type == "add");
+    public int DeletionsCount => Lines.Count(l => l.Type == "delete");
+}
+
 public sealed class DiffFileItem
 {
     public string FilePath { get; set; } = "";
     public string Status { get; set; } = "Modified"; // "Modified", "Added", "Deleted"
     public List<DiffLine> Lines { get; set; } = [];
+    public List<DiffHunk> Hunks { get; set; } = [];
     public bool IsAccepted { get; set; } = false;
     public bool IsRejected { get; set; } = false;
+    public int AdditionsCount => Lines.Count(l => l.Type == "add");
+    public int DeletionsCount => Lines.Count(l => l.Type == "delete");
 }
 
 public sealed class ArtifactInfo

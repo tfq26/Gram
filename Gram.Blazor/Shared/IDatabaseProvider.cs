@@ -47,4 +47,20 @@ public interface IDatabaseProvider
     Task<List<SandboxJobRecord>> ListSandboxJobsAsync(CancellationToken ct = default);
     Task<List<SandboxOutboxRecord>> ListPendingSandboxOutboxAsync(int limit = 100, CancellationToken ct = default);
     Task MarkSandboxOutboxPublishedAsync(string messageId, CancellationToken ct = default);
+
+    // Terminal log persistence
+    Task SaveTerminalLogAsync(TerminalLogRecord record, CancellationToken ct = default);
+    Task<List<TerminalLogRecord>> ListTerminalLogsAsync(string? workspacePath = null, int limit = 100, CancellationToken ct = default);
+    Task ClearTerminalLogsAsync(string? workspacePath = null, CancellationToken ct = default);
 }
+
+public sealed record TerminalLogRecord(
+    string Id,
+    string WorkspacePath,
+    string Command,
+    int ExitCode,
+    string Stdout,
+    string Stderr,
+    long ElapsedMs,
+    DateTimeOffset Timestamp
+);

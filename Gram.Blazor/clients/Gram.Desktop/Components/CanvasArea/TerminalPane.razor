@@ -1,68 +1,59 @@
 @namespace Gram.Desktop.Components.CanvasArea
 @using Gram.Desktop.Services
 @using Gram.Blazor.Shared
+@using System.Runtime.InteropServices
+@using System.Text
+@using System.Text.RegularExpressions
 @implements IAsyncDisposable
 @inject DesktopSession Session
 @inject WorkspaceTabService TabService
+@inject PtyTerminalService PtyService
+@inject TopBarService TopBarService
+@inject StorageService StorageService
 @inject IJSRuntime JSRuntime
 
 <div class="dt-terminal-view">
-    <!-- Output Buffer: Continuous monospace terminal buffer, no cards -->
-    <div class="dt-terminal-output" @ref="terminalScrollRef">
-        @if (terminalHistory.Count == 0)
-        {
-            <div class="dt-terminal-buffer-info">
-                <span>Workspace: @(string.IsNullOrWhiteSpace(Session.WorkspacePath) ? "No folder open" : Session.WorkspacePath)</span>
-            </div>
-        }
-        else
-        {
-            @foreach (var entry in terminalHistory)
-            {
-                <div class="dt-terminal-entry">
-                    <div class="dt-terminal-cmd-row">
-                        <span class="dt-terminal-prompt">❯</span>
-                        <span class="dt-terminal-cmd">@entry.Command</span>
-                        <span class="dt-terminal-meta">
-                            <span class="dt-terminal-timestamp" title="@entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                            @if (entry.ExitCode != 0)
-                            {
-                                <span class="dt-terminal-exit error">exit @entry.ExitCode</span>
-                            }
-                            <span class="dt-terminal-time">@entry.ElapsedMs ms</span>
-                        </span>
-                    </div>
-                    @if (!string.IsNullOrWhiteSpace(entry.Stdout))
-                    {
-                        <pre class="dt-terminal-stdout">@entry.Stdout</pre>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(entry.Stderr))
-                    {
-                        <pre class="dt-terminal-stderr">@entry.Stderr</pre>
-                    }
-                </div>
-            }
-        }
-    </div>
+    @if (hasTerminalError && !string.IsNullOrWhiteSpace(lastExecutedCommand))
+    {
+        <div class="dt-terminal-error-pill" @onclick="HandleFixWithGram" title="Send terminal error to Gram composer">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            <span class="dt-terminal-error-label">Fix with Gram: <code>@GetShortCommand(lastExecutedCommand)</code></span>
+            <button type="button" class="dt-terminal-error-dismiss" @onclick:stopPropagation="true" @onclick="() => hasTerminalError = false">✕</button>
+        </div>
+    }
+    <div class="dt-xterm-wrapper">
+        <div class="dt-xterm-viewport" @onclick="HandleFocusPty">
+            <div id="@ptyContainerId" class="dt-xterm-element"></div>
+        </div>
 
-    <!-- Command Input Bar: Clean command line prompt with auto-complete & history navigation -->
-    <div class="dt-terminal-input-bar">
         @if (isSuggestionsOpen && suggestions.Count > 0)
         {
             <div class="dt-terminal-suggestions-popup" @onclick:stopPropagation="true">
+                <div class="dt-terminal-suggestions-header">
+                    <span class="dt-terminal-suggestions-title">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        Terminal Suggestions
+                    </span>
+                    <span class="dt-terminal-suggestions-hint">Tab / ↵ to insert • Esc to close</span>
+                </div>
                 @for (int i = 0; i < suggestions.Count; i++)
                 {
                     var index = i;
-                    var item = suggestions[index];
-                    var isSelected = index == selectedSuggestionIndex;
-                    <div class="dt-terminal-suggestion-item @(isSelected ? "selected" : "")"
-                         @onclick="() => SelectSuggestion(index)"
-                         @onmouseenter="() => selectedSuggestionIndex = index">
+                    var item = suggestions[i];
+                    <div class="dt-terminal-suggestion-item @(index == selectedSuggestionIndex ? "selected" : "") @(item.Kind is "recent" or "hist" ? "is-recent" : "")"
+                         @onmousedown:preventDefault="true"
+                         @onmousedown="() => SelectSuggestion(index)"
+                         @onclick="() => SelectSuggestion(index)">
                         <div class="dt-terminal-suggestion-main">
-                            <span class="dt-terminal-suggestion-kind @item.Kind">@item.Kind</span>
-                            <span class="dt-terminal-suggestion-text">@item.DisplayLabel</span>
+                            <span class="dt-terminal-suggestion-kind @item.Kind">@(item.Kind is "recent" or "hist" ? "RECENT" : item.Kind.ToUpperInvariant())</span>
+                            <span class="dt-terminal-suggestion-text">@item.Label</span>
                         </div>
-                        @if (!string.IsNullOrWhiteSpace(item.Description))
+                        @if (!string.IsNullOrEmpty(item.Description))
                         {
                             <span class="dt-terminal-suggestion-desc">@item.Description</span>
                         }
@@ -70,344 +61,615 @@
                 }
             </div>
         }
-
-        <span class="dt-terminal-prompt">❯</span>
-        <input type="text"
-               @ref="terminalInputRef"
-               class="dt-terminal-input"
-               placeholder="Type a command (Tab to autocomplete)..."
-               value="@terminalInput"
-               @oninput="HandleTerminalInput"
-               @onkeydown="HandleTerminalKeyDown"
-               disabled="@isTerminalRunning"
-               autofocus />
-        @if (isTerminalRunning)
-        {
-            <span class="dt-terminal-running-label">Running...</span>
-        }
     </div>
 </div>
 
 @code {
-    private sealed record TerminalHistoryEntry(string Command, int ExitCode, string Stdout, string Stderr, long ElapsedMs, DateTimeOffset Timestamp);
-    private sealed record TerminalSuggestion(string DisplayLabel, string InsertionText, string Kind, string Description);
+    [Parameter] public string? TabId { get; set; }
 
-    private readonly List<TerminalHistoryEntry> terminalHistory = new();
-    private readonly List<TerminalSuggestion> suggestions = new();
-    private string terminalInput = "";
-    private bool isTerminalRunning = false;
+    public sealed record TerminalSuggestion(string Label, string InsertionText, string Kind, string Description);
+
+    private string effectiveTabId => !string.IsNullOrWhiteSpace(TabId) ? TabId : "term-default";
+    private string ptyContainerId => $"dt-pty-viewport-{effectiveTabId}";
+
+    private bool isPtyInitialized = false;
+    private bool isEventsHooked = false;
+    private string detectedShellName = "shell";
+    private DotNetObjectReference<TerminalPane>? dotNetHelper;
+
+    // Autocomplete Suggestions State
     private bool isSuggestionsOpen = false;
     private int selectedSuggestionIndex = 0;
-    private ElementReference terminalScrollRef;
-    private ElementReference terminalInputRef;
-    private DotNetObjectReference<TerminalPane>? dotNetHelper;
-    private int historyIndex = -1;
-    private string temporaryInput = "";
+    private string currentTypedLine = "";
+    private List<TerminalSuggestion> suggestions = new();
+    private static readonly List<string> previouslyUsedCommands = new();
+    private static readonly object historyLock = new();
+    private static bool isHistoryLoaded = false;
+    private const string RecentCommandsFileName = "desktop_terminal_recent.json";
+
+    // Terminal Error Interception State
+    private readonly StringBuilder recentTerminalOutput = new();
+    private string lastExecutedCommand = "";
+    private bool hasTerminalError = false;
+    private string capturedErrorMessage = "";
+    private static readonly Regex TerminalErrorPattern = new(
+        @"(?:error[:\s]|failed|exception|command not found|fatal:|syntaxerror|panic:)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static string GetShortCommand(string cmd)
+    {
+        if (string.IsNullOrWhiteSpace(cmd)) return "";
+        return cmd.Length > 28 ? cmd[..25] + "..." : cmd;
+    }
+
+    private void HandleFixWithGram()
+    {
+        var errSnippet = capturedErrorMessage;
+        if (string.IsNullOrWhiteSpace(errSnippet))
+        {
+            lock (recentTerminalOutput)
+            {
+                errSnippet = recentTerminalOutput.ToString();
+            }
+            if (errSnippet.Length > 2000) errSnippet = errSnippet[^2000..];
+        }
+
+        var prompt = $"Investigate and fix this terminal error:\n\nCommand: `{lastExecutedCommand}`\n\nTerminal Output:\n```\n{errSnippet.Trim()}\n```";
+        hasTerminalError = false;
+
+        var chatTab = TabService.OpenTabs.FirstOrDefault(t => t.Type == WorkspaceTabType.Chat);
+        if (chatTab != null)
+        {
+            TabService.SelectTab(chatTab.Id);
+        }
+        else
+        {
+            TabService.OpenChatTab(Session.ActiveConversation?.Id ?? "default", "Chat");
+        }
+
+        Session.RequestComposerPrompt(prompt);
+    }
+
+    protected override void OnInitialized()
+    {
+        var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        if (isWindows)
+        {
+            detectedShellName = "PowerShell";
+        }
+        else
+        {
+            var userShell = Environment.GetEnvironmentVariable("SHELL");
+            detectedShellName = !string.IsNullOrWhiteSpace(userShell)
+                ? System.IO.Path.GetFileName(userShell)
+                : (File.Exists("/bin/zsh") ? "zsh" : "bash");
+        }
+
+        LoadPreviouslyUsed();
+        RegisterTopBarActions();
+    }
+
+    private void LoadPreviouslyUsed()
+    {
+        lock (historyLock)
+        {
+            if (isHistoryLoaded) return;
+            try
+            {
+                var filePath = StorageService.GetFilePath(RecentCommandsFileName);
+                if (File.Exists(filePath))
+                {
+                    var json = File.ReadAllText(filePath);
+                    var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json);
+                    if (list != null && list.Count > 0)
+                    {
+                        previouslyUsedCommands.Clear();
+                        previouslyUsedCommands.AddRange(list);
+                    }
+                }
+            }
+            catch { }
+
+            if (previouslyUsedCommands.Count == 0)
+            {
+                previouslyUsedCommands.AddRange(new[]
+                {
+                    "git status",
+                    "dotnet build",
+                    "dotnet test",
+                    "npm run dev"
+                });
+            }
+            isHistoryLoaded = true;
+        }
+    }
+
+    private async Task SavePreviouslyUsedAsync()
+    {
+        try
+        {
+            List<string> snapshot;
+            lock (historyLock)
+            {
+                snapshot = new List<string>(previouslyUsedCommands);
+            }
+            var json = System.Text.Json.JsonSerializer.Serialize(snapshot);
+            var filePath = StorageService.GetFilePath(RecentCommandsFileName);
+            await File.WriteAllTextAsync(filePath, json);
+        }
+        catch { }
+    }
+
+    private void RecordPreviouslyUsed(string? cmd)
+    {
+        var trimmed = cmd?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed)) return;
+
+        lock (historyLock)
+        {
+            previouslyUsedCommands.RemoveAll(c => c.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
+            previouslyUsedCommands.Insert(0, trimmed);
+            if (previouslyUsedCommands.Count > 30)
+            {
+                previouslyUsedCommands.RemoveAt(previouslyUsedCommands.Count - 1);
+            }
+        }
+        _ = SavePreviouslyUsedAsync();
+    }
+
+    private void RegisterTopBarActions()
+    {
+        TopBarService.SetContext(effectiveTabId, [
+            new TopBarAction(
+                Id: "suggestions",
+                Label: "Suggestions",
+                Tooltip: "Show autocomplete suggestions (Tab)",
+                IconSvg: "<svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z\"/></svg>",
+                Shortcut: "Tab",
+                OnClickAsync: HandleToggleSuggestions
+            ),
+            new TopBarAction(
+                Id: "clear",
+                Label: "Clear",
+                Tooltip: "Clear terminal screen (⌘K)",
+                IconSvg: "<svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83\"/></svg>",
+                Shortcut: "⌘K",
+                OnClickAsync: HandleClearPty
+            ),
+            new TopBarAction(
+                Id: "restart",
+                Label: "Restart",
+                Tooltip: "Restart shell process",
+                IconSvg: "<svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><polyline points=\"1 4 1 10 7 10\"></polyline><path d=\"M3.51 15a9 9 0 1 0 2.13-9.36L1 10\"></path></svg>",
+                OnClickAsync: HandleRestartShell
+            )
+        ]);
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             dotNetHelper = DotNetObjectReference.Create(this);
+        }
+
+        if (!isPtyInitialized && dotNetHelper != null)
+        {
             try
             {
-                await JSRuntime.InvokeVoidAsync("gramDesktop.attachTerminal", terminalInputRef, dotNetHelper);
+                await PtyService.StartOrGetSessionAsync(effectiveTabId, Session.WorkspacePath);
+                var history = PtyService.GetHistory(effectiveTabId);
+                var ok = await JSRuntime.InvokeAsync<bool>("gramPty.init", ptyContainerId, effectiveTabId, dotNetHelper, null, history);
+                if (ok)
+                {
+                    isPtyInitialized = true;
+                    if (!isEventsHooked)
+                    {
+                        PtyService.OnOutputReceived += HandlePtyOutputReceived;
+                        PtyService.OnProcessExited += HandlePtyProcessExited;
+                        isEventsHooked = true;
+                    }
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                // JSRuntime might not be available or disposed in edge cases
+                GramLog.Error("TerminalPane", $"Failed to initialize PTY: {ex.Message}");
             }
         }
+    }
+
+    private void HandlePtyOutputReceived(string tabId, string data)
+    {
+        if (tabId == effectiveTabId)
+        {
+            if (!string.IsNullOrEmpty(data))
+            {
+                lock (recentTerminalOutput)
+                {
+                    recentTerminalOutput.Append(data);
+                    if (recentTerminalOutput.Length > 20000)
+                    {
+                        recentTerminalOutput.Remove(0, 5000);
+                    }
+                }
+
+                if (!hasTerminalError && !string.IsNullOrWhiteSpace(lastExecutedCommand) && TerminalErrorPattern.IsMatch(data))
+                {
+                    hasTerminalError = true;
+                    capturedErrorMessage = data.Trim();
+                    InvokeAsync(StateHasChanged);
+                }
+            }
+
+            _ = InvokeAsync(async () =>
+            {
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("gramPty.write", effectiveTabId, data);
+                }
+                catch { }
+            });
+        }
+    }
+
+    private void HandlePtyProcessExited(string tabId, int exitCode)
+    {
+        if (tabId == effectiveTabId)
+        {
+            if (exitCode != 0 && !string.IsNullOrWhiteSpace(lastExecutedCommand))
+            {
+                hasTerminalError = true;
+                if (string.IsNullOrWhiteSpace(capturedErrorMessage))
+                {
+                    capturedErrorMessage = $"Process exited with non-zero exit code {exitCode}";
+                }
+                InvokeAsync(StateHasChanged);
+            }
+
+            _ = InvokeAsync(async () =>
+            {
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("gramPty.write", effectiveTabId, $"\r\n[Process exited with code {exitCode}]\r\n");
+                }
+                catch { }
+            });
+        }
+    }
+
+    private void UpdateSuggestions(string currentInput)
+    {
+        suggestions.Clear();
+        var trimmed = currentInput?.Trim() ?? "";
+
+        // 1. PREVIOUSLY USED SUGGESTIONS (AT THE VERY TOP)
+        lock (historyLock)
+        {
+            foreach (var cmd in previouslyUsedCommands)
+            {
+                if (string.IsNullOrWhiteSpace(trimmed) || cmd.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!suggestions.Any(s => s.InsertionText.Equals(cmd, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        suggestions.Add(new TerminalSuggestion(cmd, cmd, "recent", "Recently used"));
+                        if (suggestions.Count >= 5) break;
+                    }
+                }
+            }
+        }
+
+        // 2. KNOWN COMMANDS
+        foreach (var (cmd, desc) in KnownCommands)
+        {
+            if (string.IsNullOrWhiteSpace(trimmed) || cmd.StartsWith(trimmed, StringComparison.OrdinalIgnoreCase) || cmd.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!suggestions.Any(s => s.InsertionText.Equals(cmd, StringComparison.OrdinalIgnoreCase)))
+                {
+                    suggestions.Add(new TerminalSuggestion(cmd, cmd, "cmd", desc));
+                    if (suggestions.Count >= 10) break;
+                }
+            }
+        }
+
+        // 3. FILE AND DIRECTORY PATHS
+        try
+        {
+            var ws = !string.IsNullOrWhiteSpace(Session.WorkspacePath) && Directory.Exists(Session.WorkspacePath)
+                ? Session.WorkspacePath
+                : Environment.CurrentDirectory;
+
+            var lastSpace = trimmed.LastIndexOf(' ');
+            var token = lastSpace >= 0 ? trimmed[(lastSpace + 1)..] : trimmed;
+
+            if (!string.IsNullOrWhiteSpace(token) && !token.StartsWith("-"))
+            {
+                var searchDir = ws;
+                var searchPrefix = token;
+                var lastSlash = token.LastIndexOf('/');
+                if (lastSlash >= 0)
+                {
+                    var relDir = token[..(lastSlash + 1)];
+                    searchDir = Path.Combine(ws, relDir);
+                    searchPrefix = token[(lastSlash + 1)..];
+                }
+
+                if (Directory.Exists(searchDir))
+                {
+                    var entries = Directory.GetFileSystemEntries(searchDir)
+                        .Select(Path.GetFileName)
+                        .Where(f => !string.IsNullOrEmpty(f) && !f.StartsWith(".") && f.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase))
+                        .Take(5);
+
+                    foreach (var entry in entries)
+                    {
+                        var fullPath = Path.Combine(searchDir, entry!);
+                        var isDir = Directory.Exists(fullPath);
+                        var insertion = isDir ? entry + "/" : entry;
+                        if (!suggestions.Any(s => s.InsertionText.Equals(insertion, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            suggestions.Add(new TerminalSuggestion(insertion!, insertion!, isDir ? "dir" : "file", isDir ? "Folder" : "File"));
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+
+        selectedSuggestionIndex = suggestions.Count > 0 ? 0 : -1;
+    }
+
+    private async Task SelectSuggestion(int index)
+    {
+        await InvokeAsync(async () =>
+        {
+            if (index >= 0 && index < suggestions.Count)
+            {
+                await ApplySuggestion(suggestions[index]);
+                StateHasChanged();
+            }
+        });
+    }
+
+    private async Task HandleToggleSuggestions()
+    {
+        await InvokeAsync(async () =>
+        {
+            if (isSuggestionsOpen)
+            {
+                isSuggestionsOpen = false;
+                await JSRuntime.InvokeVoidAsync("gramPty.setSuggestionsOpen", effectiveTabId, false);
+            }
+            else
+            {
+                UpdateSuggestions(currentTypedLine);
+                if (suggestions.Count > 0)
+                {
+                    isSuggestionsOpen = true;
+                    await JSRuntime.InvokeVoidAsync("gramPty.setSuggestionsOpen", effectiveTabId, true);
+                }
+            }
+            StateHasChanged();
+        });
+    }
+
+    private async Task ApplySuggestion(TerminalSuggestion suggestion)
+    {
+        isSuggestionsOpen = false;
+        await JSRuntime.InvokeVoidAsync("gramPty.setSuggestionsOpen", effectiveTabId, false);
+
+        string textToSend;
+        string newCurrentLine;
+
+        if (suggestion.Kind is "dir" or "file")
+        {
+            var lastSpaceIndex = currentTypedLine.LastIndexOf(' ');
+            if (lastSpaceIndex >= 0)
+            {
+                var commandPrefix = currentTypedLine[..(lastSpaceIndex + 1)];
+                var currentToken = currentTypedLine[(lastSpaceIndex + 1)..];
+                var slashIndex = currentToken.LastIndexOf('/');
+                string tokenPrefix = slashIndex >= 0 ? currentToken[..(slashIndex + 1)] : "";
+                string tokenToMatch = slashIndex >= 0 ? currentToken[(slashIndex + 1)..] : currentToken;
+
+                if (suggestion.InsertionText.StartsWith(tokenToMatch, StringComparison.OrdinalIgnoreCase))
+                {
+                    textToSend = suggestion.InsertionText[tokenToMatch.Length..];
+                }
+                else
+                {
+                    textToSend = new string('\x7f', tokenToMatch.Length) + suggestion.InsertionText;
+                }
+                newCurrentLine = commandPrefix + tokenPrefix + suggestion.InsertionText;
+            }
+            else
+            {
+                textToSend = suggestion.InsertionText;
+                newCurrentLine = suggestion.InsertionText;
+            }
+        }
+        else
+        {
+            if (suggestion.InsertionText.StartsWith(currentTypedLine, StringComparison.OrdinalIgnoreCase))
+            {
+                textToSend = suggestion.InsertionText[currentTypedLine.Length..];
+            }
+            else
+            {
+                textToSend = new string('\x7f', currentTypedLine.Length) + suggestion.InsertionText;
+            }
+            newCurrentLine = suggestion.InsertionText;
+        }
+
+        if (!string.IsNullOrEmpty(textToSend))
+        {
+            await PtyService.WriteInputAsync(effectiveTabId, textToSend);
+        }
+
+        currentTypedLine = newCurrentLine;
+        await JSRuntime.InvokeVoidAsync("gramPty.setCurrentLine", effectiveTabId, currentTypedLine);
+
+        RecordPreviouslyUsed(suggestion.InsertionText);
+
+        await JSRuntime.InvokeVoidAsync("gramPty.focus", effectiveTabId);
     }
 
     [JSInvokable]
-    public void OnTabPressed()
+    public async Task OnPtyTabPressed(string currentLine)
     {
-        if (isSuggestionsOpen && suggestions.Count > 0)
+        await InvokeAsync(async () =>
         {
-            var idx = Math.Clamp(selectedSuggestionIndex, 0, suggestions.Count - 1);
-            ApplySuggestion(suggestions[idx]);
-        }
-        else
-        {
-            UpdateSuggestions();
+            currentTypedLine = currentLine ?? "";
+            UpdateSuggestions(currentTypedLine);
             if (suggestions.Count > 0)
             {
-                ApplySuggestion(suggestions[0]);
+                isSuggestionsOpen = true;
+                await JSRuntime.InvokeVoidAsync("gramPty.setSuggestionsOpen", effectiveTabId, true);
+                StateHasChanged();
             }
-        }
-        StateHasChanged();
+        });
     }
 
-    private void HandleTerminalInput(ChangeEventArgs e)
+    [JSInvokable]
+    public async Task OnPtyInputChanged(string currentLine)
     {
-        terminalInput = e.Value?.ToString() ?? "";
-        historyIndex = -1;
-        UpdateSuggestions();
-    }
-
-    private void UpdateSuggestions()
-    {
-        suggestions.Clear();
-        selectedSuggestionIndex = 0;
-
-        var raw = terminalInput.TrimStart();
-        if (string.IsNullOrWhiteSpace(raw))
+        await InvokeAsync(async () =>
         {
-            isSuggestionsOpen = false;
-            return;
-        }
-
-        // 1. History Matches
-        var historyMatches = terminalHistory
-            .Select(h => h.Command.Trim())
-            .Where(cmd => !string.IsNullOrWhiteSpace(cmd) && cmd.Contains(raw, StringComparison.OrdinalIgnoreCase) && !cmd.Equals(raw, StringComparison.OrdinalIgnoreCase))
-            .Distinct()
-            .Take(3);
-
-        foreach (var hist in historyMatches)
-        {
-            suggestions.Add(new TerminalSuggestion(hist, hist, "hist", "History"));
-        }
-
-        // 2. Command Catalog Matches
-        var commandMatches = KnownCommands
-            .Where(k => k.Cmd.StartsWith(raw, StringComparison.OrdinalIgnoreCase) || k.Cmd.Contains(raw, StringComparison.OrdinalIgnoreCase))
-            .Where(k => !k.Cmd.Equals(raw, StringComparison.OrdinalIgnoreCase))
-            .Take(6);
-
-        foreach (var cmd in commandMatches)
-        {
-            suggestions.Add(new TerminalSuggestion(cmd.Cmd, cmd.Cmd, "cmd", cmd.Desc));
-        }
-
-        // 3. Workspace File and Directory Paths
-        if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
-        {
-            AddWorkspacePathSuggestions(raw);
-        }
-
-        isSuggestionsOpen = suggestions.Count > 0;
-    }
-
-    private void AddWorkspacePathSuggestions(string raw)
-    {
-        try
-        {
-            // Extract the last token (file or folder path currently being typed)
-            var lastSpaceIndex = raw.LastIndexOf(' ');
-            var token = lastSpaceIndex >= 0 ? raw[(lastSpaceIndex + 1)..] : raw;
-
-            // Only complete path if there's a space or starts with ./ or / or contains a slash or matches command like cd/ls/cat
-            var isPathContext = lastSpaceIndex >= 0 || token.StartsWith("./") || token.StartsWith("/") || token.Contains('/');
-            if (!isPathContext && !raw.StartsWith("cd ", StringComparison.OrdinalIgnoreCase) && !raw.StartsWith("ls ", StringComparison.OrdinalIgnoreCase) && !raw.StartsWith("cat ", StringComparison.OrdinalIgnoreCase))
+            currentTypedLine = currentLine ?? "";
+            if (isSuggestionsOpen)
             {
-                return;
-            }
-
-            var searchDir = Session.WorkspacePath;
-            var searchPrefix = token;
-
-            if (token.Contains('/') || token.Contains('\\'))
-            {
-                var dirPart = Path.GetDirectoryName(token) ?? "";
-                searchDir = Path.Combine(Session.WorkspacePath, dirPart);
-                searchPrefix = Path.GetFileName(token);
-            }
-
-            if (Directory.Exists(searchDir))
-            {
-                var entries = Directory.EnumerateFileSystemEntries(searchDir)
-                    .Select(e => Path.GetFileName(e))
-                    .Where(name => !name.StartsWith(".") && (string.IsNullOrEmpty(searchPrefix) || name.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)))
-                    .Take(5);
-
-                foreach (var entryName in entries)
+                UpdateSuggestions(currentTypedLine);
+                if (suggestions.Count == 0)
                 {
-                    var full = Path.Combine(searchDir, entryName);
-                    var isDir = Directory.Exists(full);
-                    var insertion = isDir ? entryName + "/" : entryName;
-                    var label = isDir ? entryName + "/" : entryName;
-                    suggestions.Add(new TerminalSuggestion(label, insertion, isDir ? "dir" : "file", isDir ? "Folder" : "File"));
+                    isSuggestionsOpen = false;
+                    await JSRuntime.InvokeVoidAsync("gramPty.setSuggestionsOpen", effectiveTabId, false);
                 }
+                StateHasChanged();
             }
-        }
-        catch
-        {
-            // Ignore path lookup errors
-        }
+        });
     }
 
-    private void SelectSuggestion(int index)
+    [JSInvokable]
+    public async Task OnPtySuggestionNavigate(int delta)
     {
-        if (index >= 0 && index < suggestions.Count)
+        await InvokeAsync(() =>
         {
-            ApplySuggestion(suggestions[index]);
-            StateHasChanged();
-        }
+            if (isSuggestionsOpen && suggestions.Count > 0)
+            {
+                selectedSuggestionIndex = (selectedSuggestionIndex + delta + suggestions.Count) % suggestions.Count;
+                StateHasChanged();
+            }
+        });
     }
 
-    private void ApplySuggestion(TerminalSuggestion suggestion)
+    [JSInvokable]
+    public async Task OnPtySuggestionSelect()
     {
-        if (suggestion.Kind is "dir" or "file")
-        {
-            // Append or replace the last argument token
-            var lastSpaceIndex = terminalInput.LastIndexOf(' ');
-            if (lastSpaceIndex >= 0)
-            {
-                var commandPrefix = terminalInput[..(lastSpaceIndex + 1)];
-                var currentToken = terminalInput[(lastSpaceIndex + 1)..];
-                var slashIndex = currentToken.LastIndexOf('/');
-                if (slashIndex >= 0)
-                {
-                    terminalInput = commandPrefix + currentToken[..(slashIndex + 1)] + suggestion.InsertionText;
-                }
-                else
-                {
-                    terminalInput = commandPrefix + suggestion.InsertionText;
-                }
-            }
-            else
-            {
-                terminalInput = suggestion.InsertionText;
-            }
-
-            // If it's a directory, keep suggestions open to allow drill-down
-            if (suggestion.Kind == "dir")
-            {
-                UpdateSuggestions();
-            }
-            else
-            {
-                isSuggestionsOpen = false;
-            }
-        }
-        else
-        {
-            // Full command or history item
-            terminalInput = suggestion.InsertionText;
-            isSuggestionsOpen = false;
-        }
-    }
-
-    private async Task HandleTerminalKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter" && !e.ShiftKey)
+        await InvokeAsync(async () =>
         {
             if (isSuggestionsOpen && suggestions.Count > 0 && selectedSuggestionIndex >= 0 && selectedSuggestionIndex < suggestions.Count)
             {
-                var item = suggestions[selectedSuggestionIndex];
-                if (item.Kind is "dir" or "file")
-                {
-                    ApplySuggestion(item);
-                    return;
-                }
-                else
-                {
-                    ApplySuggestion(item);
-                }
+                await ApplySuggestion(suggestions[selectedSuggestionIndex]);
+                StateHasChanged();
             }
-
-            isSuggestionsOpen = false;
-            await ExecuteTerminalCommand();
-        }
-        else if (e.Key == "Escape")
-        {
-            isSuggestionsOpen = false;
-        }
-        else if (e.Key == "ArrowUp")
-        {
-            if (isSuggestionsOpen && suggestions.Count > 0)
-            {
-                selectedSuggestionIndex = (selectedSuggestionIndex - 1 + suggestions.Count) % suggestions.Count;
-            }
-            else if (terminalHistory.Count > 0)
-            {
-                if (historyIndex == -1)
-                {
-                    temporaryInput = terminalInput;
-                    historyIndex = terminalHistory.Count - 1;
-                }
-                else if (historyIndex > 0)
-                {
-                    historyIndex--;
-                }
-                terminalInput = terminalHistory[historyIndex].Command;
-                isSuggestionsOpen = false;
-            }
-        }
-        else if (e.Key == "ArrowDown")
-        {
-            if (isSuggestionsOpen && suggestions.Count > 0)
-            {
-                selectedSuggestionIndex = (selectedSuggestionIndex + 1) % suggestions.Count;
-            }
-            else if (historyIndex != -1)
-            {
-                if (historyIndex < terminalHistory.Count - 1)
-                {
-                    historyIndex++;
-                    terminalInput = terminalHistory[historyIndex].Command;
-                }
-                else
-                {
-                    historyIndex = -1;
-                    terminalInput = temporaryInput;
-                }
-                isSuggestionsOpen = false;
-            }
-        }
+        });
     }
 
-    private async Task ExecuteTerminalCommand()
+    [JSInvokable]
+    public async Task OnPtySuggestionClose()
     {
-        var cmd = terminalInput.Trim();
-        if (string.IsNullOrWhiteSpace(cmd) || isTerminalRunning) return;
-
-        if (cmd.Equals("clear", StringComparison.OrdinalIgnoreCase) || cmd.Equals("cls", StringComparison.OrdinalIgnoreCase))
+        await InvokeAsync(async () =>
         {
-            terminalHistory.Clear();
-            terminalInput = "";
-            historyIndex = -1;
-            temporaryInput = "";
-            isSuggestionsOpen = false;
-            return;
-        }
+            if (isSuggestionsOpen)
+            {
+                isSuggestionsOpen = false;
+                await JSRuntime.InvokeVoidAsync("gramPty.setSuggestionsOpen", effectiveTabId, false);
+                StateHasChanged();
+            }
+        });
+    }
 
-        isTerminalRunning = true;
-        terminalInput = "";
-        historyIndex = -1;
-        temporaryInput = "";
-        isSuggestionsOpen = false;
+    [JSInvokable]
+    public void OnPtyCommandExecuted(string cmd)
+    {
+        lastExecutedCommand = cmd?.Trim() ?? "";
+        lock (recentTerminalOutput)
+        {
+            recentTerminalOutput.Clear();
+        }
+        hasTerminalError = false;
+        capturedErrorMessage = "";
+        RecordPreviouslyUsed(cmd);
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnPtyInput(string data)
+    {
+        await PtyService.WriteInputAsync(effectiveTabId, data);
+    }
+
+    [JSInvokable]
+    public void OnPtyResize(int cols, int rows)
+    {
+        PtyService.Resize(effectiveTabId, cols, rows);
+    }
+
+    [JSInvokable]
+    public void OnPtyReady(int cols, int rows)
+    {
+        PtyService.Resize(effectiveTabId, cols, rows);
+    }
+
+    [JSInvokable]
+    public void OnPtyClear()
+    {
+        PtyService.ClearHistory(effectiveTabId);
+    }
+
+    private async Task HandleClearPty()
+    {
         try
         {
-            var result = await Session.RunTerminalCommandAsync(cmd);
-            terminalHistory.Add(new TerminalHistoryEntry(cmd, result.ExitCode, result.Stdout, result.Stderr, result.ElapsedMilliseconds, DateTimeOffset.UtcNow));
+            PtyService.ClearHistory(effectiveTabId);
+            await JSRuntime.InvokeVoidAsync("gramPty.clear", effectiveTabId);
+        }
+        catch {}
+    }
+
+    private async Task HandleRestartShell()
+    {
+        try
+        {
+            await PtyService.CloseSessionAsync(effectiveTabId);
+            await PtyService.StartOrGetSessionAsync(effectiveTabId, Session.WorkspacePath);
+            await JSRuntime.InvokeVoidAsync("gramPty.clear", effectiveTabId);
         }
         catch (Exception ex)
         {
-            terminalHistory.Add(new TerminalHistoryEntry(cmd, -1, "", ex.Message, 0, DateTimeOffset.UtcNow));
-        }
-        finally
-        {
-            isTerminalRunning = false;
+            GramLog.Error("TerminalPane", $"Restart shell error: {ex.Message}");
         }
     }
 
-    public async ValueTask DisposeAsync()
+    private async Task HandleFocusPty()
     {
-        dotNetHelper?.Dispose();
-        await ValueTask.CompletedTask;
+        if (isSuggestionsOpen)
+        {
+            isSuggestionsOpen = false;
+            await JSRuntime.InvokeVoidAsync("gramPty.setSuggestionsOpen", effectiveTabId, false);
+        }
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramPty.focus", effectiveTabId);
+        }
+        catch {}
     }
 
     private static readonly List<(string Cmd, string Desc)> KnownCommands = new()
     {
-        // Git
         ("git status", "Show working tree status"),
-        ("git diff", "Show changes between commits/worktree"),
+        ("git diff", "Show working tree changes"),
         ("git log -n 10", "Show recent commit logs"),
         ("git add -A", "Stage all repository changes"),
-        ("git add .", "Stage changes in current dir"),
         ("git commit -m \"\"", "Record changes to repository"),
         ("git push", "Update remote refs"),
         ("git pull", "Fetch and integrate with remote"),
@@ -415,41 +677,45 @@
         ("git branch -a", "List local and remote branches"),
         ("git stash", "Stash changes in dirty worktree"),
         ("git stash pop", "Apply latest stashed state"),
-        ("git restore", "Restore working tree files"),
-
-        // .NET
         ("dotnet build", "Build solution or project"),
         ("dotnet test", "Run unit tests in solution"),
         ("dotnet run", "Build and run project"),
         ("dotnet watch", "Hot reload development watcher"),
         ("dotnet clean", "Clean build outputs"),
-        ("dotnet restore", "Restore dependencies"),
-        ("dotnet --version", "Display installed .NET SDK"),
-
-        // NPM / Yarn / PNPM
         ("npm run dev", "Run development script"),
         ("npm run build", "Run build script"),
         ("npm test", "Run test suite"),
         ("npm install", "Install dependencies"),
         ("pnpm dev", "Run dev script"),
         ("pnpm build", "Run build script"),
-        ("yarn dev", "Run development script"),
-        ("yarn build", "Run build script"),
-
-        // Docker
         ("docker ps", "List running containers"),
         ("docker compose up -d", "Start containers in background"),
         ("docker compose down", "Stop and remove containers"),
-        ("docker logs", "Fetch logs of a container"),
-
-        // Shell utilities
         ("ls -la", "List detailed directory contents"),
         ("pwd", "Print working directory"),
-        ("cat", "Print file content to terminal"),
-        ("grep -rn \"\"", "Search pattern recursively"),
-        ("mkdir -p", "Create directory structure"),
-        ("rm -rf", "Remove files/directories recursively"),
-        ("curl -I", "Fetch HTTP response headers"),
-        ("clear", "Clear terminal buffer")
+        ("clear", "Clear terminal screen")
     };
+
+    public async ValueTask DisposeAsync()
+    {
+        TopBarService.ClearContext(effectiveTabId);
+
+        if (isEventsHooked)
+        {
+            PtyService.OnOutputReceived -= HandlePtyOutputReceived;
+            PtyService.OnProcessExited -= HandlePtyProcessExited;
+            isEventsHooked = false;
+        }
+
+        if (dotNetHelper != null)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("gramPty.dispose", effectiveTabId);
+            }
+            catch {}
+            dotNetHelper.Dispose();
+            dotNetHelper = null;
+        }
+    }
 }

@@ -6,6 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Gram.Desktop</AssemblyName>
     <RootNamespace>Gram.Desktop</RootNamespace>
+    <ApplicationIcon>Resources/AppIcon.ico</ApplicationIcon>
+    <Product>Gram</Product>
+    <AssemblyTitle>Gram</AssemblyTitle>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Gram.Blazor.csproj" ReferenceOutputAssembly="true" />
@@ -13,10 +16,14 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Photino.Blazor" Version="4.0.13" />
+    <PackageReference Include="Porta.Pty" Version="1.0.7" />
   </ItemGroup>
   <ItemGroup>
     <Content Update="wwwroot\**">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Update="Resources\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 </Project>

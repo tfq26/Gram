@@ -28,6 +28,7 @@ public sealed class WorkspaceTabService
 
     public event Action? OnTabsChanged;
     public event Action? OnDragStateChanged;
+    public event Action<string>? OnTabClosed;
     public event Action<string, string, string>? OnCrossChatRequested;
     public event Action<string, string, string, int>? OnCrossChatDialogueStarted;
 
@@ -40,20 +41,25 @@ public sealed class WorkspaceTabService
 
     public void SplitWithDraggedTab(string? tabId = null)
     {
-        var targetTabId = tabId ?? DraggedTabId;
+        var draggedId = DraggedTabId;
+        var targetId = tabId;
         IsDraggingTab = false;
         DraggedTabId = null;
         OnDragStateChanged?.Invoke();
 
-        if (!string.IsNullOrWhiteSpace(targetTabId))
+        if (!string.IsNullOrWhiteSpace(draggedId))
         {
-            if (IsSplitView)
+            var primaryTab = !string.IsNullOrWhiteSpace(targetId) && targetId != draggedId
+                ? OpenTabs.FirstOrDefault(t => t.Id == targetId)
+                : OpenTabs.FirstOrDefault(t => t.Id != draggedId);
+
+            if (primaryTab != null)
             {
-                SecondaryTabId = targetTabId;
+                LinkTabs(primaryTab.Id, draggedId);
             }
             else
             {
-                ToggleSplitView(targetTabId);
+                ToggleSplitView(draggedId);
             }
             SaveTabs();
         }
@@ -66,66 +72,168 @@ public sealed class WorkspaceTabService
         LoadTabs();
     }
 
+    public void LinkTabs(string primaryTabId, string secondaryTabId)
+    {
+        if (string.IsNullOrWhiteSpace(primaryTabId) || string.IsNullOrWhiteSpace(secondaryTabId) || primaryTabId == secondaryTabId) return;
+
+        var tabA = OpenTabs.FirstOrDefault(t => t.Id == primaryTabId);
+        var tabB = OpenTabs.FirstOrDefault(t => t.Id == secondaryTabId);
+        if (tabA == null || tabB == null) return;
+
+        // Clear any prior links on either tab
+        if (!string.IsNullOrEmpty(tabA.SplitLinkedTabId))
+        {
+            var oldA = OpenTabs.FirstOrDefault(t => t.Id == tabA.SplitLinkedTabId);
+            if (oldA != null) oldA.SplitLinkedTabId = null;
+        }
+        if (!string.IsNullOrEmpty(tabB.SplitLinkedTabId))
+        {
+            var oldB = OpenTabs.FirstOrDefault(t => t.Id == tabB.SplitLinkedTabId);
+            if (oldB != null) oldB.SplitLinkedTabId = null;
+        }
+
+        tabA.SplitLinkedTabId = tabB.Id;
+        tabB.SplitLinkedTabId = tabA.Id;
+
+        // Keep tabB directly adjacent to tabA
+        OpenTabs.Remove(tabB);
+        var idxA = OpenTabs.IndexOf(tabA);
+        OpenTabs.Insert(idxA + 1, tabB);
+
+        ActiveTabId = tabA.Id;
+        SecondaryTabId = tabB.Id;
+        IsSplitView = true;
+
+        SaveTabs();
+    }
+
+    public void UnlinkTabs(string tabId)
+    {
+        var tab = OpenTabs.FirstOrDefault(t => t.Id == tabId);
+        if (tab == null) return;
+
+        var partner = !string.IsNullOrEmpty(tab.SplitLinkedTabId)
+            ? OpenTabs.FirstOrDefault(t => t.Id == tab.SplitLinkedTabId)
+            : null;
+
+        tab.SplitLinkedTabId = null;
+        if (partner != null) partner.SplitLinkedTabId = null;
+
+        IsSplitView = false;
+        SecondaryTabId = null;
+
+        SaveTabs();
+    }
+
+    public WorkspaceTab? GetSplitLeftTab()
+    {
+        if (!IsSplitView || ActiveTab == null) return ActiveTab;
+        var partner = SecondaryTab;
+        if (partner == null) return ActiveTab;
+
+        var idxActive = OpenTabs.IndexOf(ActiveTab);
+        var idxPartner = OpenTabs.IndexOf(partner);
+        return idxActive <= idxPartner ? ActiveTab : partner;
+    }
+
+    public WorkspaceTab? GetSplitRightTab()
+    {
+        if (!IsSplitView || ActiveTab == null) return SecondaryTab;
+        var partner = SecondaryTab;
+        if (partner == null) return null;
+
+        var idxActive = OpenTabs.IndexOf(ActiveTab);
+        var idxPartner = OpenTabs.IndexOf(partner);
+        return idxActive <= idxPartner ? partner : ActiveTab;
+    }
+
     public void ToggleSplitView(string? preferredSecondaryTabId = null)
     {
+        var active = ActiveTab;
+        if (active != null && !string.IsNullOrEmpty(active.SplitLinkedTabId))
+        {
+            UnlinkTabs(active.Id);
+            return;
+        }
+
         if (IsSplitView)
         {
             IsSplitView = false;
             SecondaryTabId = null;
+            SaveTabs();
+            return;
         }
-        else
+
+        var secondary = !string.IsNullOrWhiteSpace(preferredSecondaryTabId)
+            ? OpenTabs.FirstOrDefault(t => t.Id == preferredSecondaryTabId)
+            : OpenTabs.FirstOrDefault(t => t.Id != ActiveTabId);
+
+        if (secondary != null && active != null)
         {
-            IsSplitView = true;
-            if (!string.IsNullOrWhiteSpace(preferredSecondaryTabId) && OpenTabs.Any(t => t.Id == preferredSecondaryTabId))
-            {
-                SecondaryTabId = preferredSecondaryTabId;
-            }
-            else
-            {
-                // Default to a different tab or create a secondary tab
-                var otherTab = OpenTabs.FirstOrDefault(t => t.Id != ActiveTabId);
-                if (otherTab != null)
-                {
-                    SecondaryTabId = otherTab.Id;
-                }
-                else
-                {
-                    var newSecondary = new WorkspaceTab
-                    {
-                        Title = "Split chat",
-                        Type = WorkspaceTabType.Chat,
-                        ChatId = Guid.NewGuid().ToString("N")[..8],
-                        Icon = null
-                    };
-                    OpenTabs.Add(newSecondary);
-                    SecondaryTabId = newSecondary.Id;
-                }
-            }
+            LinkTabs(active.Id, secondary.Id);
         }
-        SaveTabs();
+        else if (active != null)
+        {
+            var newSecondary = new WorkspaceTab
+            {
+                Title = "Split chat",
+                Type = WorkspaceTabType.Chat,
+                ChatId = Guid.NewGuid().ToString("N")[..8],
+                Icon = null
+            };
+            OpenTabs.Add(newSecondary);
+            LinkTabs(active.Id, newSecondary.Id);
+        }
     }
 
     public void SelectSecondaryTab(string tabId)
     {
         if (OpenTabs.Any(t => t.Id == tabId))
         {
-            SecondaryTabId = tabId;
-            IsSplitView = true;
-            SaveTabs();
+            if (ActiveTab != null && ActiveTabId != tabId)
+            {
+                LinkTabs(ActiveTabId, tabId);
+            }
+            else
+            {
+                SecondaryTabId = tabId;
+                IsSplitView = true;
+                SaveTabs();
+            }
         }
     }
 
     public void CloseSplitView()
     {
-        IsSplitView = false;
-        SecondaryTabId = null;
-        SaveTabs();
+        if (ActiveTab != null && !string.IsNullOrEmpty(ActiveTab.SplitLinkedTabId))
+        {
+            UnlinkTabs(ActiveTab.Id);
+        }
+        else
+        {
+            IsSplitView = false;
+            SecondaryTabId = null;
+            SaveTabs();
+        }
     }
 
     public void SwapSplitTabs()
     {
         if (IsSplitView && !string.IsNullOrWhiteSpace(SecondaryTabId))
         {
+            var tabA = ActiveTab;
+            var tabB = SecondaryTab;
+            if (tabA != null && tabB != null)
+            {
+                var idxA = OpenTabs.IndexOf(tabA);
+                var idxB = OpenTabs.IndexOf(tabB);
+                if (idxA >= 0 && idxB >= 0)
+                {
+                    OpenTabs[idxA] = tabB;
+                    OpenTabs[idxB] = tabA;
+                }
+            }
+
             var temp = ActiveTabId;
             ActiveTabId = SecondaryTabId;
             SecondaryTabId = temp;
@@ -160,8 +268,18 @@ public sealed class WorkspaceTabService
                         ActiveTabId = (!string.IsNullOrWhiteSpace(state.ActiveTabId) && OpenTabs.Any(t => t.Id == state.ActiveTabId))
                             ? state.ActiveTabId
                             : OpenTabs[0].Id;
-                        IsSplitView = state.IsSplitView && OpenTabs.Any(t => t.Id == state.SecondaryTabId);
-                        SecondaryTabId = IsSplitView ? state.SecondaryTabId : null;
+
+                        var active = OpenTabs.FirstOrDefault(t => t.Id == ActiveTabId);
+                        if (active != null && !string.IsNullOrEmpty(active.SplitLinkedTabId) && OpenTabs.Any(t => t.Id == active.SplitLinkedTabId))
+                        {
+                            IsSplitView = true;
+                            SecondaryTabId = active.SplitLinkedTabId;
+                        }
+                        else
+                        {
+                            IsSplitView = state.IsSplitView && OpenTabs.Any(t => t.Id == state.SecondaryTabId);
+                            SecondaryTabId = IsSplitView ? state.SecondaryTabId : null;
+                        }
                         return;
                     }
                 }
@@ -214,9 +332,30 @@ public sealed class WorkspaceTabService
 
     public void SelectTab(string tabId)
     {
-        if (OpenTabs.Any(t => t.Id == tabId))
+        var tab = OpenTabs.FirstOrDefault(t => t.Id == tabId);
+        if (tab != null)
         {
             ActiveTabId = tabId;
+            if (!string.IsNullOrEmpty(tab.SplitLinkedTabId))
+            {
+                var partner = OpenTabs.FirstOrDefault(t => t.Id == tab.SplitLinkedTabId);
+                if (partner != null)
+                {
+                    IsSplitView = true;
+                    SecondaryTabId = partner.Id;
+                }
+                else
+                {
+                    tab.SplitLinkedTabId = null;
+                    IsSplitView = false;
+                    SecondaryTabId = null;
+                }
+            }
+            else
+            {
+                IsSplitView = false;
+                SecondaryTabId = null;
+            }
             SaveTabs();
         }
     }
@@ -353,6 +492,28 @@ public sealed class WorkspaceTabService
         OnTabsChanged?.Invoke();
     }
 
+    public void OpenGitTab()
+    {
+        var existing = OpenTabs.FirstOrDefault(t => t.Type == WorkspaceTabType.Git);
+        if (existing != null)
+        {
+            ActiveTabId = existing.Id;
+        }
+        else
+        {
+            var newTab = new WorkspaceTab
+            {
+                Title = "Source Control",
+                Type = WorkspaceTabType.Git,
+                Icon = "⌥"
+            };
+            OpenTabs.Add(newTab);
+            ActiveTabId = newTab.Id;
+        }
+        SaveTabs();
+        OnTabsChanged?.Invoke();
+    }
+
     public void CloseTab(string tabId)
     {
         var tab = OpenTabs.FirstOrDefault(t => t.Id == tabId);
@@ -360,6 +521,20 @@ public sealed class WorkspaceTabService
 
         var index = OpenTabs.IndexOf(tab);
         OpenTabs.Remove(tab);
+
+        // If part of a split pair, unlink partner
+        if (!string.IsNullOrEmpty(tab.SplitLinkedTabId))
+        {
+            var partner = OpenTabs.FirstOrDefault(t => t.Id == tab.SplitLinkedTabId);
+            if (partner != null)
+            {
+                partner.SplitLinkedTabId = null;
+                if (ActiveTabId == tabId)
+                {
+                    ActiveTabId = partner.Id;
+                }
+            }
+        }
 
         if (SecondaryTabId == tabId)
         {
@@ -378,13 +553,27 @@ public sealed class WorkspaceTabService
             };
             OpenTabs.Add(defaultTab);
             ActiveTabId = defaultTab.Id;
+            IsSplitView = false;
+            SecondaryTabId = null;
         }
         else if (ActiveTabId == tabId)
         {
             var newIndex = Math.Min(index, OpenTabs.Count - 1);
             ActiveTabId = OpenTabs[newIndex].Id;
+            var newActive = OpenTabs[newIndex];
+            if (!string.IsNullOrEmpty(newActive.SplitLinkedTabId))
+            {
+                SecondaryTabId = newActive.SplitLinkedTabId;
+                IsSplitView = true;
+            }
+            else
+            {
+                SecondaryTabId = null;
+                IsSplitView = false;
+            }
         }
 
+        OnTabClosed?.Invoke(tabId);
         SaveTabs();
     }
 
@@ -433,6 +622,17 @@ public sealed class WorkspaceTabService
         if (tab != null && tab.Title != newTitle)
         {
             tab.Title = newTitle;
+            SaveTabs();
+        }
+    }
+
+    public void UpdateChatTabId(string oldChatId, string newChatId, string? newTitle = null)
+    {
+        var tab = OpenTabs.FirstOrDefault(t => t.Type == WorkspaceTabType.Chat && t.ChatId == oldChatId);
+        if (tab != null)
+        {
+            tab.ChatId = newChatId;
+            if (!string.IsNullOrWhiteSpace(newTitle)) tab.Title = newTitle;
             SaveTabs();
         }
     }

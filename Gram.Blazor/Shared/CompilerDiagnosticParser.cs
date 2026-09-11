@@ -11,7 +11,12 @@ public sealed record CompilerDiagnostic(
     string? Code,
     string Severity,
     string Message,
-    string RawLine);
+    string RawLine)
+{
+    public string Formatted => !string.IsNullOrWhiteSpace(RawLine)
+        ? RawLine
+        : $"{FilePath}({Line},{Column}): {Severity} {Code}: {Message}";
+}
 
 public static class CompilerDiagnosticParser
 {
@@ -35,6 +40,24 @@ public static class CompilerDiagnosticParser
         @"^FAILED\s+(?<file>[^:]+)::(?<test>[^\s]+)\s*-\s*(?<msg>.*)$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // xUnit / VSTest: Failed MyNamespace.MyTestClass.MyTestMethod [2 ms]
+    private static readonly Regex VSTestRegex = new(
+        @"^(?:Failed|\[xUnit\.net[^\]]+\]\s+FAIL)\s+(?<test>[A-Za-z0-9_.]+)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Go test: --- FAIL: TestName (0.00s)
+    private static readonly Regex GoTestRegex = new(
+        @"^---\s+FAIL:\s+(?<test>[A-Za-z0-9_]+)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex VSTestStackRegex = new(
+        @"in\s+(?<file>.+?):line\s+(?<line>\d+)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex GoLineRegex = new(
+        @"^(?<file>[^:\s]+\.go):(?<line>\d+):\s*(?<msg>.*)$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     public static IReadOnlyList<CompilerDiagnostic> Parse(string output)
     {
         if (string.IsNullOrWhiteSpace(output)) return [];
@@ -42,8 +65,9 @@ public static class CompilerDiagnosticParser
         var results = new List<CompilerDiagnostic>();
         var lines = output.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
 
-        foreach (var rawLine in lines)
+        for (int i = 0; i < lines.Length; i++)
         {
+            var rawLine = lines[i];
             var trimmed = rawLine.Trim();
 
             // 1. Roslyn / MSBuild
@@ -102,6 +126,84 @@ public static class CompilerDiagnosticParser
                     Code: pyMatch.Groups["test"].Value,
                     Severity: "ERROR",
                     Message: pyMatch.Groups["msg"].Value.Trim(),
+                    RawLine: trimmed));
+                continue;
+            }
+
+            // 5. xUnit / VSTest: Failed MyNamespace.MyTestClass.MyTestMethod [2 ms]
+            var vsMatch = VSTestRegex.Match(trimmed);
+            if (vsMatch.Success)
+            {
+                var testName = vsMatch.Groups["test"].Value;
+                string? filePath = null;
+                int? lineNum = null;
+                string? detailMsg = null;
+
+                for (int j = i + 1; j < Math.Min(lines.Length, i + 12); j++)
+                {
+                    var nextLine = lines[j].Trim();
+                    if (nextLine.StartsWith("Failed ") || nextLine.StartsWith("--- FAIL")) break;
+
+                    var stackMatch = VSTestStackRegex.Match(nextLine);
+                    if (stackMatch.Success)
+                    {
+                        filePath = stackMatch.Groups["file"].Value.Replace('\\', '/');
+                        if (int.TryParse(stackMatch.Groups["line"].Value, out var l)) lineNum = l;
+                    }
+                    else if (nextLine.StartsWith("Error Message:") && j + 1 < lines.Length)
+                    {
+                        detailMsg = lines[j + 1].Trim();
+                    }
+                }
+
+                var msg = !string.IsNullOrWhiteSpace(detailMsg)
+                    ? $"Test failed: {testName} - {detailMsg}"
+                    : $"Test failed: {testName}";
+
+                results.Add(new CompilerDiagnostic(
+                    FilePath: filePath,
+                    Line: lineNum,
+                    Column: null,
+                    Code: "TEST_FAILURE",
+                    Severity: "ERROR",
+                    Message: msg,
+                    RawLine: trimmed));
+                continue;
+            }
+
+            // 6. Go test: --- FAIL: TestName (0.00s)
+            var goMatch = GoTestRegex.Match(trimmed);
+            if (goMatch.Success)
+            {
+                var testName = goMatch.Groups["test"].Value;
+                string? filePath = null;
+                int? lineNum = null;
+                string? detailMsg = null;
+
+                for (int j = Math.Max(0, i - 5); j < Math.Min(lines.Length, i + 6); j++)
+                {
+                    if (j == i) continue;
+                    var goFileMatch = GoLineRegex.Match(lines[j].Trim());
+                    if (goFileMatch.Success)
+                    {
+                        filePath = goFileMatch.Groups["file"].Value.Replace('\\', '/');
+                        if (int.TryParse(goFileMatch.Groups["line"].Value, out var l)) lineNum = l;
+                        detailMsg = goFileMatch.Groups["msg"].Value.Trim();
+                        break;
+                    }
+                }
+
+                var msg = !string.IsNullOrWhiteSpace(detailMsg)
+                    ? $"Go test failed: {testName} - {detailMsg}"
+                    : $"Go test failed: {testName}";
+
+                results.Add(new CompilerDiagnostic(
+                    FilePath: filePath,
+                    Line: lineNum,
+                    Column: null,
+                    Code: "TEST_FAILURE",
+                    Severity: "ERROR",
+                    Message: msg,
                     RawLine: trimmed));
                 continue;
             }

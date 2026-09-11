@@ -12,6 +12,7 @@ public sealed class DesktopLayoutState
     public bool IsMaximized { get; set; } = false;
     public bool IsSidebarOpen { get; set; } = true;
     public bool IsInfosheetOpen { get; set; } = true;
+    public bool IsExpandedChat { get; set; } = false;
     public string? SelectedModelId { get; set; }
 }
 
@@ -51,12 +52,13 @@ public sealed class DesktopLayoutService
         }
     }
 
-    public void SavePanes(bool isSidebarOpen, bool isInfosheetOpen)
+    public void SavePanes(bool isSidebarOpen, bool isInfosheetOpen, bool isExpandedChat = false)
     {
         lock (_lock)
         {
             _state.IsSidebarOpen = isSidebarOpen;
             _state.IsInfosheetOpen = isInfosheetOpen;
+            _state.IsExpandedChat = isExpandedChat;
             Persist();
         }
     }

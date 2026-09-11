@@ -12,8 +12,8 @@ public static class ToolResultReducer
 
         var limit = toolName.ToLowerInvariant() switch
         {
-            "search_web" => 5000,
-            "fetch_web_content" => 6000,
+            "search_web" => 10000,
+            "fetch_web_content" => 12000,
             "run_command" => 6500,
             "grep_search" or "find_files" => 5000,
             "view_file" => 9000,

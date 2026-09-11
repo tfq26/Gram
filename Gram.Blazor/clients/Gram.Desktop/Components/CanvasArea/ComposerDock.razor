@@ -2,11 +2,72 @@
 @using Gram.Desktop.Components.Platform
 @using Gram.Desktop.Services
 @using Gram.Blazor.Shared
+@implements IAsyncDisposable
 @inject IPlatformService Platform
 @inject DesktopSession Session
+@inject WorkspaceFileService FileService
+@inject PtyTerminalService PtyService
+@inject WorkspaceTabService TabService
+@inject IJSRuntime JSRuntime
 
 <div class="dt-composer-dock">
-    <div class="dt-composer-box">
+    <div class="dt-composer-box" @ref="composerBoxEl">
+        <!-- Autocomplete Suggestions Popover (@@ Mentions & / Slash Commands) -->
+        @if (isSuggestionsOpen && FilteredSuggestions.Count > 0)
+        {
+            <div class="dt-composer-suggestions-popover" @onclick:stopPropagation="true">
+                <div class="dt-suggestions-header">
+                    <span class="dt-suggestions-title">
+                        @if (suggestionMode == SuggestionMode.Mention)
+                        {
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                            <span>Mention File or Context</span>
+                        }
+                        else
+                        {
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="4" y1="20" x2="20" y2="4"></line></svg>
+                            <span>Slash Commands</span>
+                        }
+                    </span>
+                    <span class="dt-suggestions-hint">↑↓ to navigate • ↵ or Tab to select • Esc to dismiss</span>
+                </div>
+                <div class="dt-suggestions-list">
+                    @for (int i = 0; i < FilteredSuggestions.Count; i++)
+                    {
+                        var index = i;
+                        var item = FilteredSuggestions[i];
+                        <button type="button"
+                                class="dt-suggestion-item @(index == selectedSuggestionIndex ? "active" : "")"
+                                @onclick="() => SelectSuggestion(item)"
+                                @onmouseover="() => selectedSuggestionIndex = index">
+                            <div class="dt-suggestion-left">
+                                <span class="dt-suggestion-icon @item.IconClass">
+                                    @if (!string.IsNullOrEmpty(item.IconSvg))
+                                    {
+                                        @((MarkupString)item.IconSvg)
+                                    }
+                                    else
+                                    {
+                                        <span>@item.IconText</span>
+                                    }
+                                </span>
+                                <span class="dt-suggestion-name">@item.Title</span>
+                                @if (!string.IsNullOrWhiteSpace(item.Description))
+                                {
+                                    <span class="dt-suggestion-desc">@item.Description</span>
+                                }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(item.Badge))
+                            {
+                                <span class="dt-suggestion-badge">@item.Badge</span>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Active Context & Reference Tray -->
         @if (referencedChats.Count > 0 || pickedFiles.Count > 0)
         {
             <div class="dt-composer-references-tray">
@@ -34,12 +95,111 @@
             </div>
         }
 
+        <!-- Reply Context Banner -->
+        @if (replyingTo != null)
+        {
+            <div class="dt-composer-reply-bar">
+                <div class="dt-reply-bar-main">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="dt-reply-icon">
+                        <polyline points="9 17 4 12 9 7"></polyline>
+                        <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+                    </svg>
+                    <span class="dt-reply-author">Replying to @(replyingTo.Role.Equals("user", StringComparison.OrdinalIgnoreCase) ? "your message" : "Gram"):</span>
+                    <span class="dt-reply-preview">@(replyingTo.Text.Length > 80 ? replyingTo.Text[..80] + "…" : replyingTo.Text)</span>
+                </div>
+                <button type="button" class="dt-reply-cancel-btn" @onclick="ClearReply" title="Cancel reply">✕</button>
+            </div>
+        }
+
         <div class="dt-composer-inner">
-            <!-- Left: Attach / Reference previous chats & Local Agent File Picker -->
+            <!-- Left: Model Selector, Attach / Reference previous chats & Local Agent File Picker -->
             <div class="dt-composer-actions-left" style="position: relative; display: flex; align-items: center; gap: 4px;">
+                @if (Models != null && Models.Count > 0)
+                {
+                    var currentModel = Models.FirstOrDefault(m => m.Id == SelectedModelId) ?? Models.FirstOrDefault();
+                    <div class="dt-composer-model-wrap" style="position: relative;">
+                        <button type="button"
+                                class="dt-btn-composer-model @(isModelPickerOpen ? "active" : "")"
+                                title="Change model (@(currentModel?.Name ?? "Select Model"))"
+                                aria-label="Change model"
+                                @onclick="ToggleModelPicker">
+                            <span class="dt-composer-model-sparkle">
+                                <Gram.Blazor.Components.ModelIcon ModelId="@(currentModel?.Id)" Vendor="@(currentModel?.Provider)" Size="13" />
+                            </span>
+                            <span class="dt-composer-model-name">@(currentModel?.Name ?? "Model")</span>
+                            <svg class="dt-composer-model-chevron" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                        </button>
+
+                        @if (isModelPickerOpen)
+                        {
+                            <div class="dt-ref-backdrop" @onclick="() => isModelPickerOpen = false"></div>
+                            <div class="dt-ref-popover dt-model-popover" @onclick:stopPropagation="true">
+                                @if (!isBrowsingModels)
+                                {
+                                    <div class="dt-ref-popover-header">
+                                        <div class="dt-ref-popover-title">
+                                            <span>Model & Effort</span>
+                                        </div>
+                                        <span class="dt-ref-popover-hint">Click model to switch</span>
+                                    </div>
+                                    <div class="dt-model-card-btn"
+                                         role="button"
+                                         tabindex="0"
+                                         @onclick="() => isBrowsingModels = true"
+                                         title="Click to switch active model">
+                                        <div class="dt-model-card-info">
+                                            <Gram.Blazor.Components.ModelIcon ModelId="@(currentModel?.Id)" Vendor="@(currentModel?.Provider)" Size="15" />
+                                            <div class="dt-model-card-text">
+                                                <span class="dt-model-card-name">@(currentModel?.Name ?? "Model")</span>
+                                                <span class="dt-model-card-provider">@(currentModel?.Provider ?? "")</span>
+                                            </div>
+                                        </div>
+                                        <span class="dt-model-card-switch">Switch ▾</span>
+                                    </div>
+                                    <div class="dt-model-reasoning-wrap">
+                                        <Gram.Blazor.Components.ReasoningEffortControl ModelId="@SelectedModelId" Compact="false" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="dt-ref-popover-header with-back">
+                                        <button type="button" class="dt-ref-back-btn" @onclick="() => isBrowsingModels = false" title="Back to model settings">
+                                            ‹ Back
+                                        </button>
+                                        <div class="dt-ref-popover-title">
+                                            <span>Select Model</span>
+                                        </div>
+                                    </div>
+                                    <div class="dt-ref-list">
+                                        @foreach (var model in Models.Where(m => m.IsEnabled))
+                                        {
+                                            var isSel = model.Id == SelectedModelId;
+                                            <button type="button"
+                                                    class="dt-ref-item @(isSel ? "selected" : "")"
+                                                    @onclick="() => SelectModel(model.Id)">
+                                                <Gram.Blazor.Components.ModelIcon ModelId="@model.Id" Vendor="@model.Provider" Size="13" />
+                                                <div class="dt-ref-item-main">
+                                                    <span class="dt-ref-item-title">@model.Name</span>
+                                                    <span class="dt-ref-item-preview">@model.Provider</span>
+                                                </div>
+                                                @if (isSel)
+                                                {
+                                                    <span class="dt-ref-selected-check">✓</span>
+                                                }
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
                 <button type="button"
                         class="dt-btn-composer-icon @(isReferencePickerOpen ? "active" : "")"
-                        title="Reference previous chats or attach context"
+                        title="Reference previous chats or attach context (@@)"
                         aria-label="Reference chats"
                         @onclick="ToggleReferencePicker">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -167,13 +327,14 @@
                 }
             </div>
 
-            <!-- Center: Auto-expanding Textarea -->
-            <textarea class="dt-composer-textarea"
-                      placeholder="Message Gram..."
+            <!-- Center: Auto-expanding Textarea with Mention & Command Hook -->
+            <textarea @ref="textareaRef"
+                      class="dt-composer-textarea"
+                      placeholder="Message Gram... Type @@ for files or / for commands"
                       rows="1"
                       value="@inputText"
+                      data-suggestions-open="@(isSuggestionsOpen && FilteredSuggestions.Count > 0 ? "true" : "false")"
                       @oninput="HandleInput"
-                      @onkeydown="HandleKeyDown"
                       disabled="@(Conversation == null || IsLoading)"></textarea>
 
             <!-- Right: Voice, Send/Stop -->
@@ -229,20 +390,319 @@
     [Parameter] public EventCallback<string> OnSendMessage { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
 
+    private ElementReference composerBoxEl;
+    private ElementReference textareaRef;
+    private DotNetObjectReference<ComposerDock>? dotNetHelper;
+
     private string inputText = "";
     private bool isVoiceActive = false;
+
+    // Model Selection Picker
+    private bool isModelPickerOpen = false;
 
     // Reference previous chats
     private List<ConversationSummary> referencedChats = new();
     private bool isReferencePickerOpen = false;
     private string refSearchQuery = "";
 
-    // Local Agent File Picker
+    // Local Agent & Attached Files
     private List<FilePickResult> pickedFiles = new();
     private bool isFilePickerOpen = false;
     private string filePickerInput = "";
     private bool isPickingFile = false;
     private string? filePickerError = null;
+
+    // Autocomplete Suggestions (@ and /)
+    private enum SuggestionMode { Mention, SlashCommand }
+    private SuggestionMode suggestionMode = SuggestionMode.Mention;
+    private bool isSuggestionsOpen = false;
+    private int selectedSuggestionIndex = 0;
+    private string currentQuery = "";
+    private IReadOnlyList<WorkspaceFileEntry> cachedFiles = Array.Empty<WorkspaceFileEntry>();
+
+    public record ComposerSuggestion(
+        string Id,
+        string Title,
+        string? Description,
+        string? Badge,
+        string IconClass,
+        string? IconSvg,
+        string? IconText,
+        Func<Task> OnSelect
+    );
+
+    private List<ComposerSuggestion> FilteredSuggestions
+    {
+        get
+        {
+            var list = new List<ComposerSuggestion>();
+            var q = currentQuery.Trim().ToLowerInvariant();
+
+            if (suggestionMode == SuggestionMode.SlashCommand)
+            {
+                var commands = new (string Cmd, string Desc, string Badge, Func<Task> Action)[]
+                {
+                    ("clear", "Clear current conversation history", "Action", async () => {
+                        inputText = "";
+                        await Session.CreateConversationAsync();
+                    }),
+                    ("test", "Run project test suite and verify results", "Command", () => {
+                        inputText = "Run project test suite and verify all tests pass.";
+                        return Task.CompletedTask;
+                    }),
+                    ("build", "Build project and inspect compilation errors", "Command", () => {
+                        inputText = "Build the solution and check for any compilation diagnostics.";
+                        return Task.CompletedTask;
+                    }),
+                    ("git", "Inspect git status and uncommitted diffs", "Git", () => {
+                        inputText = "Inspect git status and explain all unstaged changes.";
+                        return Task.CompletedTask;
+                    }),
+                    ("plan", "Formulate a step-by-step implementation plan", "Prompt", () => {
+                        inputText = "Formulate a comprehensive step-by-step implementation plan for: ";
+                        return Task.CompletedTask;
+                    }),
+                    ("fix", "Diagnose and fix the latest errors or test failures", "Prompt", () => {
+                        inputText = "Diagnose and fix the latest errors and verify the solution.";
+                        return Task.CompletedTask;
+                    })
+                };
+
+                foreach (var cmd in commands)
+                {
+                    if (string.IsNullOrWhiteSpace(q) || cmd.Cmd.Contains(q, StringComparison.OrdinalIgnoreCase))
+                    {
+                        list.Add(new ComposerSuggestion(
+                            $"cmd-{cmd.Cmd}",
+                            $"/{cmd.Cmd}",
+                            cmd.Desc,
+                            cmd.Badge,
+                            "cmd",
+                            "<svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\"><polyline points=\"4 17 10 11 4 5\"></polyline><line x1=\"12\" y1=\"19\" x2=\"20\" y2=\"19\"></line></svg>",
+                            null,
+                            cmd.Action
+                        ));
+                    }
+                }
+            }
+            else // SuggestionMode.Mention
+            {
+                // Top special mentions
+                var specials = new (string Key, string Label, string Desc, string Badge, string IconSvg, Func<Task> Action)[]
+                {
+                    ("git", "@git", "Include git status and diff in prompt context", "Git",
+                     "<svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"18\" cy=\"18\" r=\"3\"></circle><circle cx=\"6\" cy=\"6\" r=\"3\"></circle><path d=\"M6 9v12\"></path><path d=\"M18 9a9 9 0 0 0-9-9\"></path></svg>",
+                     () => { AttachSpecialMentionContext("[Context: Git Working Tree Status & Diff]"); return Task.CompletedTask; }),
+                    ("terminal", "@terminal", "Include recent terminal shell buffer in context", "Terminal",
+                     "<svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><polyline points=\"4 17 10 11 4 5\"></polyline><line x1=\"12\" y1=\"19\" x2=\"20\" y2=\"19\"></line></svg>",
+                     () => { AttachSpecialMentionContext("[Context: Terminal Shell Output]"); return Task.CompletedTask; }),
+                    ("docs", "@docs", "Include workspace README and documentation", "Docs",
+                     "<svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M4 19.5A2.5 2.5 0 0 1 6.5 17H20\"></path><path d=\"M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z\"></path></svg>",
+                     () => { AttachSpecialMentionContext("[Context: Workspace Documentation & README]"); return Task.CompletedTask; }),
+                    ("web", "@web", "Force web search grounding for this prompt", "Web",
+                     "<svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><line x1=\"2\" y1=\"12\" x2=\"22\" y2=\"12\"></line></svg>",
+                     () => { AttachSpecialMentionContext("[Web Search Grounding Enabled]"); return Task.CompletedTask; })
+                };
+
+                foreach (var sp in specials)
+                {
+                    if (string.IsNullOrWhiteSpace(q) || sp.Key.Contains(q, StringComparison.OrdinalIgnoreCase))
+                    {
+                        list.Add(new ComposerSuggestion(
+                            $"special-{sp.Key}",
+                            sp.Label,
+                            sp.Desc,
+                            sp.Badge,
+                            "symbol",
+                            sp.IconSvg,
+                            null,
+                            sp.Action
+                        ));
+                    }
+                }
+
+                // Filter workspace files
+                var matchedFiles = cachedFiles
+                    .Where(f => string.IsNullOrWhiteSpace(q) || f.RelativePath.Contains(q, StringComparison.OrdinalIgnoreCase) || f.FileName.Contains(q, StringComparison.OrdinalIgnoreCase))
+                    .Take(15);
+
+                foreach (var f in matchedFiles)
+                {
+                    list.Add(new ComposerSuggestion(
+                        $"file-{f.RelativePath}",
+                        f.FileName,
+                        f.RelativePath,
+                        f.Extension.TrimStart('.').ToUpperInvariant(),
+                        "file",
+                        "<svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"></path><polyline points=\"14 2 14 8 20 8\"></polyline></svg>",
+                        null,
+                        async () => await AttachWorkspaceFile(f.RelativePath)
+                    ));
+                }
+            }
+
+            return list;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        Session.ComposerPromptRequested += HandleComposerPromptRequested;
+        Session.StateChanged += HandleSessionStateChanged;
+    }
+
+    private void HandleSessionStateChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleComposerPromptRequested(string prompt)
+    {
+        inputText = prompt;
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            try
+            {
+                await textareaRef.FocusAsync();
+            }
+            catch {}
+        });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetHelper = DotNetObjectReference.Create(this);
+            await JSRuntime.InvokeVoidAsync("gramDesktop.initDragDrop", composerBoxEl, dotNetHelper);
+            await JSRuntime.InvokeVoidAsync("gramDesktop.initComposer", textareaRef, dotNetHelper);
+            _ = PreloadWorkspaceFilesAsync();
+        }
+    }
+
+    private async Task PreloadWorkspaceFilesAsync()
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(Session.WorkspacePath))
+            {
+                cachedFiles = await FileService.GetWorkspaceFilesAsync(Session.WorkspacePath);
+            }
+        }
+        catch {}
+    }
+
+    [JSInvokable]
+    public async Task OnNativeFileDropped(string fileName, string filePath, string content, long size)
+    {
+        var relPath = !string.IsNullOrWhiteSpace(filePath) ? filePath : fileName;
+        if (!string.IsNullOrWhiteSpace(Session.WorkspacePath) && relPath.StartsWith(Session.WorkspacePath))
+        {
+            relPath = Path.GetRelativePath(Session.WorkspacePath, relPath).Replace('\\', '/');
+        }
+
+        if (string.IsNullOrWhiteSpace(content) && File.Exists(filePath))
+        {
+            try
+            {
+                content = await File.ReadAllTextAsync(filePath);
+            }
+            catch {}
+        }
+
+        pickedFiles.Add(new FilePickResult(true, relPath, content, size, null));
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnTextDropped(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        var trimmed = text.Trim();
+
+        if (File.Exists(trimmed))
+        {
+            var content = await File.ReadAllTextAsync(trimmed);
+            var fi = new FileInfo(trimmed);
+            var relPath = trimmed;
+            if (!string.IsNullOrWhiteSpace(Session.WorkspacePath) && trimmed.StartsWith(Session.WorkspacePath))
+            {
+                relPath = Path.GetRelativePath(Session.WorkspacePath, trimmed).Replace('\\', '/');
+            }
+            pickedFiles.Add(new FilePickResult(true, relPath, content, fi.Length, null));
+        }
+        else
+        {
+            inputText = string.IsNullOrWhiteSpace(inputText) ? trimmed : $"{inputText} {trimmed}";
+        }
+        await InvokeAsync(StateHasChanged);
+        _ = JSRuntime.InvokeVoidAsync("gramDesktop.resizeComposer", textareaRef);
+    }
+
+    private void AttachSpecialMentionContext(string contextTag)
+    {
+        var atIdx = inputText.LastIndexOf('@');
+        if (atIdx >= 0)
+        {
+            inputText = inputText[..atIdx].TrimEnd() + " " + contextTag + " ";
+        }
+        else
+        {
+            inputText = $"{inputText} {contextTag} ";
+        }
+        CloseSuggestions();
+        _ = JSRuntime.InvokeVoidAsync("gramDesktop.resizeComposer", textareaRef);
+    }
+
+    private async Task AttachWorkspaceFile(string relativePath)
+    {
+        // Clean @query from input
+        var atIdx = inputText.LastIndexOf('@');
+        if (atIdx >= 0)
+        {
+            inputText = inputText[..atIdx].TrimEnd() + " ";
+        }
+
+        // Try local agent pick first
+        var res = await Session.PickWorkspaceFileAsync(relativePath);
+        if (res.Success && !string.IsNullOrEmpty(res.FilePath))
+        {
+            pickedFiles.Add(res);
+        }
+        else
+        {
+            // Direct local file read fallback
+            try
+            {
+                var full = Path.Combine(Session.WorkspacePath, relativePath);
+                if (File.Exists(full))
+                {
+                    var content = await File.ReadAllTextAsync(full);
+                    var fi = new FileInfo(full);
+                    pickedFiles.Add(new FilePickResult(true, relativePath, content, fi.Length, null));
+                }
+            }
+            catch {}
+        }
+
+        CloseSuggestions();
+        _ = JSRuntime.InvokeVoidAsync("gramDesktop.resizeComposer", textareaRef);
+    }
+
+    private async Task SelectSuggestion(ComposerSuggestion suggestion)
+    {
+        await suggestion.OnSelect();
+        CloseSuggestions();
+        _ = JSRuntime.InvokeVoidAsync("gramDesktop.resizeComposer", textareaRef);
+    }
+
+    private void CloseSuggestions()
+    {
+        isSuggestionsOpen = false;
+        selectedSuggestionIndex = 0;
+        currentQuery = "";
+    }
 
     private List<ConversationSummary> FilteredReferenceConversations =>
         (Conversations ?? Array.Empty<ConversationSummary>())
@@ -259,10 +719,27 @@
         }
     }
 
+    // Replying Context
+    private Message? replyingTo;
+
+    public void SetReply(Message msg)
+    {
+        replyingTo = msg;
+        StateHasChanged();
+        _ = JSRuntime.InvokeVoidAsync("gramDesktop.focusComposer", textareaRef);
+    }
+
+    public void ClearReply()
+    {
+        replyingTo = null;
+        StateHasChanged();
+    }
+
     public void SetInputText(string text)
     {
         inputText = text;
         StateHasChanged();
+        _ = JSRuntime.InvokeVoidAsync("gramDesktop.resizeComposer", textareaRef);
     }
 
     private void RemoveReferencedChat(ConversationSummary chat)
@@ -270,9 +747,36 @@
         referencedChats.Remove(chat);
     }
 
+    private bool isBrowsingModels = false;
+
+    private void ToggleModelPicker()
+    {
+        isModelPickerOpen = !isModelPickerOpen;
+        if (isModelPickerOpen)
+        {
+            isBrowsingModels = false;
+            isReferencePickerOpen = false;
+            isFilePickerOpen = false;
+            isSuggestionsOpen = false;
+        }
+    }
+
+    private async Task SelectModel(string modelId)
+    {
+        SelectedModelId = modelId;
+        isBrowsingModels = false;
+        await SelectedModelIdChanged.InvokeAsync(modelId);
+    }
+
     private void ToggleReferencePicker()
     {
         isReferencePickerOpen = !isReferencePickerOpen;
+        if (isReferencePickerOpen)
+        {
+            isModelPickerOpen = false;
+            isFilePickerOpen = false;
+            isSuggestionsOpen = false;
+        }
     }
 
     private void HandleRefSearch(ChangeEventArgs e)
@@ -294,6 +798,9 @@
         isFilePickerOpen = !isFilePickerOpen;
         if (isFilePickerOpen)
         {
+            isModelPickerOpen = false;
+            isReferencePickerOpen = false;
+            isSuggestionsOpen = false;
             filePickerInput = "";
             filePickerError = null;
         }
@@ -341,38 +848,105 @@
         isVoiceActive = !isVoiceActive;
     }
 
-    private async Task HandleModelChange(ChangeEventArgs e)
-    {
-        var modelId = e.Value?.ToString();
-        if (!string.IsNullOrWhiteSpace(modelId))
-        {
-            SelectedModelId = modelId;
-            await SelectedModelIdChanged.InvokeAsync(modelId);
-        }
-    }
-
     private void HandleInput(ChangeEventArgs e)
     {
         inputText = e.Value?.ToString() ?? "";
+
+        // Check slash command trigger
+        if (inputText.StartsWith("/"))
+        {
+            var spaceIdx = inputText.IndexOf(' ');
+            if (spaceIdx < 0)
+            {
+                suggestionMode = SuggestionMode.SlashCommand;
+                currentQuery = inputText[1..];
+                isSuggestionsOpen = true;
+                selectedSuggestionIndex = 0;
+                return;
+            }
+        }
+
+        // Check mention (@) trigger
+        var atIdx = inputText.LastIndexOf('@');
+        if (atIdx >= 0 && (atIdx == 0 || char.IsWhiteSpace(inputText[atIdx - 1])))
+        {
+            var queryAfterAt = inputText[(atIdx + 1)..];
+            if (!queryAfterAt.Contains(' ') && !queryAfterAt.Contains('\n'))
+            {
+                suggestionMode = SuggestionMode.Mention;
+                currentQuery = queryAfterAt;
+                isSuggestionsOpen = true;
+                selectedSuggestionIndex = 0;
+
+                if (cachedFiles.Count == 0)
+                {
+                    _ = PreloadWorkspaceFilesAsync();
+                }
+                return;
+            }
+        }
+
+        CloseSuggestions();
     }
 
-    private async Task HandleKeyDown(KeyboardEventArgs e)
+    [JSInvokable]
+    public async Task OnEnterFromJs(string currentValue)
     {
-        if (IsStreaming || Conversation == null) return;
-
-        bool isSubmit = (e.Key == "Enter" && !e.ShiftKey) ||
-                        (Platform.IsSubmitKeyPressed(e.CtrlKey, e.MetaKey) && e.Key == "Enter");
-        if (isSubmit)
+        if (isSuggestionsOpen && FilteredSuggestions.Count > 0)
         {
-            await HandleSubmit();
+            if (selectedSuggestionIndex >= 0 && selectedSuggestionIndex < FilteredSuggestions.Count)
+            {
+                await SelectSuggestion(FilteredSuggestions[selectedSuggestionIndex]);
+            }
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(currentValue))
+        {
+            inputText = currentValue;
+        }
+
+        await HandleSubmit();
+    }
+
+    [JSInvokable]
+    public async Task OnSelectSuggestionFromJs()
+    {
+        if (isSuggestionsOpen && FilteredSuggestions.Count > 0)
+        {
+            if (selectedSuggestionIndex >= 0 && selectedSuggestionIndex < FilteredSuggestions.Count)
+            {
+                await SelectSuggestion(FilteredSuggestions[selectedSuggestionIndex]);
+            }
+        }
+    }
+
+    [JSInvokable]
+    public void OnArrowKeyFromJs(int direction)
+    {
+        if (isSuggestionsOpen && FilteredSuggestions.Count > 0)
+        {
+            selectedSuggestionIndex = (selectedSuggestionIndex + direction + FilteredSuggestions.Count) % FilteredSuggestions.Count;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public void OnEscapeFromJs()
+    {
+        if (isSuggestionsOpen)
+        {
+            CloseSuggestions();
+            StateHasChanged();
         }
     }
 
     public async Task HandleSubmit()
     {
-        if (string.IsNullOrWhiteSpace(inputText) || IsStreaming || Conversation == null) return;
+        if (string.IsNullOrWhiteSpace(inputText) || IsStreaming) return;
         var text = inputText.Trim();
         inputText = "";
+        CloseSuggestions();
 
         if (referencedChats.Count > 0)
         {
@@ -389,6 +963,34 @@
             pickedFiles.Clear();
         }
 
+        if (replyingTo != null)
+        {
+            var preview = replyingTo.Text.Length > 100 ? replyingTo.Text[..100] + "…" : replyingTo.Text;
+            var author = replyingTo.Role.Equals("user", StringComparison.OrdinalIgnoreCase) ? "User" : "Gram";
+            text = $"> [Replying to {author}: {preview.Replace("\r", "").Replace("\n", " ")}]\n\n{text}";
+            replyingTo = null;
+        }
+
+        _ = JSRuntime.InvokeVoidAsync("gramDesktop.resetComposerHeight", textareaRef);
+        StateHasChanged();
+
         await OnSendMessage.InvokeAsync(text);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Session.ComposerPromptRequested -= HandleComposerPromptRequested;
+        Session.StateChanged -= HandleSessionStateChanged;
+        if (dotNetHelper != null)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("gramDesktop.disposeComposer", textareaRef);
+            }
+            catch {}
+            dotNetHelper.Dispose();
+            dotNetHelper = null;
+        }
+        await Task.CompletedTask;
     }
 }

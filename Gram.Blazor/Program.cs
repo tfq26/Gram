@@ -25,7 +25,6 @@ foreach (var path in possibleEnvPaths)
                 }
             }
         }
-        break;
     }
 }
 
@@ -53,19 +52,26 @@ builder.Services.AddScoped<Gram.Blazor.Shared.SandboxBenchmarkService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IAgentRunTracker, Gram.Blazor.Shared.AgentRunTracker>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, Gram.Blazor.Shared.GramCircuitHandler>();
 
+builder.Services.AddSingleton<Gram.Blazor.Shared.SqliteDatabaseService>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.WorkspaceFileService>();
+
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL") 
     ?? Environment.GetEnvironmentVariable("POSTGRES_CONNECTION_STRING");
 
 if (!string.IsNullOrWhiteSpace(databaseUrl))
 {
-    builder.Services.AddSingleton<Gram.Blazor.Shared.IDatabaseProvider>(sp => 
+    builder.Services.AddSingleton<Gram.Blazor.Shared.PostgresDatabaseProvider>(sp => 
         new Gram.Blazor.Shared.PostgresDatabaseProvider(
             sp.GetRequiredService<ILogger<Gram.Blazor.Shared.PostgresDatabaseProvider>>(),
             databaseUrl));
+    builder.Services.AddSingleton<Gram.Blazor.Shared.IDatabaseProvider>(sp =>
+        new Gram.Blazor.Shared.ResilientDatabaseProvider(
+            sp.GetRequiredService<ILogger<Gram.Blazor.Shared.ResilientDatabaseProvider>>(),
+            sp.GetRequiredService<Gram.Blazor.Shared.PostgresDatabaseProvider>(),
+            sp.GetRequiredService<Gram.Blazor.Shared.SqliteDatabaseService>()));
 }
 else
 {
-    builder.Services.AddSingleton<Gram.Blazor.Shared.SqliteDatabaseService>();
     builder.Services.AddSingleton<Gram.Blazor.Shared.IDatabaseProvider>(sp => sp.GetRequiredService<Gram.Blazor.Shared.SqliteDatabaseService>());
 }
 builder.Services.AddSingleton<Gram.Blazor.Shared.IEmailService, Gram.Blazor.Shared.EmailService>();
@@ -92,6 +98,9 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxScheduler, Gram.Blazor.
 builder.Services.AddSingleton<Gram.Blazor.Shared.IPlatformSandboxController, Gram.Blazor.Shared.PlatformSandboxController>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxMergeCoordinator, Gram.Blazor.Shared.SandboxMergeCoordinator>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxCheckpointService, Gram.Blazor.Shared.SandboxCheckpointService>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.IWorkspaceCheckpointService, Gram.Blazor.Shared.WorkspaceCheckpointService>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.INativeProcessRunner, Gram.Blazor.Shared.NativeProcessRunner>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.IWorkspaceDiagnosticService, Gram.Blazor.Shared.WorkspaceDiagnosticService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.NativeScratchpadDriver>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.GramBoxService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxAccessPolicy, Gram.Blazor.Shared.SandboxAccessPolicy>();
@@ -164,6 +173,10 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.SpotifyOAuthService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.ReminderConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.ControlledHttpConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.DesktopUseConnector>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.SqliteDatabaseConnector>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector>(sp => sp.GetRequiredService<Gram.Blazor.Shared.SqliteDatabaseConnector>());
+builder.Services.AddSingleton<Gram.Blazor.Shared.PostgresDatabaseConnector>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector>(sp => sp.GetRequiredService<Gram.Blazor.Shared.PostgresDatabaseConnector>());
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.SpotifyConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.HomeAssistantConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.PostmanConnector>();
@@ -213,6 +226,9 @@ api.MapGet("/runs/{id}/events", async (HttpContext context, string id, Gram.Blaz
     }
 });
 api.MapGet("/models", (Gram.Blazor.Shared.IModelApi models) => Results.Ok(models.ListModels()));
+api.MapGet("/terminal/logs", async (string? workspacePath, int? limit, Gram.Blazor.Shared.IDatabaseProvider db, CancellationToken ct) => Results.Ok(await db.ListTerminalLogsAsync(workspacePath, limit ?? 100, ct)));
+api.MapPost("/terminal/logs", async (Gram.Blazor.Shared.TerminalLogRecord record, Gram.Blazor.Shared.IDatabaseProvider db, CancellationToken ct) => { await db.SaveTerminalLogAsync(record, ct); return Results.Ok(record); });
+api.MapDelete("/terminal/logs", async (string? workspacePath, Gram.Blazor.Shared.IDatabaseProvider db, CancellationToken ct) => { await db.ClearTerminalLogsAsync(workspacePath, ct); return Results.NoContent(); });
 api.MapGet("/providers", (Gram.Blazor.Shared.IModelApi models) => Results.Ok(models.ListProviders()));
 api.MapGet("/connectors", (Gram.Blazor.Shared.IConnectorRegistry registry) => Results.Ok(registry.ListConnectors()));
 api.MapGet("/connectors/{id}/actions", (string id, Gram.Blazor.Shared.IConnectorRegistry registry) => Results.Ok(registry.ListActions(id)));
@@ -452,6 +468,29 @@ api.MapGet("/sandboxes/{id}/events", async (string id, HttpContext context, Gram
         await context.Response.Body.FlushAsync(ct);
         if (status is "Disposed" or "Error") break;
     }
+});
+
+api.MapPost("/workspaces/checkpoints/{id}/rollback", async (string id, Gram.Blazor.Shared.IWorkspaceCheckpointService checkpoints, CancellationToken ct) =>
+    await checkpoints.RollbackCheckpointAsync(id, ct)
+        ? Results.Ok(new { success = true, checkpointId = id })
+        : Results.NotFound(new Gram.Blazor.Shared.ApiError("checkpoint_not_found", "Checkpoint was not found or could not be rolled back.")));
+
+api.MapPost("/workspaces/checkpoints/rollback-latest", async (HttpRequest req, Gram.Blazor.Shared.IWorkspaceCheckpointService checkpoints, CancellationToken ct) =>
+{
+    var ws = req.Query["workspacePath"].FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(ws))
+        return Results.BadRequest(new Gram.Blazor.Shared.ApiError("workspace_required", "workspacePath query parameter is required."));
+    return await checkpoints.RollbackLatestAsync(ws, ct)
+        ? Results.Ok(new { success = true })
+        : Results.NotFound(new Gram.Blazor.Shared.ApiError("no_checkpoints", "No checkpoints available to rollback."));
+});
+
+api.MapGet("/workspaces/checkpoints", (HttpRequest req, Gram.Blazor.Shared.IWorkspaceCheckpointService checkpoints) =>
+{
+    var ws = req.Query["workspacePath"].FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(ws))
+        return Results.BadRequest(new Gram.Blazor.Shared.ApiError("workspace_required", "workspacePath query parameter is required."));
+    return Results.Ok(checkpoints.GetHistory(ws));
 });
 
 app.Map("/api/voice/assemblyai", async context =>

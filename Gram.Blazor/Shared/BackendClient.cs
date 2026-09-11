@@ -56,22 +56,37 @@ public sealed class GramBackendClient : IMemoryApi
     public Task ForgetMemoryAsync(string memoryId, CancellationToken ct = default) =>
         DeleteAsync($"/api/v1/memory/{Uri.EscapeDataString(memoryId)}", ct);
 
+    public async Task<bool> RollbackCheckpointAsync(string checkpointId, CancellationToken ct = default)
+    {
+        using var response = await _http.PostAsJsonAsync($"/api/v1/workspaces/checkpoints/{Uri.EscapeDataString(checkpointId)}/rollback", new { }, BackendJson.Options, ct).ConfigureAwait(false);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<bool> RollbackLatestCheckpointAsync(string workspacePath, CancellationToken ct = default)
+    {
+        using var response = await _http.PostAsJsonAsync($"/api/v1/workspaces/checkpoints/rollback-latest?workspacePath={Uri.EscapeDataString(workspacePath)}", new { }, BackendJson.Options, ct).ConfigureAwait(false);
+        return response.IsSuccessStatusCode;
+    }
+
+    public Task<IReadOnlyList<WorkspaceFileCheckpoint>> GetCheckpointsAsync(string workspacePath, CancellationToken ct = default) =>
+        GetAsync<IReadOnlyList<WorkspaceFileCheckpoint>>($"/api/v1/workspaces/checkpoints?workspacePath={Uri.EscapeDataString(workspacePath)}", ct);
+
     public async Task<T> PostAsync<T>(string path, object body, CancellationToken ct = default)
     {
-        using var response = await _http.PostAsJsonAsync(path, body, BackendJson.Options, ct);
-        return await ReadAsync<T>(response, ct);
+        using var response = await _http.PostAsJsonAsync(path, body, BackendJson.Options, ct).ConfigureAwait(false);
+        return await ReadAsync<T>(response, ct).ConfigureAwait(false);
     }
 
     public async Task<T> PutAsync<T>(string path, object body, CancellationToken ct = default)
     {
-        using var response = await _http.PutAsJsonAsync(path, body, BackendJson.Options, ct);
-        return await ReadAsync<T>(response, ct);
+        using var response = await _http.PutAsJsonAsync(path, body, BackendJson.Options, ct).ConfigureAwait(false);
+        return await ReadAsync<T>(response, ct).ConfigureAwait(false);
     }
 
     public async Task DeleteAsync(string path, CancellationToken ct = default)
     {
-        using var response = await _http.DeleteAsync(path, ct);
-        await EnsureSuccessAsync(response, ct);
+        using var response = await _http.DeleteAsync(path, ct).ConfigureAwait(false);
+        await EnsureSuccessAsync(response, ct).ConfigureAwait(false);
     }
 
     public async IAsyncEnumerable<RunEvent> SubscribeToRunAsync(string runId, long afterSequence = 0, [EnumeratorCancellation] CancellationToken ct = default)
@@ -90,7 +105,7 @@ public sealed class GramBackendClient : IMemoryApi
             catch (Exception ex) when (IsTransientException(ex) && attempt < maxReconnectAttempts)
             {
                 attempt++;
-                await Task.Delay(TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt)), ct);
+                await Task.Delay(TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt)), ct).ConfigureAwait(false);
                 continue;
             }
 
@@ -104,7 +119,7 @@ public sealed class GramBackendClient : IMemoryApi
                     bool hasNext;
                     try
                     {
-                        hasNext = await enumerator.MoveNextAsync();
+                        hasNext = await enumerator.MoveNextAsync().ConfigureAwait(false);
                     }
                     catch (Exception ex) when (IsTransientException(ex) && attempt < maxReconnectAttempts)
                     {
@@ -136,27 +151,15 @@ public sealed class GramBackendClient : IMemoryApi
             {
                 if (enumerator != null)
                 {
-                    await enumerator.DisposeAsync();
+                    await enumerator.DisposeAsync().ConfigureAwait(false);
                 }
             }
 
-            if (terminalReceived || ct.IsCancellationRequested)
-            {
-                yield break;
-            }
-
-            if (cleanDisconnect && attempt == 0)
-            {
-                // Clean end of stream without terminal event (e.g. backend closed connection)
-                yield break;
-            }
+            if (terminalReceived || cleanDisconnect) break;
 
             attempt++;
-            if (attempt >= maxReconnectAttempts)
-            {
-                break;
-            }
-            await Task.Delay(TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt)), ct);
+            if (attempt >= maxReconnectAttempts) break;
+            await Task.Delay(TimeSpan.FromMilliseconds(250 * Math.Pow(2, attempt)), ct).ConfigureAwait(false);
         }
     }
 
@@ -175,14 +178,14 @@ public sealed class GramBackendClient : IMemoryApi
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/runs/{Uri.EscapeDataString(runId)}/events");
         if (lastSequence > 0) request.Headers.TryAddWithoutValidation("Last-Event-ID", lastSequence.ToString());
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        await EnsureSuccessAsync(response, ct);
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        await EnsureSuccessAsync(response, ct).ConfigureAwait(false);
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         using var reader = new StreamReader(stream);
         string? data = null;
-        while (!reader.EndOfStream && !ct.IsCancellationRequested)
+        while (!ct.IsCancellationRequested)
         {
-            var line = await reader.ReadLineAsync(ct);
+            var line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
             if (line is null) break;
             if (line.StartsWith("data: ", StringComparison.Ordinal)) data = line[6..];
             else if (line.Length == 0 && data is not null)
@@ -199,21 +202,21 @@ public sealed class GramBackendClient : IMemoryApi
         for (var attempt = 0; ; attempt++)
         {
             using (var request = new HttpRequestMessage(HttpMethod.Get, path))
-            using (var response = await _http.SendAsync(request, ct))
+            using (var response = await _http.SendAsync(request, ct).ConfigureAwait(false))
             {
                 if (response.IsSuccessStatusCode)
-                    return await response.Content.ReadFromJsonAsync<T>(BackendJson.Options, ct) ?? throw new InvalidOperationException("Backend returned an empty response.");
+                    return await response.Content.ReadFromJsonAsync<T>(BackendJson.Options, ct).ConfigureAwait(false) ?? throw new InvalidOperationException("Backend returned an empty response.");
                 if (!IsTransient(response.StatusCode) || attempt >= MaxReadAttempts - 1)
-                    await EnsureSuccessAsync(response, ct);
+                    await EnsureSuccessAsync(response, ct).ConfigureAwait(false);
             }
-            await Task.Delay(TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt)), ct);
+            await Task.Delay(TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt)), ct).ConfigureAwait(false);
         }
     }
 
     private static bool IsTransient(HttpStatusCode statusCode) => statusCode == HttpStatusCode.RequestTimeout || statusCode == HttpStatusCode.TooManyRequests || (int)statusCode >= 500;
 
     private static async Task<T> ReadAsync<T>(HttpResponseMessage response, CancellationToken ct)
-    { await EnsureSuccessAsync(response, ct); return await response.Content.ReadFromJsonAsync<T>(BackendJson.Options, ct) ?? throw new InvalidOperationException("Backend returned an empty response."); }
+    { await EnsureSuccessAsync(response, ct).ConfigureAwait(false); return await response.Content.ReadFromJsonAsync<T>(BackendJson.Options, ct).ConfigureAwait(false) ?? throw new InvalidOperationException("Backend returned an empty response."); }
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken ct)
-    { if (response.IsSuccessStatusCode) return; var error = await response.Content.ReadAsStringAsync(ct); throw new HttpRequestException($"Backend request failed ({(int)response.StatusCode}): {error}", null, response.StatusCode); }
+    { if (response.IsSuccessStatusCode) return; var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false); throw new HttpRequestException($"Backend request failed ({(int)response.StatusCode}): {error}", null, response.StatusCode); }
 }

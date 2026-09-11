@@ -155,6 +155,19 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
                 CREATE INDEX IF NOT EXISTS idx_sandbox_jobs_status ON sandbox_jobs(status, created_at);
                 CREATE INDEX IF NOT EXISTS idx_sandbox_outbox_pending ON sandbox_outbox(published_at, created_at);
 
+                CREATE TABLE IF NOT EXISTS terminal_logs (
+                    id VARCHAR(64) PRIMARY KEY,
+                    workspace_path TEXT NOT NULL,
+                    command TEXT NOT NULL,
+                    exit_code INTEGER NOT NULL,
+                    stdout TEXT,
+                    stderr TEXT,
+                    elapsed_ms BIGINT NOT NULL,
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_pg_terminal_logs_ws ON terminal_logs(workspace_path);
+                CREATE INDEX IF NOT EXISTS idx_pg_terminal_logs_time ON terminal_logs(timestamp);
+
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS image TEXT;
                 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
                 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS project_id VARCHAR(64);
@@ -885,6 +898,107 @@ public sealed class PostgresDatabaseProvider : IDatabaseProvider
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(bytes);
         return Convert.ToBase64String(bytes);
+    }
+
+    public async Task SaveTerminalLogAsync(TerminalLogRecord record, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO terminal_logs (id, workspace_path, command, exit_code, stdout, stderr, elapsed_ms, timestamp)
+                VALUES (@id, @ws, @cmd, @code, @out, @err, @ms, @time)
+                ON CONFLICT (id) DO UPDATE SET
+                    workspace_path = EXCLUDED.workspace_path,
+                    command = EXCLUDED.command,
+                    exit_code = EXCLUDED.exit_code,
+                    stdout = EXCLUDED.stdout,
+                    stderr = EXCLUDED.stderr,
+                    elapsed_ms = EXCLUDED.elapsed_ms,
+                    timestamp = EXCLUDED.timestamp;
+            ";
+            cmd.Parameters.AddWithValue("@id", record.Id);
+            cmd.Parameters.AddWithValue("@ws", record.WorkspacePath ?? "");
+            cmd.Parameters.AddWithValue("@cmd", record.Command ?? "");
+            cmd.Parameters.AddWithValue("@code", record.ExitCode);
+            cmd.Parameters.AddWithValue("@out", record.Stdout ?? "");
+            cmd.Parameters.AddWithValue("@err", record.Stderr ?? "");
+            cmd.Parameters.AddWithValue("@ms", record.ElapsedMs);
+            cmd.Parameters.AddWithValue("@time", record.Timestamp.UtcDateTime);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save terminal log {Id}", record.Id);
+            throw;
+        }
+    }
+
+    public async Task<List<TerminalLogRecord>> ListTerminalLogsAsync(string? workspacePath = null, int limit = 100, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            if (!string.IsNullOrWhiteSpace(workspacePath))
+            {
+                cmd.CommandText = "SELECT id, workspace_path, command, exit_code, stdout, stderr, elapsed_ms, timestamp FROM terminal_logs WHERE workspace_path = @ws ORDER BY timestamp DESC LIMIT @limit;";
+                cmd.Parameters.AddWithValue("@ws", workspacePath);
+            }
+            else
+            {
+                cmd.CommandText = "SELECT id, workspace_path, command, exit_code, stdout, stderr, elapsed_ms, timestamp FROM terminal_logs ORDER BY timestamp DESC LIMIT @limit;";
+            }
+            cmd.Parameters.AddWithValue("@limit", Math.Max(1, limit));
+
+            var list = new List<TerminalLogRecord>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                list.Add(new TerminalLogRecord(
+                    reader.GetString(0),
+                    reader.IsDBNull(1) ? "" : reader.GetString(1),
+                    reader.IsDBNull(2) ? "" : reader.GetString(2),
+                    reader.GetInt32(3),
+                    reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    reader.IsDBNull(5) ? "" : reader.GetString(5),
+                    reader.GetInt64(6),
+                    new DateTimeOffset(reader.GetDateTime(7), TimeSpan.Zero)
+                ));
+            }
+            list.Reverse();
+            return list;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list terminal logs");
+            throw;
+        }
+    }
+
+    public async Task ClearTerminalLogsAsync(string? workspacePath = null, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var conn = await _dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            if (!string.IsNullOrWhiteSpace(workspacePath))
+            {
+                cmd.CommandText = "DELETE FROM terminal_logs WHERE workspace_path = @ws;";
+                cmd.Parameters.AddWithValue("@ws", workspacePath);
+            }
+            else
+            {
+                cmd.CommandText = "DELETE FROM terminal_logs;";
+            }
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear terminal logs");
+            throw;
+        }
     }
 
     private static string HashPassword(string password, string salt)

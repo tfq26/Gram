@@ -11,12 +11,13 @@
     <div class="dt-infosheet-header">
         <span class="dt-infosheet-title">Chat info</span>
         <button type="button"
-                class="dt-icon-btn"
+                class="dt-icon-btn dt-infosheet-toggle-btn"
+                data-action="toggle-infosheet"
                 @onclick="OnClose"
-                title="Close">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
+                title="Toggle Chat Info">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="15" y1="3" x2="15" y2="21"></line>
             </svg>
         </button>
     </div>
@@ -382,35 +383,15 @@
         }
     }
 
-    private int ContextLimit => CurrentModel?.ContextLength ?? 128_000;
+    private ContextUsageBreakdown Breakdown => ContextMeterService.CalculateBreakdown(
+        Conversation?.Messages,
+        DraftResponse,
+        null,
+        CurrentModel?.Id,
+        CurrentModel?.ContextLength
+    );
 
-    private int EstimatedTokensUsed
-    {
-        get
-        {
-            int totalChars = 0;
-            if (Conversation?.Messages != null)
-            {
-                foreach (var msg in Conversation.Messages)
-                {
-                    totalChars += msg.Text.Length;
-                }
-            }
-            if (!string.IsNullOrEmpty(DraftResponse))
-            {
-                totalChars += DraftResponse.Length;
-            }
-            return Math.Max(0, (totalChars / 4) + (Conversation?.Messages?.Count > 0 ? 250 : 0));
-        }
-    }
-
-    private double PercentContextUsed
-    {
-        get
-        {
-            if (ContextLimit <= 0) return 0;
-            var pct = (double)EstimatedTokensUsed / ContextLimit * 100.0;
-            return Math.Clamp(pct, 0.0, 100.0);
-        }
-    }
+    private int ContextLimit => Breakdown.ContextLimit;
+    private int EstimatedTokensUsed => Breakdown.TotalTokens;
+    private double PercentContextUsed => Breakdown.UsagePercentage;
 }

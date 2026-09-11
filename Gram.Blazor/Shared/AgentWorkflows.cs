@@ -6,7 +6,7 @@ public sealed record AgentWorkflowRequest(
     List<Message> History,
     string WorkspacePath,
     string? SystemPrompt = null,
-    int MaxIterations = 25,
+    int MaxIterations = 50,
     string? RepositoryMap = null,
     IEnumerable<string>? AllowedToolNames = null,
     string? ForcedWebSearchQuery = null,
@@ -35,7 +35,7 @@ public sealed class ChatWorkflow : IAgentWorkflow
 
     public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
     {
-        var iterations = request.AllowLocalCapabilities ? Math.Max(request.MaxIterations, 25) : request.MaxIterations;
+        var iterations = request.AllowLocalCapabilities ? Math.Max(request.MaxIterations, 50) : request.MaxIterations;
         await foreach (var update in _orchestrator.RunAgentLoopAsync(
             request.ModelId, request.History, request.WorkspacePath, request.SystemPrompt,
             iterations, request.RepositoryMap, request.AllowedToolNames,
@@ -52,11 +52,11 @@ public sealed class ResearchWorkflow : IAgentWorkflow
 
     public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
     {
-        var iterations = request.AllowLocalCapabilities ? Math.Max(request.MaxIterations, 25) : request.MaxIterations;
+        var iterations = request.AllowLocalCapabilities ? Math.Max(request.MaxIterations, 50) : request.MaxIterations;
         await foreach (var update in _orchestrator.RunAgentLoopAsync(
             request.ModelId, request.History, request.WorkspacePath, request.SystemPrompt,
             iterations, request.RepositoryMap, request.AllowedToolNames,
-            request.ForcedWebSearchQuery ?? request.UserPrompt,
+            request.ForcedWebSearchQuery,
             cancellationToken: request.CancellationToken, allowLocalCapabilities: request.AllowLocalCapabilities)) yield return update;
     }
 }
@@ -91,7 +91,7 @@ public sealed class CodingWorkflow : IAgentWorkflow
     public bool CanHandle(AgentWorkflowRequest request) => request.AllowLocalCapabilities && (request.UserPrompt.Contains("code", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("bug", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("implement", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("test", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("fix", StringComparison.OrdinalIgnoreCase) || request.UserPrompt.Contains("refactor", StringComparison.OrdinalIgnoreCase));
     public async IAsyncEnumerable<AgentStepUpdate> RunAsync(AgentWorkflowRequest request)
     {
-        var iterations = Math.Max(request.MaxIterations, 25);
+        var iterations = Math.Max(request.MaxIterations, 50);
         var detected = ProjectValidationDetector.Detect(request.WorkspacePath);
         var prompt = request.SystemPrompt;
         if (detected != null)
@@ -101,7 +101,8 @@ public sealed class CodingWorkflow : IAgentWorkflow
                            $"- Build Command: `{detected.BuildCommand}`, Test Command: `{detected.TestCommand}`\n" +
                            $"- Use `validate_project` to automatically run build/test validation with compiler diagnostic parsing.\n" +
                            $"- Surgical patching (`edit_file`) automatically captures pre-write snapshots and supports multi-tier indentation and anchor matching.\n" +
-                           $"- If a patch or build causes errors, use `rollback_checkpoint` to instantly restore prior state.";
+                           $"- If a patch or build causes errors, use `rollback_checkpoint` to instantly restore prior state.\n" +
+                           $"- Conclude your work with a clear, readable summary strictly no longer than 2 paragraphs (unless verbosity was requested). Do not dump scratchpad logs or intermediate step commentary.";
             prompt = string.IsNullOrWhiteSpace(prompt) ? guidance : $"{prompt}\n{guidance}";
         }
 

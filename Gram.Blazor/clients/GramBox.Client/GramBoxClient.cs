@@ -61,12 +61,12 @@ public sealed class GramBoxClient : IGramBoxClient
         if (afterSequence > 0) request.Headers.TryAddWithoutValidation("Last-Event-ID", afterSequence.ToString());
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(stream);
         string? data = null;
-        while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+        while (!cancellationToken.IsCancellationRequested)
         {
-            var line = await reader.ReadLineAsync(cancellationToken);
+            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
             if (line is null) yield break;
             if (line.StartsWith("data: ", StringComparison.Ordinal)) data = line[6..];
             else if (line.Length == 0 && data is not null)

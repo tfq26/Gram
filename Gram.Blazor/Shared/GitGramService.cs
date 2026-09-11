@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -52,6 +52,12 @@ public sealed class GitGramLogEntry
     public double ElapsedMs { get; set; }
 }
 
+public sealed record GitGramChangedFile(
+    string RelativePath,
+    string Status,
+    bool IsStaged
+);
+
 public sealed class GitGramRepoState
 {
     public string RepoPath { get; set; } = "";
@@ -63,6 +69,7 @@ public sealed class GitGramRepoState
     public int UntrackedFileCount { get; set; }
     public string LastCommitHash { get; set; } = "";
     public string LastCommitMessage { get; set; } = "";
+    public List<GitGramChangedFile> ChangedFiles { get; set; } = new();
     public DateTime LastCheckedUtc { get; set; } = DateTime.UtcNow;
 }
 
@@ -562,6 +569,7 @@ public sealed class GitGramService
             ActiveRepoState.ModifiedFileCount = 0;
             ActiveRepoState.StagedFileCount = 0;
             ActiveRepoState.UntrackedFileCount = 0;
+            ActiveRepoState.ChangedFiles = new();
             ActiveRepoState.LastCheckedUtc = DateTime.UtcNow;
             return;
         }
@@ -570,6 +578,7 @@ public sealed class GitGramService
         int modified = 0;
         int staged = 0;
         int untracked = 0;
+        var changedList = new List<GitGramChangedFile>();
 
         foreach (var line in lines)
         {
@@ -583,25 +592,91 @@ public sealed class GitGramService
                 continue;
             }
 
-            if (line.Length >= 2)
+            if (line.Length >= 4)
             {
                 char x = line[0];
                 char y = line[1];
+                var statusStr = line[..2].Trim();
+                var rawPath = line[3..].Trim().Trim('"');
 
-                if (x == '?' && y == '?') untracked++;
+                bool isUntracked = x == '?' && y == '?';
+                bool isStagedFile = x != ' ' && x != '?';
+                bool isModifiedFile = y != ' ';
+
+                if (isUntracked) untracked++;
                 else
                 {
-                    if (x != ' ' && x != '?') staged++;
-                    if (y != ' ') modified++;
+                    if (isStagedFile) staged++;
+                    if (isModifiedFile) modified++;
                 }
+
+                changedList.Add(new GitGramChangedFile(
+                    RelativePath: rawPath,
+                    Status: isUntracked ? "??" : (string.IsNullOrWhiteSpace(statusStr) ? "M" : statusStr),
+                    IsStaged: isStagedFile
+                ));
             }
         }
 
         ActiveRepoState.ModifiedFileCount = modified;
         ActiveRepoState.StagedFileCount = staged;
         ActiveRepoState.UntrackedFileCount = untracked;
+        ActiveRepoState.ChangedFiles = changedList;
         ActiveRepoState.IsClean = (modified + staged + untracked) == 0;
         ActiveRepoState.LastCheckedUtc = DateTime.UtcNow;
+    }
+
+    public async Task RefreshAsync(string workspacePath)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath) || !Directory.Exists(workspacePath)) return;
+        SetActiveWorkspace(workspacePath);
+        await RefreshStatusAsync(workspacePath);
+        OnStateChanged?.Invoke();
+    }
+
+    public async Task<string> GetFileDiffAsync(string workspacePath, string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath) || !Directory.Exists(workspacePath) || string.IsNullOrWhiteSpace(relativePath))
+            return "";
+
+        var res = await RunGitAsync(workspacePath, "diff", "HEAD", "--", relativePath);
+        if (!res.IsSuccess || string.IsNullOrWhiteSpace(res.Output))
+        {
+            res = await RunGitAsync(workspacePath, "diff", "--", relativePath);
+        }
+        return res.Output ?? "";
+    }
+
+    public async Task<bool> UnstageFileAsync(string relativePath, string workspacePath)
+    {
+        if (!TryResolveWorkspacePath(workspacePath, relativePath, out _))
+            return false;
+
+        var res = await RunGitAsync(workspacePath, "restore", "--staged", "--", relativePath);
+        await RefreshStatusAsync(workspacePath);
+        return res.IsSuccess;
+    }
+
+    public async Task<bool> StashChangesAsync(string workspacePath, string? message = null)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath) || !Directory.Exists(workspacePath)) return false;
+
+        var args = string.IsNullOrWhiteSpace(message)
+            ? new[] { "stash", "push", "-u" }
+            : new[] { "stash", "push", "-u", "-m", message };
+
+        var res = await RunGitAsync(workspacePath, args);
+        await RefreshStatusAsync(workspacePath);
+        return res.IsSuccess;
+    }
+
+    public async Task<bool> PopStashAsync(string workspacePath)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath) || !Directory.Exists(workspacePath)) return false;
+
+        var res = await RunGitAsync(workspacePath, "stash", "pop");
+        await RefreshStatusAsync(workspacePath);
+        return res.IsSuccess;
     }
 
     private async Task<GitGramLogEntry> RunGitAsync(string workingDirectory, params string[] arguments)

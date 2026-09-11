@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Microsoft.JSInterop;
 
 namespace Gram.Desktop.Services;
 
@@ -22,6 +24,7 @@ public interface IPlatformService
     string SubmitShortcutLabel { get; }
     bool IsSubmitKeyPressed(bool ctrlKey, bool metaKey);
     void SetPlatformOverride(OSPlatformType? platform);
+    void OpenExternalUrl(string url);
 }
 
 public sealed class PlatformService : IPlatformService
@@ -74,4 +77,45 @@ public sealed class PlatformService : IPlatformService
     {
         _overridePlatform = platform;
     }
+
+    [JSInvokable("OpenExternalUrl")]
+    public static void OpenUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return;
+
+        try
+        {
+            if (url.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+            {
+                url = "https://" + url;
+            }
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return;
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != "mailto" && uri.Scheme != Uri.UriSchemeFile)
+                return;
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                Process.Start("open", uri.AbsoluteUri);
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = uri.AbsoluteUri,
+                    UseShellExecute = true
+                });
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                Process.Start("xdg-open", uri.AbsoluteUri);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[PlatformService] Failed to open external URL '{url}': {ex.Message}");
+        }
+    }
+
+    public void OpenExternalUrl(string url) => OpenUrl(url);
 }

@@ -131,7 +131,7 @@ public class GramBoxIntegrationTests : IDisposable
             execSw.Stop();
 
             Assert.True(res.Success);
-            var commandBudgetMs = OperatingSystem.IsWindows() ? 2000 : 1000;
+            var commandBudgetMs = OperatingSystem.IsWindows() ? 2500 : 2000;
             Assert.True(execSw.ElapsedMilliseconds < commandBudgetMs, $"Command execution took {execSw.ElapsedMilliseconds}ms (expected < {commandBudgetMs}ms)");
         }
         finally

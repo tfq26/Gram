@@ -60,6 +60,9 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
     private readonly ICapabilityIntentRouter? _capabilityRouter;
     private readonly IWorkspaceCheckpointService _checkpointService;
     private readonly INativeProcessRunner _processRunner;
+    private readonly SqliteDatabaseConnector _sqliteConnector;
+    private readonly PostgresDatabaseConnector _postgresConnector;
+    private readonly RepositoryMapService? _repoMapService;
 
     public IWorkspaceCheckpointService CheckpointService => _checkpointService;
     public INativeProcessRunner ProcessRunner => _processRunner;
@@ -77,7 +80,10 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         HttpClient? httpClient = null,
         ICapabilityIntentRouter? capabilityRouter = null,
         IWorkspaceCheckpointService? checkpointService = null,
-        INativeProcessRunner? processRunner = null)
+        INativeProcessRunner? processRunner = null,
+        SqliteDatabaseConnector? sqliteConnector = null,
+        PostgresDatabaseConnector? postgresConnector = null,
+        RepositoryMapService? repoMapService = null)
     {
         _gitService = gitService;
         _securityService = securityService;
@@ -92,6 +98,9 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         _capabilityRouter = capabilityRouter;
         _checkpointService = checkpointService ?? new WorkspaceCheckpointService();
         _processRunner = processRunner ?? new NativeProcessRunner();
+        _sqliteConnector = sqliteConnector ?? new SqliteDatabaseConnector();
+        _postgresConnector = postgresConnector ?? new PostgresDatabaseConnector();
+        _repoMapService = repoMapService;
     }
 
     public List<AgentToolDefinition> GetAvailableTools(bool isLocalEnvironment, GitAccount? activeGitAccount = null, string? intent = null)
@@ -139,7 +148,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
             tools.Add(new AgentToolDefinition
             {
                 Name = "edit_file",
-                Description = "Perform surgical replacement of a specific target string or chunk in a file.",
+                Description = "Perform surgical replacement of a specific target string or chunk in a file with optional line-number anchors.",
                 Parameters = new JsonObject
                 {
                     ["type"] = "object",
@@ -147,7 +156,9 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     {
                         ["filePath"] = new JsonObject { ["type"] = "string", ["description"] = "Relative path of the file to modify." },
                         ["targetContent"] = new JsonObject { ["type"] = "string", ["description"] = "The exact snippet in the file to be replaced." },
-                        ["replacementContent"] = new JsonObject { ["type"] = "string", ["description"] = "The new replacement snippet to insert." }
+                        ["replacementContent"] = new JsonObject { ["type"] = "string", ["description"] = "The new replacement snippet to insert." },
+                        ["startLine"] = new JsonObject { ["type"] = "integer", ["description"] = "Optional 1-indexed start line anchor to restrict the replacement scope." },
+                        ["endLine"] = new JsonObject { ["type"] = "integer", ["description"] = "Optional 1-indexed end line anchor (inclusive) to restrict the replacement scope." }
                     },
                     ["required"] = new JsonArray { "filePath", "targetContent", "replacementContent" }
                 }
@@ -248,6 +259,22 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     }
                 }
             });
+
+            // 10. find_symbol_definition
+            tools.Add(new AgentToolDefinition
+            {
+                Name = "find_symbol_definition",
+                Description = "Locate the definition, declaration, file path, and line number of a class, interface, method, function, or symbol across the workspace index.",
+                Parameters = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["symbol"] = new JsonObject { ["type"] = "string", ["description"] = "The name of the class, interface, method, or function to find." }
+                    },
+                    ["required"] = new JsonArray { "symbol" }
+                }
+            });
         }
 
         // Git Tools (Both Local and Cloud Remote)
@@ -320,13 +347,14 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
         tools.Add(new AgentToolDefinition
         {
             Name = "search_web",
-            Description = "Search the live web for technical documentation, library APIs, tutorials, error solutions, and latest news.",
+            Description = "Search the live web for technical documentation, library APIs, tutorials, error solutions, apartment/rental listings, products, pricing, and latest news.",
             Parameters = new JsonObject
             {
                 ["type"] = "object",
                 ["properties"] = new JsonObject
                 {
-                    ["query"] = new JsonObject { ["type"] = "string", ["description"] = "The search terms or question to look up online." }
+                    ["query"] = new JsonObject { ["type"] = "string", ["description"] = "The search terms or question to look up online." },
+                    ["count"] = new JsonObject { ["type"] = "integer", ["description"] = "Optional number of results to return (default: 8, max: 15)." }
                 },
                 ["required"] = new JsonArray { "query" }
             }
@@ -728,6 +756,75 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
             }
         });
 
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "db_list_tables",
+            Description = "List all user tables and views in a connected SQLite or PostgreSQL database. Always inspect available tables before constructing SQL queries.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["engine"] = new JsonObject { ["type"] = "string", ["description"] = "Database engine: 'sqlite' or 'postgres'." },
+                    ["connectionOrPath"] = new JsonObject { ["type"] = "string", ["description"] = "SQLite file path (relative to workspace or absolute) or PostgreSQL connection string." }
+                },
+                ["required"] = new JsonArray { "engine", "connectionOrPath" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "db_inspect_schema",
+            Description = "Inspect table column names, data types, nullability, and primary key definitions for a table in SQLite or PostgreSQL.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["engine"] = new JsonObject { ["type"] = "string", ["description"] = "Database engine: 'sqlite' or 'postgres'." },
+                    ["connectionOrPath"] = new JsonObject { ["type"] = "string", ["description"] = "SQLite file path or PostgreSQL connection string." },
+                    ["tableName"] = new JsonObject { ["type"] = "string", ["description"] = "Name of the table to inspect." },
+                    ["schema"] = new JsonObject { ["type"] = "string", ["description"] = "Optional schema name for PostgreSQL (defaults to 'public')." }
+                },
+                ["required"] = new JsonArray { "engine", "connectionOrPath", "tableName" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "db_query_readonly",
+            Description = "Execute a monitored read-only SELECT or EXPLAIN SQL query on SQLite or PostgreSQL. Automatically validates against multi-statement attacks, injects LIMIT 100 if missing, masks sensitive columns, and runs within a hard read-only transaction jail.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["engine"] = new JsonObject { ["type"] = "string", ["description"] = "Database engine: 'sqlite' or 'postgres'." },
+                    ["connectionOrPath"] = new JsonObject { ["type"] = "string", ["description"] = "SQLite file path or PostgreSQL connection string." },
+                    ["query"] = new JsonObject { ["type"] = "string", ["description"] = "The read-only SELECT or EXPLAIN query to execute." }
+                },
+                ["required"] = new JsonArray { "engine", "connectionOrPath", "query" }
+            }
+        });
+
+        tools.Add(new AgentToolDefinition
+        {
+            Name = "db_execute_dml",
+            Description = "Execute a mutating SQL statement (INSERT, UPDATE, DELETE, CREATE, ALTER, DROP) on an approved SQLite or PostgreSQL database. Automatically validated for single-statement safety and requires user approval.",
+            Parameters = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["engine"] = new JsonObject { ["type"] = "string", ["description"] = "Database engine: 'sqlite' or 'postgres'." },
+                    ["connectionOrPath"] = new JsonObject { ["type"] = "string", ["description"] = "SQLite file path or PostgreSQL connection string." },
+                    ["sql"] = new JsonObject { ["type"] = "string", ["description"] = "The single-statement SQL mutation to execute." },
+                    ["rationale"] = new JsonObject { ["type"] = "string", ["description"] = "Explanation of why this mutation is necessary." }
+                },
+                ["required"] = new JsonArray { "engine", "connectionOrPath", "sql" }
+            }
+        });
+
         return ToolSelectionPolicy.SelectForIntent(tools, intent);
     }
 
@@ -869,6 +966,8 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     var filePath = args?["filePath"]?.ToString() ?? "";
                     var targetContent = args?["targetContent"]?.ToString() ?? "";
                     var replacementContent = args?["replacementContent"]?.ToString() ?? "";
+                    int? startLine = args?["startLine"]?.GetValue<int>();
+                    int? endLine = args?["endLine"]?.GetValue<int>();
 
                     var fileCheck = _securityService.EvaluateFileAccess(filePath, workspacePath, isWrite: true);
                     if (!fileCheck.IsAllowed)
@@ -922,11 +1021,11 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     // Capture pre-edit snapshot / checkpoint
                     var cp = await _checkpointService.CapturePreWriteSnapshotAsync(workspacePath, filePath, "edit_file", callId, cancellationToken);
 
-                    var patchResult = SurgicalPatchEngine.ApplyPatch(existing, targetContent, replacementContent);
+                    var patchResult = SurgicalPatchEngine.ApplyPatch(existing, targetContent, replacementContent, startLine, endLine);
                     if (!patchResult.Success)
                     {
                         result.IsError = true;
-                        result.Output = patchResult.ErrorMessage ?? $"Target content was not found in {filePath}.";
+                        result.Output = $"Error editing {filePath}:\n" + (patchResult.ErrorMessage ?? "Target content was not found.");
                         break;
                     }
 
@@ -1222,6 +1321,50 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     break;
                 }
 
+                case "find_symbol_definition":
+                {
+                    var symbol = args?["symbol"]?.ToString()?.Trim() ?? "";
+                    if (string.IsNullOrWhiteSpace(symbol))
+                    {
+                        result.IsError = true;
+                        result.Output = "Missing required argument 'symbol'.";
+                        break;
+                    }
+
+                    if (_repoMapService == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "Repository map service is not available.";
+                        break;
+                    }
+
+                    var def = await _repoMapService.FindDefinitionAsync(workspacePath, symbol, cancellationToken);
+                    if (def != null)
+                    {
+                        result.Output = $"Found [{def.Kind}] '{def.Name}' in {def.FilePath}:{def.LineNumber}\nSignature: {def.Signature}";
+                    }
+                    else
+                    {
+                        var matches = _repoMapService.FindSymbols(workspacePath, symbol);
+                        if (matches.Count > 0)
+                        {
+                            var sb = new StringBuilder();
+                            sb.AppendLine($"Exact definition for '{symbol}' not found. Potential matching symbols:");
+                            foreach (var m in matches.Take(10))
+                            {
+                                sb.AppendLine($"- [{m.Kind}] {m.Name} in {m.FilePath}:{m.LineNumber} ({m.Signature})");
+                            }
+                            result.Output = sb.ToString().TrimEnd();
+                        }
+                        else
+                        {
+                            result.IsError = true;
+                            result.Output = $"Symbol '{symbol}' was not found in the workspace index.";
+                        }
+                    }
+                    break;
+                }
+
                 case "git_list_repos":
                 {
                     var account = activeGitAccount ?? _gitService.Accounts.FirstOrDefault(a => a.IsDefault) ?? _gitService.Accounts.FirstOrDefault();
@@ -1346,9 +1489,15 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                         break;
                     }
 
+                    var count = 8;
+                    if (args?["count"] != null && int.TryParse(args["count"]?.ToString(), out var parsedCount))
+                    {
+                        count = Math.Clamp(parsedCount, 3, 15);
+                    }
+
                     try
                     {
-                        var searchResults = await _webContentService.SearchWebAsync(query, 5, cancellationToken);
+                        var searchResults = await _webContentService.SearchWebAsync(query, count, cancellationToken);
                         if (searchResults.Count == 0)
                         {
                             result.Output = $"No live web search results found for query: \"{query}\"";
@@ -2033,6 +2182,121 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     {
                         var rems = await _taskAndMemoryService.GetRemindersAsync();
                         result.Output = JsonSerializer.Serialize(new { count = rems.Count, reminders = rems });
+                    }
+                    break;
+                }
+
+                case "db_list_tables":
+                {
+                    var engine = args?["engine"]?.ToString() ?? "sqlite";
+                    var connOrPath = args?["connectionOrPath"]?.ToString() ?? "";
+                    if (engine.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!Path.IsPathRooted(connOrPath) && !connOrPath.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            connOrPath = Path.Combine(workspacePath, connOrPath);
+                        }
+                        var actionRes = await _sqliteConnector.ExecuteAsync(new ConnectorActionRequest("db-sqlite", "list_tables", JsonSerializer.SerializeToElement(new { path = connOrPath })), cancellationToken);
+                        result.IsError = !actionRes.Success;
+                        result.Output = actionRes.Success && actionRes.Data.HasValue
+                            ? actionRes.Data.Value.GetRawText()
+                            : actionRes.Message ?? "Failed to list SQLite tables.";
+                    }
+                    else
+                    {
+                        var actionRes = await _postgresConnector.ExecuteAsync(new ConnectorActionRequest("db-postgres", "list_tables", JsonSerializer.SerializeToElement(new { connectionString = connOrPath })), cancellationToken);
+                        result.IsError = !actionRes.Success;
+                        result.Output = actionRes.Success && actionRes.Data.HasValue
+                            ? actionRes.Data.Value.GetRawText()
+                            : actionRes.Message ?? "Failed to list PostgreSQL tables.";
+                    }
+                    break;
+                }
+
+                case "db_inspect_schema":
+                {
+                    var engine = args?["engine"]?.ToString() ?? "sqlite";
+                    var connOrPath = args?["connectionOrPath"]?.ToString() ?? "";
+                    var tableName = args?["tableName"]?.ToString() ?? "";
+                    var schema = args?["schema"]?.ToString();
+
+                    if (engine.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!Path.IsPathRooted(connOrPath) && !connOrPath.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            connOrPath = Path.Combine(workspacePath, connOrPath);
+                        }
+                        var actionRes = await _sqliteConnector.ExecuteAsync(new ConnectorActionRequest("db-sqlite", "inspect_schema", JsonSerializer.SerializeToElement(new { path = connOrPath, tableName })), cancellationToken);
+                        result.IsError = !actionRes.Success;
+                        result.Output = actionRes.Success && actionRes.Data.HasValue
+                            ? actionRes.Data.Value.GetRawText()
+                            : actionRes.Message ?? "Failed to inspect SQLite schema.";
+                    }
+                    else
+                    {
+                        var actionRes = await _postgresConnector.ExecuteAsync(new ConnectorActionRequest("db-postgres", "inspect_schema", JsonSerializer.SerializeToElement(new { connectionString = connOrPath, tableName, schema })), cancellationToken);
+                        result.IsError = !actionRes.Success;
+                        result.Output = actionRes.Success && actionRes.Data.HasValue
+                            ? actionRes.Data.Value.GetRawText()
+                            : actionRes.Message ?? "Failed to inspect PostgreSQL schema.";
+                    }
+                    break;
+                }
+
+                case "db_query_readonly":
+                {
+                    var engine = args?["engine"]?.ToString() ?? "sqlite";
+                    var connOrPath = args?["connectionOrPath"]?.ToString() ?? "";
+                    var query = args?["query"]?.ToString() ?? "";
+
+                    if (engine.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!Path.IsPathRooted(connOrPath) && !connOrPath.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            connOrPath = Path.Combine(workspacePath, connOrPath);
+                        }
+                        var actionRes = await _sqliteConnector.ExecuteAsync(new ConnectorActionRequest("db-sqlite", "query_readonly", JsonSerializer.SerializeToElement(new { path = connOrPath, query })), cancellationToken);
+                        result.IsError = !actionRes.Success;
+                        result.Output = actionRes.Success && actionRes.Data.HasValue
+                            ? actionRes.Data.Value.GetRawText()
+                            : actionRes.Message ?? "Query execution failed.";
+                    }
+                    else
+                    {
+                        var actionRes = await _postgresConnector.ExecuteAsync(new ConnectorActionRequest("db-postgres", "query_readonly", JsonSerializer.SerializeToElement(new { connectionString = connOrPath, query })), cancellationToken);
+                        result.IsError = !actionRes.Success;
+                        result.Output = actionRes.Success && actionRes.Data.HasValue
+                            ? actionRes.Data.Value.GetRawText()
+                            : actionRes.Message ?? "Query execution failed.";
+                    }
+                    break;
+                }
+
+                case "db_execute_dml":
+                {
+                    var engine = args?["engine"]?.ToString() ?? "sqlite";
+                    var connOrPath = args?["connectionOrPath"]?.ToString() ?? "";
+                    var sql = args?["sql"]?.ToString() ?? "";
+
+                    if (engine.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!Path.IsPathRooted(connOrPath) && !connOrPath.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            connOrPath = Path.Combine(workspacePath, connOrPath);
+                        }
+                        var actionRes = await _sqliteConnector.ExecuteAsync(new ConnectorActionRequest("db-sqlite", "execute_dml", JsonSerializer.SerializeToElement(new { path = connOrPath, sql })), cancellationToken);
+                        result.IsError = !actionRes.Success;
+                        result.Output = actionRes.Success && actionRes.Data.HasValue
+                            ? actionRes.Data.Value.GetRawText()
+                            : actionRes.Message ?? "DML execution failed.";
+                    }
+                    else
+                    {
+                        var actionRes = await _postgresConnector.ExecuteAsync(new ConnectorActionRequest("db-postgres", "execute_dml", JsonSerializer.SerializeToElement(new { connectionString = connOrPath, sql })), cancellationToken);
+                        result.IsError = !actionRes.Success;
+                        result.Output = actionRes.Success && actionRes.Data.HasValue
+                            ? actionRes.Data.Value.GetRawText()
+                            : actionRes.Message ?? "DML execution failed.";
                     }
                     break;
                 }

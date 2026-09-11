@@ -85,7 +85,21 @@ public sealed class AgentRunTracker : IAgentRunTracker
             if (!_runs.TryGetValue(runId, out var run)) return;
             run.Status = status; run.StatusText = status == AgentRunStatus.Completed ? "Completed" : status.ToString(); run.Error = error; run.CompletedAt = DateTimeOffset.UtcNow; run.UpdatedAt = run.CompletedAt.Value; Persist(run);
         }
-        Emit(new AgentRunEvent(runId, "run.completed", error ?? status.ToString(), DateTimeOffset.UtcNow));
+        var eventType = status switch
+        {
+            AgentRunStatus.Failed => "run.failed",
+            AgentRunStatus.Cancelled => "run.cancelled",
+            _ => "run.completed"
+        };
+        if (status == AgentRunStatus.Failed)
+        {
+            GramLog.Error("AgentRunTracker", $"Run {runId} completed with failure: {error}");
+        }
+        else
+        {
+            GramLog.Info("AgentRunTracker", $"Run {runId} completed with status: {status}");
+        }
+        Emit(new AgentRunEvent(runId, eventType, error ?? status.ToString(), DateTimeOffset.UtcNow));
     }
 
     public AgentRunSnapshot? Get(string runId) { lock (_sync) return _runs.TryGetValue(runId, out var run) ? JsonSerializer.Deserialize<AgentRunSnapshot>(JsonSerializer.Serialize(run)) : null; }
@@ -102,7 +116,27 @@ public sealed class AgentRunTracker : IAgentRunTracker
 
     public void AppendOutput(string runId, string text)
     {
-        lock (_sync) if (_runs.TryGetValue(runId, out var run)) { run.Output = (run.Output ?? "") + text; run.UpdatedAt = DateTimeOffset.UtcNow; Persist(run); }
+        lock (_sync)
+        {
+            if (_runs.TryGetValue(runId, out var run))
+            {
+                var current = run.Output ?? "";
+                if (!string.IsNullOrEmpty(current) &&
+                    !current.EndsWith('\n') &&
+                    !current.EndsWith(' ') &&
+                    !text.StartsWith('\n') &&
+                    !text.StartsWith(' '))
+                {
+                    run.Output = current + "\n\n" + text;
+                }
+                else
+                {
+                    run.Output = current + text;
+                }
+                run.UpdatedAt = DateTimeOffset.UtcNow;
+                Persist(run);
+            }
+        }
     }
 
     public string? GetOutput(string runId) { lock (_sync) return _runs.TryGetValue(runId, out var run) ? run.Output : null; }

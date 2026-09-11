@@ -81,4 +81,51 @@ public sealed class SurgicalPatchEngineTests
         Assert.Contains("Target content was not found", result.ErrorMessage);
         Assert.Contains("nonExistent", result.ErrorMessage);
     }
+
+    [Fact]
+    public void PatchEngine_WithLineAnchors_ReplacesSpecificDuplicateOccurrence()
+    {
+        var lines = new List<string>();
+        for (int i = 1; i <= 20; i++)
+        {
+            if (i == 5 || i == 15)
+                lines.Add("    Console.WriteLine(\"TargetDuplicate\");");
+            else
+                lines.Add($"    int step_{i} = {i};");
+        }
+        var original = string.Join("\n", lines);
+
+        // Replace only the occurrence around line 15 by specifying startLine: 12, endLine: 18
+        var target = "Console.WriteLine(\"TargetDuplicate\");";
+        var replacement = "Console.WriteLine(\"ReplacementFifteen\");";
+
+        var result = SurgicalPatchEngine.ApplyPatch(original, target, replacement, startLine: 12, endLine: 18);
+
+        Assert.True(result.Success);
+        var resultLines = result.PatchedText.Split('\n');
+        // Line 5 (index 4) should still have the original
+        Assert.Contains("TargetDuplicate", resultLines[4]);
+        Assert.DoesNotContain("ReplacementFifteen", resultLines[4]);
+        // Line 15 (index 14) should have the replacement
+        Assert.Contains("ReplacementFifteen", resultLines[14]);
+        Assert.DoesNotContain("TargetDuplicate", resultLines[14]);
+    }
+
+    [Fact]
+    public void PatchEngine_Fails_ReturnsRichDiagnosticContextWithSurroundingLines()
+    {
+        var original = "line 1\nline 2\npublic void ProcessOrder(Order order)\n{\n    if (order == null) throw new ArgumentNullException();\n    Save(order);\n}\nline 8\nline 9";
+        // Target has a slight discrepancy (typo in order parameter)
+        var target = "public void ProcessOrder(Order missingOrder)\n{\n    if (order == null) throw new ArgumentNullException();";
+        var replacement = "public void ProcessOrder(Order order) { }";
+
+        var result = SurgicalPatchEngine.ApplyPatch(original, target, replacement);
+
+        Assert.False(result.Success);
+        // Rich diagnostic error payload checks
+        Assert.Contains("Closest match found near line", result.ErrorMessage);
+        Assert.Contains("ProcessOrder", result.ErrorMessage);
+        Assert.Contains("Actionable hint:", result.ErrorMessage);
+        Assert.Contains("view_file", result.ErrorMessage);
+    }
 }

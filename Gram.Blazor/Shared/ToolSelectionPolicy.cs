@@ -57,10 +57,17 @@ public static class ToolSelectionPolicy
             ]);
         }
 
+        var isDatabaseTask = ContainsAny(text, "db", "database", "sql", "sqlite", "postgres", "postgresql", "table", "schema", "query", "select", "insert", "update", "delete");
+
         if (isToolboxTask)
         {
             allowed.UnionWith(["toolbox_list_tools", "toolbox_execute_tool"]);
             allowed.UnionWith(tools.Where(x => x.Name.StartsWith("grambox_", StringComparison.OrdinalIgnoreCase)).Select(x => x.Name));
+        }
+
+        if (isDatabaseTask)
+        {
+            allowed.UnionWith(["db_list_tables", "db_inspect_schema", "db_query_readonly", "db_execute_dml"]);
         }
 
         if (isPresentationTask)
