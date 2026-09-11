@@ -1,5 +1,6 @@
 @namespace Gram.Desktop.Components
 @inject IJSRuntime JSRuntime
+@inject Gram.Desktop.Services.CompanionTaskService CompanionTasks
 @implements IAsyncDisposable
 
 <div @ref="elementRef"
@@ -332,6 +333,23 @@
     private bool isVoiceSpeaking => State == "voice_speaking" || State == "speaking";
     private bool isVoiceInterrupted => State == "voice_interrupted" || State == "interrupted";
 
+    protected override void OnInitialized()
+    {
+        CompanionTasks.OnAnimationTriggered += HandleAnimationTriggered;
+    }
+
+    private void HandleAnimationTriggered(string animationName, int durationMs)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("gramCharacter.setState", elementId, animationName, durationMs);
+            }
+            catch { }
+        });
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!Interactive) return;
@@ -384,6 +402,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        CompanionTasks.OnAnimationTriggered -= HandleAnimationTriggered;
         if (isInitialized && Interactive)
         {
             try

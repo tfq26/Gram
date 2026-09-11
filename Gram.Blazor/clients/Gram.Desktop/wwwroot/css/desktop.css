@@ -3276,6 +3276,155 @@ input[type="submit"],
     margin-top: 4px;
 }
 
+/* Stacked Effort & Reasoning Control */
+.effort-stacked-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+}
+
+.effort-stacked-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 2px 4px;
+    font-size: 11px;
+}
+
+.effort-stacked-header .effort-caption {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+    color: var(--dt-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 10px;
+}
+
+.effort-stacked-header .effort-active-val {
+    font-weight: 600;
+    color: var(--dt-accent-cyan, #a78bfa);
+    font-size: 11px;
+}
+
+.effort-stacked-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+}
+
+.effort-stacked-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    width: 100%;
+    padding: 7px 9px;
+    background: var(--dt-bg-base);
+    border: 1px solid var(--dt-border-subtle);
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.effort-stacked-item:hover {
+    background: var(--dt-bg-hover);
+    border-color: var(--dt-border-primary);
+}
+
+.effort-stacked-item.active {
+    background: var(--dt-bg-active, rgba(167, 139, 250, 0.08));
+    border-color: var(--dt-accent-purple, #8b5cf6);
+}
+
+.effort-stacked-indicator {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1.5px solid var(--dt-border-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.effort-stacked-item.active .effort-stacked-indicator {
+    border-color: var(--dt-accent-purple, #8b5cf6);
+    background: rgba(139, 92, 246, 0.15);
+}
+
+.effort-stacked-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: transparent;
+    transition: background 0.15s ease;
+}
+
+.effort-stacked-item.active .effort-stacked-dot {
+    background: var(--dt-accent-purple, #8b5cf6);
+}
+
+.effort-stacked-main {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+}
+
+.effort-stacked-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.effort-stacked-name {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--dt-text-primary);
+}
+
+.effort-stacked-badge {
+    font-size: 9.5px;
+    font-weight: 500;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--dt-bg-card, rgba(255, 255, 255, 0.05));
+    color: var(--dt-text-secondary);
+    border: 1px solid var(--dt-border-subtle);
+}
+
+.effort-stacked-badge.fast {
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.1);
+    border-color: rgba(56, 189, 248, 0.2);
+}
+
+.effort-stacked-badge.balanced {
+    color: #a78bfa;
+    background: rgba(167, 139, 250, 0.1);
+    border-color: rgba(167, 139, 250, 0.2);
+}
+
+.effort-stacked-badge.deep {
+    color: #f43f5e;
+    background: rgba(244, 63, 94, 0.1);
+    border-color: rgba(244, 63, 94, 0.2);
+}
+
+.effort-stacked-desc {
+    font-size: 10px;
+    color: var(--dt-text-muted);
+    line-height: 1.3;
+}
+
 /* ==========================================================================
    Infosheet / Inspector (Right Pane) & Auto-Reveal on Hover
    ========================================================================== */

@@ -8,6 +8,7 @@
 @inject WorkspaceFileService FileService
 @inject PtyTerminalService PtyService
 @inject WorkspaceTabService TabService
+@inject CompanionTaskService CompanionTasks
 @inject IJSRuntime JSRuntime
 
 <div class="dt-composer-dock">
@@ -159,7 +160,7 @@
                                         <span class="dt-model-card-switch">Switch ▾</span>
                                     </div>
                                     <div class="dt-model-reasoning-wrap">
-                                        <Gram.Blazor.Components.ReasoningEffortControl ModelId="@SelectedModelId" Compact="false" />
+                                        <Gram.Blazor.Components.ReasoningEffortControl ModelId="@SelectedModelId" Compact="false" Stacked="true" OnEffortChanged="HandleEffortChanged" />
                                     </div>
                                 }
                                 else
@@ -765,7 +766,27 @@
     {
         SelectedModelId = modelId;
         isBrowsingModels = false;
+        var model = Models?.FirstOrDefault(m => m.Id == modelId);
+        var modelName = model?.Name ?? "Model";
+        CompanionTasks.TriggerAnimation("salute", 2800, $"Switched to {modelName}! Ready to build.");
         await SelectedModelIdChanged.InvokeAsync(modelId);
+    }
+
+    private void HandleEffortChanged(string effort)
+    {
+        var normalized = ReasoningEffort.Normalize(effort);
+        switch (normalized)
+        {
+            case ReasoningEffort.Low:
+                CompanionTasks.TriggerAnimation("caffeine_rush", 2800, "Fast mode engaged! Warp speed intelligence. ⚡");
+                break;
+            case ReasoningEffort.Medium:
+                CompanionTasks.TriggerAnimation("matrix_zen", 2800, "Balanced mode active. Focused & steady. ⚖️");
+                break;
+            case ReasoningEffort.High:
+                CompanionTasks.TriggerAnimation("mind_blown", 3200, "Deep reasoning unlocked! Extended neural thinking. 🧠");
+                break;
+        }
     }
 
     private void ToggleReferencePicker()

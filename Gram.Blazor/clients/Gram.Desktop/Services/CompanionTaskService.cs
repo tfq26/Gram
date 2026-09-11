@@ -50,6 +50,7 @@ public sealed class CompanionTaskService : IDisposable
 
     public event Action? OnTasksChanged;
     public event Action? OnSpeechChanged;
+    public event Action<string, int>? OnAnimationTriggered;
 
     public string? CurrentSpeech { get; private set; }
     private Timer? _speechDismissTimer;
@@ -214,6 +215,19 @@ public sealed class CompanionTaskService : IDisposable
         _speechDismissTimer?.Dispose();
         CurrentSpeech = null;
         OnSpeechChanged?.Invoke();
+    }
+
+    public void TriggerAnimation(string animationName, int durationMs = 2800, string? oneLiner = null)
+    {
+        OnAnimationTriggered?.Invoke(animationName, durationMs);
+        if (!string.IsNullOrWhiteSpace(oneLiner))
+        {
+            Speak(oneLiner, durationMs + 800);
+        }
+        else
+        {
+            TriggerOneLinerForAnimation(animationName);
+        }
     }
 
     public void TriggerOneLinerForAnimation(string animationName)
