@@ -9,13 +9,7 @@
     {
         <div class="effort-stacked-wrap @Class">
             <div class="effort-stacked-header">
-                <span class="effort-caption">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                    </svg>
-                    <span>Reasoning Effort</span>
-                </span>
-                <span class="effort-active-val">@ReasoningEffort.GetLabel(currentEffort)</span>
+                <span class="effort-caption">Reasoning Effort</span>
             </div>
 
             <div class="effort-stacked-list" role="radiogroup" aria-label="Reasoning effort level">
@@ -28,10 +22,7 @@
                         <span class="effort-stacked-dot"></span>
                     </div>
                     <div class="effort-stacked-main">
-                        <div class="effort-stacked-row-head">
-                            <span class="effort-stacked-name">Fast</span>
-                            <span class="effort-stacked-badge fast">⚡ Low Latency</span>
-                        </div>
+                        <span class="effort-stacked-name">Fast</span>
                         <span class="effort-stacked-desc">Everyday intelligence · Gemini Flash Lite</span>
                     </div>
                 </button>
@@ -45,10 +36,7 @@
                         <span class="effort-stacked-dot"></span>
                     </div>
                     <div class="effort-stacked-main">
-                        <div class="effort-stacked-row-head">
-                            <span class="effort-stacked-name">Balanced</span>
-                            <span class="effort-stacked-badge balanced">⚖️ Agentic</span>
-                        </div>
+                        <span class="effort-stacked-name">Balanced</span>
                         <span class="effort-stacked-desc">Structured tools & coding · Vercel Muse Spark</span>
                     </div>
                 </button>
@@ -62,10 +50,7 @@
                         <span class="effort-stacked-dot"></span>
                     </div>
                     <div class="effort-stacked-main">
-                        <div class="effort-stacked-row-head">
-                            <span class="effort-stacked-name">Deep</span>
-                            <span class="effort-stacked-badge deep">🧠 High Reasoning</span>
-                        </div>
+                        <span class="effort-stacked-name">Deep</span>
                         <span class="effort-stacked-desc">Extended thinking & complex architecture</span>
                     </div>
                 </button>
@@ -76,13 +61,7 @@
     {
         <div class="effort-control-wrap @(Compact ? "compact" : "") @Class" title="@ReasoningEffort.GetDescription(currentEffort)">
             <div class="effort-slider-header">
-                <span class="effort-caption">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                    </svg>
-                    <span>Effort:</span>
-                </span>
-                <span class="effort-active-val">@ReasoningEffort.GetLabel(currentEffort)</span>
+                <span class="effort-caption">Effort</span>
             </div>
 
             <div class="effort-segmented-track" role="group" aria-label="Reasoning effort level">

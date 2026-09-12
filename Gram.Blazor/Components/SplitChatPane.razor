@@ -23,6 +23,10 @@
                         title="Switch AI model for Split B">
                     <ModelIcon ModelId="@activeModelId" Size="13" />
                     <span class="model-trigger-name" style="max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@(ActiveModel?.Name ?? activeModelId)</span>
+                    @if (ReasoningEffort.SupportsReasoning(activeModelId))
+                    {
+                        <span class="model-trigger-effort">· @ReasoningEffort.GetLabel(ModelService.CurrentReasoningEffort)</span>
+                    }
                     <svg class="model-dropdown-chevron @(isModelMenuOpen ? "open" : "")" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
@@ -43,14 +47,14 @@
                                  tabindex="0"
                                  @onclick="() => isBrowsingModels = true"
                                  title="Click to choose a different model">
-                                <div class="model-current-info" style="display: flex; align-items: center; gap: 8px;">
-                                    <ModelIcon ModelId="@activeModelId" Size="14" />
+                                <div class="model-current-info" style="display: flex; align-items: center; gap: 10px;">
+                                    <ModelIcon ModelId="@activeModelId" Size="24" />
                                     <div style="display: flex; flex-direction: column; text-align: left;">
-                                        <span style="font-size: 11.5px; font-weight: 600; color: var(--text-primary);">@(ActiveModel?.Name ?? activeModelId)</span>
-                                        <span style="font-size: 10px; color: var(--text-muted);">@(ActiveModel?.Provider ?? "")</span>
+                                        <span style="font-size: 12.5px; font-weight: 600; color: var(--text-primary);">@(ActiveModel?.Name ?? activeModelId)</span>
+                                        <span style="font-size: 11px; color: var(--text-muted);">@(ActiveModel?.Provider ?? "")</span>
                                     </div>
                                 </div>
-                                <span style="font-size: 10px; font-weight: 500; color: var(--text-secondary); background: var(--bg-surface); border: 1px solid var(--border-color); padding: 2px 6px; border-radius: 4px;">Switch ▾</span>
+                                <span style="font-size: 11px; font-weight: 500; color: var(--text-secondary);">Switch ▾</span>
                             </div>
                             <div style="padding: 4px 8px 8px; border-top: 1px solid var(--border-color); margin-top: 4px;">
                                 <ReasoningEffortControl ModelId="@activeModelId" Compact="false" Stacked="true" />
@@ -71,7 +75,7 @@
                                         class="model-dropdown-item @(isSelected ? "active" : "")" 
                                         @onclick="() => SelectModel(model.Id)">
                                     <div class="model-item-info">
-                                        <ModelIcon ModelId="@model.Id" Size="13" />
+                                        <ModelIcon ModelId="@model.Id" Size="18" />
                                         <div class="model-item-text">
                                             <span class="model-item-label" style="font-size: 12px;">@model.Name</span>
                                             <span class="model-item-vendor" style="font-size: 10px;">@model.Provider</span>

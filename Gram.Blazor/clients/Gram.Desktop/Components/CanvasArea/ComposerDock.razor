@@ -9,6 +9,7 @@
 @inject PtyTerminalService PtyService
 @inject WorkspaceTabService TabService
 @inject CompanionTaskService CompanionTasks
+@inject Gram.Blazor.Shared.ModelService ModelService
 @inject IJSRuntime JSRuntime
 
 <div class="dt-composer-dock">
@@ -128,6 +129,10 @@
                                 <Gram.Blazor.Components.ModelIcon ModelId="@(currentModel?.Id)" Vendor="@(currentModel?.Provider)" Size="13" />
                             </span>
                             <span class="dt-composer-model-name">@(currentModel?.Name ?? "Model")</span>
+                            @if (ReasoningEffort.SupportsReasoning(currentModel?.Id))
+                            {
+                                <span class="dt-composer-model-effort">· @ReasoningEffort.GetLabel(ModelService.CurrentReasoningEffort)</span>
+                            }
                             <svg class="dt-composer-model-chevron" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                                 <polyline points="6 9 12 15 18 9"></polyline>
                             </svg>
@@ -151,7 +156,7 @@
                                          @onclick="() => isBrowsingModels = true"
                                          title="Click to switch active model">
                                         <div class="dt-model-card-info">
-                                            <Gram.Blazor.Components.ModelIcon ModelId="@(currentModel?.Id)" Vendor="@(currentModel?.Provider)" Size="15" />
+                                            <Gram.Blazor.Components.ModelIcon ModelId="@(currentModel?.Id)" Vendor="@(currentModel?.Provider)" Size="24" />
                                             <div class="dt-model-card-text">
                                                 <span class="dt-model-card-name">@(currentModel?.Name ?? "Model")</span>
                                                 <span class="dt-model-card-provider">@(currentModel?.Provider ?? "")</span>
@@ -180,7 +185,7 @@
                                             <button type="button"
                                                     class="dt-ref-item @(isSel ? "selected" : "")"
                                                     @onclick="() => SelectModel(model.Id)">
-                                                <Gram.Blazor.Components.ModelIcon ModelId="@model.Id" Vendor="@model.Provider" Size="13" />
+                                                <Gram.Blazor.Components.ModelIcon ModelId="@model.Id" Vendor="@model.Provider" Size="18" />
                                                 <div class="dt-ref-item-main">
                                                     <span class="dt-ref-item-title">@model.Name</span>
                                                     <span class="dt-ref-item-preview">@model.Provider</span>
@@ -550,6 +555,12 @@
     {
         Session.ComposerPromptRequested += HandleComposerPromptRequested;
         Session.StateChanged += HandleSessionStateChanged;
+        ModelService.OnChange += HandleModelServiceChanged;
+    }
+
+    private void HandleModelServiceChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void HandleSessionStateChanged()
@@ -1002,6 +1013,7 @@
     {
         Session.ComposerPromptRequested -= HandleComposerPromptRequested;
         Session.StateChanged -= HandleSessionStateChanged;
+        ModelService.OnChange -= HandleModelServiceChanged;
         if (dotNetHelper != null)
         {
             try

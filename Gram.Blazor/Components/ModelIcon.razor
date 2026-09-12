@@ -35,37 +35,41 @@
 
             if (combinedKey.Contains("google") || combinedKey.Contains("gemini"))
             {
-                return "logo/gemini.svg";
+                return "icons/gemini.svg";
             }
             if (combinedKey.Contains("groq") || combinedKey.Contains("meta") || combinedKey.Contains("llama"))
             {
-                return "logo/meta-12361.svg";
+                return "icons/meta-12361.svg";
             }
             if (combinedKey.Contains("anthropic") || combinedKey.Contains("claude"))
             {
-                return "logo/anthropic.svg";
+                return "icons/anthropic.svg";
             }
             if (combinedKey.Contains("openai") || combinedKey.Contains("gpt-") || combinedKey.Contains("o1") || combinedKey.Contains("o3") || combinedKey.Contains("chatgpt"))
             {
-                return "logo/openai-light.svg";
+                return "icons/openai-light.svg";
             }
             if (combinedKey.Contains("deepseek"))
             {
-                return "logo/Deepseek-logo-icon.svg.webp";
+                return "icons/Deepseek-logo-icon.svg.webp";
             }
             if (combinedKey.Contains("cloudflare"))
             {
-                return "logo/Cloudflare.svg";
+                return "icons/Cloudflare.svg";
             }
             if (combinedKey.Contains("x-ai") || combinedKey.Contains("xai") || combinedKey.Contains("grok"))
             {
-                return "logo/XAI_Logo.svg.webp";
+                return "icons/XAI_Logo.svg.webp";
+            }
+            if (combinedKey.Contains("vercel"))
+            {
+                return "icons/vercel.svg";
             }
 
             // 3. OpenRouter explicit provider
             if (vendorKey.Contains("openrouter") || modelKey.Contains("openrouter"))
             {
-                return "logo/openrouter-color.svg";
+                return "icons/openrouter-color.svg";
             }
 
             // Default fallback is the Gram logo

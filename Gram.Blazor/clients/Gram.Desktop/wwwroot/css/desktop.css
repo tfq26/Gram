@@ -3146,6 +3146,22 @@ input[type="submit"],
                 margin-left 0.24s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.dt-composer-model-effort {
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+    margin-left: 0;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--dt-text-muted);
+    transition: max-width 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.16s ease,
+                margin-left 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .dt-composer-model-chevron {
     max-width: 0;
     opacity: 0;
@@ -3177,6 +3193,15 @@ input[type="submit"],
     opacity: 1;
     pointer-events: auto;
     margin-left: 1px;
+}
+
+.dt-composer-model-wrap:hover .dt-composer-model-effort,
+.dt-btn-composer-model:hover .dt-composer-model-effort,
+.dt-btn-composer-model.active .dt-composer-model-effort {
+    max-width: 90px;
+    opacity: 0.85;
+    pointer-events: auto;
+    margin-left: 2px;
 }
 
 .dt-composer-model-wrap:hover .dt-composer-model-chevron,
@@ -3220,27 +3245,26 @@ input[type="submit"],
 }
 
 .dt-model-card-btn {
-    margin: 8px 10px 6px;
+    margin: 4px 8px 4px;
     padding: 8px 10px;
-    background: var(--dt-bg-card, rgba(255, 255, 255, 0.04));
-    border: 1px solid var(--dt-border-subtle);
-    border-radius: 8px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
+    transition: background 0.15s ease;
 }
 
 .dt-model-card-btn:hover {
-    background: var(--dt-bg-hover);
-    border-color: var(--dt-border-primary);
+    background: var(--dt-bg-hover, rgba(255, 255, 255, 0.05));
 }
 
 .dt-model-card-info {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
 }
 
 .dt-model-card-text {
@@ -3250,24 +3274,30 @@ input[type="submit"],
 }
 
 .dt-model-card-name {
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--dt-text-primary);
 }
 
 .dt-model-card-provider {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--dt-text-muted);
 }
 
 .dt-model-card-switch {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 500;
     color: var(--dt-text-secondary);
-    background: var(--dt-bg-base);
-    border: 1px solid var(--dt-border-subtle);
-    padding: 2px 6px;
-    border-radius: 4px;
+    background: transparent;
+    border: none;
+    padding: 2px 4px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.dt-model-card-btn:hover .dt-model-card-switch {
+    color: var(--dt-text-primary);
 }
 
 .dt-model-reasoning-wrap {

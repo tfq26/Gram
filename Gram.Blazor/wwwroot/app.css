@@ -1057,6 +1057,22 @@ html, body {
               transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.model-trigger-effort {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  margin-left: 0;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: max-width 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.16s ease,
+              margin-left 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .model-dropdown-wrapper:hover .model-dropdown-trigger,
 .model-dropdown-trigger:hover,
 .model-dropdown-trigger.open {
@@ -1071,6 +1087,15 @@ html, body {
 .model-dropdown-trigger.open .model-trigger-name {
   max-width: 170px;
   opacity: 1;
+  pointer-events: auto;
+  margin-left: 2px;
+}
+
+.model-dropdown-wrapper:hover .model-trigger-effort,
+.model-dropdown-trigger:hover .model-trigger-effort,
+.model-dropdown-trigger.open .model-trigger-effort {
+  max-width: 90px;
+  opacity: 0.85;
   pointer-events: auto;
   margin-left: 2px;
 }
@@ -1129,21 +1154,20 @@ html, body {
 }
 
 .model-current-card-btn {
-  margin: 6px 8px 6px;
+  margin: 4px 6px 2px;
   padding: 8px 10px;
-  background: var(--bg-surface, rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--border-color);
+  background: transparent;
+  border: none;
   border-radius: var(--radius-sm, 6px);
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s ease;
 }
 
 .model-current-card-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-color-hover);
+  background: var(--bg-hover, rgba(255, 255, 255, 0.05));
 }
 
 .model-card-back-btn {
