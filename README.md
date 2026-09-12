@@ -125,13 +125,25 @@ audio capture -> VAD/acoustic events -> streaming ASR -> correction buffer
 
 The UI currently exposes the event states needed by that pipeline: idle, listening, thinking, speaking, and warning.
 
-## Lightweight Blazor UI
+## Lightweight Blazor UI & Native Desktop App
 
-The separate `Gram.Blazor` folder contains a thin local web UI. It does not load a model, store large assets, or replace the Python core. Run it with:
+Gram features both a lightweight web interface and a fast, native desktop application (`Gram.Desktop`) built on .NET 9 and Photino (Microsoft Edge WebView2 on Windows, Apple WebKit on macOS, and WebKitGTK on Linux).
+
+### Launching the Desktop Client
+
+- **Windows**: Double-click `Launch Gram Desktop.bat` or run `.\scripts\launch-desktop.ps1`
+- **macOS**: Double-click `Launch Gram Desktop.command` or run `./scripts/launch-desktop.sh`
+- **Linux**: Run `./scripts/launch-desktop.sh`
+
+For comprehensive platform requirements, building standalone executables, and troubleshooting across Windows, macOS, and Linux, see the [Multi-Platform Desktop Launch Guide](docs/desktop-launch-guide.md).
+
+### Web UI Server
+Run the standalone web backend with:
 
 ```powershell
-cd C:\Users\taufe\Projects\Gram\Gram.Blazor
+cd Gram.Blazor
 dotnet run
 ```
 
-Then open `http://localhost:7337`. It includes conversation return tabs, a simple chat surface, searchable settings groups, MCP settings, and latest-log access. The 2 GB target applies to the complete Gram runtime; model memory remains controlled by the selected Ollama/provider process.
+Then open `http://localhost:7337`. It includes conversation return tabs, a responsive chat surface, searchable settings groups, MCP settings, and latest-log access.
+
