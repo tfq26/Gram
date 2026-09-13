@@ -30,12 +30,13 @@ public class ObjectStorageServiceTests
             Assert.NotNull(uri);
             Assert.True(await s3Service.ExistsAsync(key));
 
-            var downloadStream = await s3Service.DownloadAsync(key);
-            Assert.NotNull(downloadStream);
-
-            using var reader = new StreamReader(downloadStream);
-            var downloadedText = await reader.ReadToEndAsync();
-            Assert.Equal(testContent, downloadedText);
+            using (var downloadStream = await s3Service.DownloadAsync(key))
+            {
+                Assert.NotNull(downloadStream);
+                using var reader = new StreamReader(downloadStream);
+                var downloadedText = await reader.ReadToEndAsync();
+                Assert.Equal(testContent, downloadedText);
+            }
 
             var deleted = await s3Service.DeleteAsync(key);
             Assert.True(deleted);

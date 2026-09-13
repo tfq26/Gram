@@ -1,0 +1,639 @@
+@page "/workspace"
+@rendermode InteractiveServer
+@using Gram.Desktop
+@using Gram.Desktop.Components
+@using Gram.Desktop.Components.Platform
+@using Gram.Desktop.Services
+@using Gram.Blazor.Shared
+@inject IPlatformService Platform
+@inject DesktopSession Session
+@inject HttpClient HttpClient
+@inject WorkspaceTabService TabService
+@inject ThemeService ThemeService
+@inject DesktopLayoutService LayoutService
+@inject CommandPaletteService PaletteService
+@inject PtyTerminalService PtyTerminalService
+@inject CompanionTaskService CompanionTasks
+@inject DesktopActionService ActionService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavManager
+@implements IDisposable
+
+<PageTitle>Gram Workspace</PageTitle>
+
+<div class="web-workspace-container">
+    <!-- Switcher Bar for Browser Users -->
+    <div class="web-ui-switcher-bar">
+        <span class="switcher-badge">✨ Carbon Workspace (Modern)</span>
+        <a href="/classic" class="switcher-link" title="Switch back to the classic web interface">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 3h6v6"></path>
+                <path d="M10 14 21 3"></path>
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            </svg>
+            Switch to Classic Web UI
+        </a>
+    </div>
+
+    <!-- 3-Pane Carbon Workspace Shell -->
+    <div class="app-shell @Platform.PlatformCssClass" data-theme="@ThemeService.ActiveThemeName.ToLowerInvariant().Replace(" ", "-")" style="@ThemeService.GetInlineCssVariables()">
+        <!-- 1. Unified Top Bar Region (Tabs, Dynamic Context & Actions) -->
+        <UnifiedTopBar Models="Session.Models"
+                       SelectedModelId="@SelectedModelId"
+                       SelectedModelIdChanged="HandleModelSelected"
+                       IsLoading="Session.IsLoading"
+                       IsStreaming="Session.IsStreaming"
+                       IsSidebarOpen="@isSidebarOpen"
+                       IsInfosheetOpen="@isInfosheetOpen"
+                       IsExpandedChat="@isExpandedChat"
+                       IsSettingsOpen="@isSettingsOpen"
+                       OnToggleSidebar="ToggleSidebar"
+                       OnToggleInfosheet="ToggleInfosheet"
+                       OnToggleExpandedChat="ToggleExpandedChat"
+                       OnOpenSettings="() => isSettingsOpen = !isSettingsOpen"
+                       OnCancel="HandleCancel"
+                       OnSelectConversation="HandleSelectConversation"
+                       OnNewConversation="HandleNewConversation"
+                       OnAddReferencedChat="HandleAddReference" />
+
+        @if (isSettingsOpen)
+        {
+            <!-- Full-Screen Settings View -->
+            <SettingsView BackendUrl="@BackendUrl"
+                          OnClose="() => isSettingsOpen = false" />
+        }
+        else
+        {
+            <!-- Main Workspace Panes -->
+            <div class="workspace-panes @(isSidebarOpen ? "left-open" : "left-closed") @(isInfosheetOpen ? "right-open" : "right-closed") @(isExpandedChat ? "expanded-chat" : "")">
+                <!-- Left edge hover trigger for closed sidebar -->
+                <div class="dt-edge-hover-zone left"
+                     data-action="toggle-sidebar"
+                     @onclick="ToggleSidebar"
+                     title="Reveal sidebar (@Platform.ModifierKeyLabel+B)"></div>
+
+                <!-- 2. Sidebar Region (Left Pane) -->
+                <Sidebar Conversations="Session.Conversations"
+                         ActiveConversationId="@Session.ActiveConversation?.Id"
+                         IsOpen="@isSidebarOpen"
+                         IsLoading="Session.IsLoading"
+                         IsStreaming="Session.IsStreaming"
+                         SelectedModelId="@SelectedModelId"
+                         Models="Session.Models"
+                         OnToggle="ToggleSidebar"
+                         OnSelectConversation="HandleSelectConversation"
+                         OnNewConversation="HandleNewConversation"
+                         OnAddReference="HandleAddReference"
+                         OnOpenSettings="() => isSettingsOpen = !isSettingsOpen" />
+
+                <!-- 3. Canvas Region (Center Pane) -->
+                <DesktopCanvas @ref="canvasRef"
+                        Conversation="Session.ActiveConversation"
+                        Conversations="Session.Conversations"
+                        DraftResponse="@Session.DraftResponse"
+                        IsStreaming="Session.IsStreaming"
+                        IsLoading="Session.IsLoading"
+                        IsSidebarOpen="@isSidebarOpen"
+                        IsInfosheetOpen="@isInfosheetOpen"
+                        ErrorMessage="@Session.Error"
+                        Models="Session.Models"
+                        SelectedModelId="@SelectedModelId"
+                        SelectedModelIdChanged="HandleModelSelected"
+                        OnToggleSidebar="ToggleSidebar"
+                        OnToggleInfosheet="ToggleInfosheet"
+                        OnSelectConversation="HandleSelectConversation"
+                        OnSendMessage="HandleSendMessage"
+                        OnCancel="HandleCancel"
+                        OnNewConversation="HandleNewConversation" />
+
+                <!-- 4. Infosheet Region (Right Pane) -->
+                @if (TabService.ActiveTab?.Type == WorkspaceTabType.Terminal)
+                {
+                    <TerminalInfosheet TabId="@TabService.ActiveTab?.Id"
+                                       IsOpen="@isInfosheetOpen"
+                                       OnClose="() => { isInfosheetOpen = false; LayoutService.SavePanes(isSidebarOpen, isInfosheetOpen); }" />
+                }
+                else
+                {
+                    <Infosheet CurrentModel="CurrentSelectedModel"
+                               ActiveRun="Session.ActiveRun"
+                               RelevantMemories="Session.RelevantMemories"
+                               MemoryCandidates="Session.MemoryCandidates"
+                               OnConfirmMemory="Session.ConfirmMemoryAsync"
+                               OnRejectMemory="Session.RejectMemoryAsync"
+                               OnForgetMemory="Session.ForgetMemoryAsync"
+                               Conversation="Session.ActiveConversation"
+                               DraftResponse="@Session.DraftResponse"
+                               IsOpen="@isInfosheetOpen"
+                               IsStreaming="Session.IsStreaming"
+                               Error="@Session.Error"
+                               LocalAgentStatus="@Session.LocalAgentStatus"
+                               IsLocalAgentUnauthorized="@Session.IsLocalAgentUnauthorized"
+                               OnClose="() => { isInfosheetOpen = false; LayoutService.SavePanes(isSidebarOpen, isInfosheetOpen); }" />
+                }
+
+                <!-- Right edge hover trigger for closed infosheet -->
+                <div class="dt-edge-hover-zone right"
+                     data-action="toggle-infosheet"
+                     @onclick="ToggleInfosheet"
+                     title="Reveal info"></div>
+            </div>
+        }
+
+        <!-- 5. Universal Command Palette (⌘K / Ctrl+K) -->
+        <CommandPalette OnSelectConversation="HandleSelectConversation"
+                        OnNewConversation="HandleNewConversation"
+                        OnToggleSidebar="ToggleSidebar"
+                        OnToggleInfosheet="ToggleInfosheet"
+                        OnToggleExpandedChat="ToggleExpandedChat"
+                        OnOpenSettings="() => isSettingsOpen = !isSettingsOpen" />
+
+        @if (!isSettingsOpen)
+        {
+            <!-- 6. Corner Mascot in isolated borderless draggable & resizable container -->
+            <div @ref="mascotWrapperRef" class="dt-page-corner-mascot @(Session.IsStreaming || Session.ActiveConversation?.Messages?.Count > 0 ? "is-working" : "is-empty")" title="Gram Assistant" aria-label="Gram Assistant Mascot">
+                @if (!string.IsNullOrWhiteSpace(CompanionTasks.CurrentSpeech) || CompanionTasks.ActiveTasks.Count > 0)
+                {
+                    <div class="dt-mascot-dialogue-stack" @onclick:stopPropagation="true">
+                        @if (!string.IsNullOrWhiteSpace(CompanionTasks.CurrentSpeech))
+                        {
+                            <div class="dt-mascot-speech-bubble" @onclick="CompanionTasks.DismissSpeech" title="Click to dismiss">
+                                <span class="dt-mascot-speech-text">@CompanionTasks.CurrentSpeech</span>
+                                <div class="dt-mascot-speech-tail"></div>
+                            </div>
+                        }
+
+                        @foreach (var task in CompanionTasks.ActiveTasks)
+                        {
+                            <div class="dt-mascot-task-box status-@task.Status.ToString().ToLowerInvariant()"
+                                 @onclick="() => NavigateToTask(task)"
+                                 title="Click to view @task.Title">
+                                <div class="dt-mascot-task-badge">
+                                    <span class="dt-mascot-task-spinner"></span>
+                                </div>
+                                <div class="dt-mascot-task-info">
+                                    <span class="dt-mascot-task-title">@task.ShortTitle</span>
+                                    @if (!string.IsNullOrWhiteSpace(task.Subtitle))
+                                    {
+                                        <span class="dt-mascot-task-sub">@task.Subtitle</span>
+                                    }
+                                </div>
+                                <button type="button" class="dt-mascot-task-close" @onclick:stopPropagation="true" @onclick="() => CompanionTasks.DismissTask(task.Id)" title="Dismiss">×</button>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="dt-corner-mascot-pod">
+                    <div class="dt-mascot-resize-handle" title="Drag to resize • Double-click to reset position & size" aria-label="Resize Gram Assistant"></div>
+                    <DesktopGramCharacter Size="140" State="@(Session.IsStreaming ? "thinking" : "idle")" Interactive="true" AutoWaveOnLoad="false" />
+                </div>
+
+                @if (CompanionTasks.AllRecentTasks.Count > 0)
+                {
+                    <div class="dt-mascot-status-bar" @onclick:stopPropagation="true">
+                        @foreach (var task in CompanionTasks.AllRecentTasks)
+                        {
+                            <div class="dt-mascot-status-pill status-@task.Status.ToString().ToLowerInvariant()"
+                                 @onclick="() => NavigateToTask(task)"
+                                 title="@task.Title (@task.StatusText) • Click to open">
+                                @if (task.Status == CompanionTaskStatus.InProgress)
+                                {
+                                    <span class="dt-status-dot pulse"></span>
+                                    <span class="dt-status-label">@task.ShortTitle</span>
+                                    <span class="dt-status-badge">Running</span>
+                                }
+                                else if (task.Status == CompanionTaskStatus.Completed)
+                                {
+                                    <span class="dt-status-icon check">✓</span>
+                                    <span class="dt-status-label">@task.ShortTitle</span>
+                                    <span class="dt-status-badge done">Done</span>
+                                }
+                                else if (task.Status == CompanionTaskStatus.Error)
+                                {
+                                    <span class="dt-status-icon error">⚠</span>
+                                    <span class="dt-status-label">@task.ShortTitle</span>
+                                    <span class="dt-status-badge fail">Error</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .web-workspace-container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        background: #09090b;
+    }
+    .web-ui-switcher-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 16px;
+        background: rgba(18, 18, 20, 0.95);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 11px;
+        color: #a1a1aa;
+        z-index: 100;
+    }
+    .switcher-badge {
+        font-weight: 600;
+        color: #e4e4e7;
+        letter-spacing: 0.02em;
+    }
+    .switcher-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #818cf8;
+        text-decoration: none;
+        padding: 2px 8px;
+        border-radius: 4px;
+        background: rgba(129, 140, 248, 0.1);
+        border: 1px solid rgba(129, 140, 248, 0.2);
+        transition: all 0.15s ease;
+    }
+    .switcher-link:hover {
+        background: rgba(129, 140, 248, 0.2);
+        color: #a5b4fc;
+    }
+    .web-workspace-container .app-shell {
+        flex: 1;
+        height: calc(100vh - 28px);
+    }
+</style>
+
+@code {
+    private string BackendUrl { get; set; } = "http://127.0.0.1:7337";
+
+    private string? SelectedModelId { get; set; }
+    private bool isSidebarOpen { get; set; } = true;
+    private bool isInfosheetOpen { get; set; } = true;
+    private bool isExpandedChat { get; set; } = false;
+    private bool _preExpandSidebar = true;
+    private bool _preExpandInfosheet = true;
+    private bool isSettingsOpen { get; set; } = false;
+    private DesktopCanvas? canvasRef;
+
+    private ModelSummary? CurrentSelectedModel => Session.Models?.FirstOrDefault(m => m.Id == SelectedModelId)
+                                                  ?? Session.Models?.FirstOrDefault(m => m.IsEnabled);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var layout = LayoutService.GetLayout();
+        isSidebarOpen = layout.IsSidebarOpen;
+        isInfosheetOpen = layout.IsInfosheetOpen;
+        isExpandedChat = layout.IsExpandedChat;
+        SelectedModelId = layout.SelectedModelId;
+
+        Session.StateChanged += OnSessionStateChanged;
+        Session.RunEventReceived += OnRunEventReceived;
+        TabService.OnTabsChanged += OnTabsChanged;
+        ThemeService.OnChange += OnThemeChanged;
+        CompanionTasks.OnTasksChanged += OnCompanionStateChanged;
+        CompanionTasks.OnSpeechChanged += OnCompanionStateChanged;
+        PtyTerminalService.OnProcessExited += OnTerminalProcessExited;
+        PtyTerminalService.OnOutputReceived += OnTerminalOutputReceived;
+        ActionService.OnNewConversationRequested += OnActionNewConversation;
+        ActionService.OnSettingsRequested += OnActionSettings;
+        ActionService.OnToggleSidebarRequested += OnActionToggleSidebar;
+
+        await Session.LoadAsync();
+
+        if (Session.Models.Count > 0 && (string.IsNullOrWhiteSpace(SelectedModelId) || !Session.Models.Any(m => m.Id == SelectedModelId)))
+        {
+            SelectedModelId = Session.Models.FirstOrDefault(m => m.IsEnabled)?.Id ?? Session.Models[0].Id;
+            LayoutService.SaveSelectedModel(SelectedModelId);
+        }
+
+        foreach (var tab in TabService.OpenTabs.Where(t => t.Type == WorkspaceTabType.Chat && !string.IsNullOrWhiteSpace(t.ChatId) && t.ChatId != "default"))
+        {
+            var match = Session.Conversations.FirstOrDefault(c => c.Id == tab.ChatId);
+            if (match != null && match.Title != tab.Title)
+            {
+                TabService.UpdateChatTabTitle(tab.ChatId!, match.Title);
+            }
+        }
+
+        var activeTab = TabService.ActiveTab;
+        if (activeTab?.Type == WorkspaceTabType.Chat &&
+            !string.IsNullOrWhiteSpace(activeTab.ChatId) &&
+            activeTab.ChatId != "default")
+        {
+            if (Session.Conversations.Any(c => c.Id == activeTab.ChatId))
+            {
+                await Session.SelectConversationAsync(activeTab.ChatId);
+            }
+            else if (Session.Conversations.Count > 0)
+            {
+                var first = Session.Conversations[0];
+                await Session.SelectConversationAsync(first.Id);
+                TabService.OpenChatTab(first.Id, first.Title);
+            }
+        }
+        else if (Session.Conversations.Count > 0 && Session.ActiveConversation == null && TabService.OpenTabs.Count == 0)
+        {
+            var first = Session.Conversations[0];
+            await Session.SelectConversationAsync(first.Id);
+            TabService.OpenChatTab(first.Id, first.Title);
+        }
+    }
+
+    private void OnSessionStateChanged()
+    {
+        if (Session.ActiveConversation != null)
+        {
+            var tab = TabService.OpenTabs.FirstOrDefault(t => t.Type == WorkspaceTabType.Chat && t.ChatId == Session.ActiveConversation.Id);
+            if (tab != null && tab.Title != Session.ActiveConversation.Title)
+            {
+                TabService.UpdateChatTabTitle(Session.ActiveConversation.Id, Session.ActiveConversation.Title);
+            }
+        }
+
+        if (Session.IsStreaming && Session.ActiveRun != null)
+        {
+            var title = !string.IsNullOrWhiteSpace(Session.ActiveConversation?.Title)
+                ? Session.ActiveConversation.Title
+                : "Chat Agent";
+            var sub = !string.IsNullOrWhiteSpace(Session.ActiveStepStatus)
+                ? Session.ActiveStepStatus
+                : "Thinking & executing tools...";
+            CompanionTasks.StartTask(Session.ActiveRun.Id, title, sub, targetConvId: Session.ActiveConversation?.Id);
+        }
+        else if (!Session.IsStreaming && Session.ActiveRun == null)
+        {
+            foreach (var task in CompanionTasks.ActiveTasks.Where(t => t.TargetConversationId != null).ToList())
+            {
+                CompanionTasks.CompleteTask(task.Id, "Finished");
+            }
+        }
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnTabsChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            var activeTab = TabService.ActiveTab;
+            if (activeTab?.Type == WorkspaceTabType.Chat &&
+                !string.IsNullOrWhiteSpace(activeTab.ChatId) &&
+                activeTab.ChatId != "default" &&
+                activeTab.ChatId != Session.ActiveConversation?.Id)
+            {
+                await Session.SelectConversationAsync(activeTab.ChatId);
+            }
+            StateHasChanged();
+        });
+    }
+
+    private void OnRunEventReceived(RunEvent evt)
+    {
+        if (string.IsNullOrWhiteSpace(evt?.RunId)) return;
+
+        if (evt.EventType.Equals("run.step", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(evt.Payload);
+                string? commentary = null;
+                if (document.RootElement.TryGetProperty("stepCommentary", out var value) ||
+                    document.RootElement.TryGetProperty("StepCommentary", out value))
+                {
+                    commentary = value.GetString();
+                }
+                var activeConvo = Session.ActiveConversation?.Title ?? "Chat Agent";
+                CompanionTasks.UpdateTask(evt.RunId,
+                    title: activeConvo,
+                    subtitle: !string.IsNullOrWhiteSpace(commentary) ? commentary : "Processing step...",
+                    status: CompanionTaskStatus.InProgress);
+            }
+            catch {}
+        }
+        else if (evt.EventType.Equals("run.completed", StringComparison.OrdinalIgnoreCase))
+        {
+            CompanionTasks.CompleteTask(evt.RunId, "Finished generating response");
+        }
+        else if (evt.EventType.Equals("run.failed", StringComparison.OrdinalIgnoreCase))
+        {
+            CompanionTasks.FailTask(evt.RunId, evt.Payload ?? "Agent encountered an error");
+        }
+        else if (evt.EventType.Equals("run.cancelled", StringComparison.OrdinalIgnoreCase))
+        {
+            CompanionTasks.DismissTask(evt.RunId);
+        }
+    }
+
+    private async Task HandleSelectConversation(string convId)
+    {
+        await Session.SelectConversationAsync(convId);
+        if (Session.ActiveConversation != null)
+        {
+            TabService.OpenChatTab(Session.ActiveConversation.Id, Session.ActiveConversation.Title);
+        }
+        else
+        {
+            var convo = Session.Conversations.FirstOrDefault(c => c.Id == convId);
+            TabService.OpenChatTab(convId, convo?.Title ?? "Chat");
+        }
+    }
+
+    private async Task HandleNewConversation()
+    {
+        await Session.CreateConversationAsync(SelectedModelId);
+        if (Session.ActiveConversation != null)
+        {
+            TabService.OpenChatTab(Session.ActiveConversation.Id, Session.ActiveConversation.Title);
+        }
+    }
+
+    private void ToggleSidebar()
+    {
+        isSidebarOpen = !isSidebarOpen;
+        LayoutService.SavePanes(isSidebarOpen, isInfosheetOpen, isExpandedChat);
+    }
+
+    private void ToggleInfosheet()
+    {
+        isInfosheetOpen = !isInfosheetOpen;
+        LayoutService.SavePanes(isSidebarOpen, isInfosheetOpen, isExpandedChat);
+    }
+
+    private void ToggleExpandedChat()
+    {
+        isExpandedChat = !isExpandedChat;
+        if (isExpandedChat)
+        {
+            _preExpandSidebar = isSidebarOpen;
+            _preExpandInfosheet = isInfosheetOpen;
+            isSidebarOpen = false;
+            isInfosheetOpen = false;
+        }
+        else
+        {
+            isSidebarOpen = _preExpandSidebar;
+            isInfosheetOpen = _preExpandInfosheet;
+            if (!isSidebarOpen && !isInfosheetOpen)
+            {
+                isSidebarOpen = true;
+                isInfosheetOpen = true;
+            }
+        }
+        LayoutService.SavePanes(isSidebarOpen, isInfosheetOpen, isExpandedChat);
+    }
+
+    private void HandleModelSelected(string modelId)
+    {
+        SelectedModelId = modelId;
+        LayoutService.SaveSelectedModel(modelId);
+        StateHasChanged();
+    }
+
+    private Task HandleSendMessage(string text)
+    {
+        _ = Session.SendAsync(text, SelectedModelId);
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleCancel()
+    {
+        await Session.CancelAsync();
+    }
+
+    private void HandleAddReference(ConversationSummary chat)
+    {
+        canvasRef?.AddReferencedChat(chat);
+    }
+
+    private void OnThemeChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private DotNetObjectReference<Workspace>? dotNetHelper;
+    private ElementReference mascotWrapperRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                dotNetHelper = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("gramDesktop.registerApp", dotNetHelper);
+            }
+            catch {}
+        }
+
+        if (!isSettingsOpen)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("gramDesktop.initDraggableMascot", mascotWrapperRef);
+            }
+            catch {}
+        }
+    }
+
+    [JSInvokable]
+    public async Task HandleGlobalShortcut(string shortcut)
+    {
+        switch (shortcut)
+        {
+            case "command-palette":
+                PaletteService.Toggle();
+                break;
+            case "toggle-sidebar":
+                ToggleSidebar();
+                break;
+            case "toggle-infosheet":
+                ToggleInfosheet();
+                break;
+            case "toggle-expanded-chat":
+                ToggleExpandedChat();
+                break;
+            case "new-chat":
+                await HandleNewConversation();
+                break;
+            case "toggle-settings":
+                isSettingsOpen = !isSettingsOpen;
+                break;
+            case "close-tab":
+                if (!string.IsNullOrEmpty(TabService.ActiveTabId))
+                {
+                    TabService.CloseTab(TabService.ActiveTabId);
+                }
+                break;
+            case "toggle-terminal":
+                TabService.OpenTerminalTab();
+                break;
+            case "toggle-git":
+                TabService.OpenGitTab();
+                break;
+            case "escape":
+                if (PaletteService.IsOpen) PaletteService.Close();
+                else if (isSettingsOpen) isSettingsOpen = false;
+                break;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void OnCompanionStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnTerminalOutputReceived(string tabId, string output)
+    {
+        if (!string.IsNullOrEmpty(output) && (output.Contains("dotnet build") || output.Contains("npm run") || output.Contains("Building")))
+        {
+            CompanionTasks.StartTask($"term-{tabId}", "Terminal", "Compiling...", targetTabId: tabId);
+        }
+    }
+
+    private void OnTerminalProcessExited(string tabId, int exitCode)
+    {
+        if (exitCode == 0) CompanionTasks.CompleteTask($"term-{tabId}", "Completed");
+        else CompanionTasks.FailTask($"term-{tabId}", $"Exited with code {exitCode}");
+    }
+
+    private async Task NavigateToTask(CompanionTaskItem task)
+    {
+        if (!string.IsNullOrEmpty(task.TargetConversationId))
+        {
+            await HandleSelectConversation(task.TargetConversationId);
+        }
+        else if (!string.IsNullOrEmpty(task.TargetTabId))
+        {
+            TabService.SelectTab(task.TargetTabId);
+        }
+    }
+
+    public void Dispose()
+    {
+        Session.StateChanged -= OnSessionStateChanged;
+        Session.RunEventReceived -= OnRunEventReceived;
+        TabService.OnTabsChanged -= OnTabsChanged;
+        ThemeService.OnChange -= OnThemeChanged;
+        CompanionTasks.OnTasksChanged -= OnCompanionStateChanged;
+        CompanionTasks.OnSpeechChanged -= OnCompanionStateChanged;
+        PtyTerminalService.OnProcessExited -= OnTerminalProcessExited;
+        PtyTerminalService.OnOutputReceived -= OnTerminalOutputReceived;
+        ActionService.OnNewConversationRequested -= OnActionNewConversation;
+        ActionService.OnSettingsRequested -= OnActionSettings;
+        ActionService.OnToggleSidebarRequested -= OnActionToggleSidebar;
+        dotNetHelper?.Dispose();
+    }
+
+    private void OnActionNewConversation() => InvokeAsync(HandleNewConversation);
+    private void OnActionSettings() => InvokeAsync(() => { isSettingsOpen = !isSettingsOpen; StateHasChanged(); });
+    private void OnActionToggleSidebar() => InvokeAsync(ToggleSidebar);
+}

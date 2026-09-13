@@ -1884,6 +1884,19 @@ input[type="submit"],
                 right 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* One fixed pod: centered while the chat is empty, then moves as a whole. */
+.dt-page-corner-mascot.is-empty {
+    left: 50% !important; right: auto !important; top: calc(50% - 220px) !important; bottom: auto !important;
+    opacity: 0.96; transform: translate(-50%, -50%) !important;
+    transition: left 0.45s ease, top 0.45s ease, right 0.45s ease,
+                bottom 0.45s ease, transform 0.45s ease, opacity 0.25s ease;
+}
+.dt-page-corner-mascot.is-working {
+    opacity: 1; transform: none;
+    transition: left 0.45s ease, top 0.45s ease, right 0.45s ease,
+                bottom 0.45s ease, transform 0.45s ease, opacity 0.25s ease;
+}
+
 .workspace-panes.right-open ~ .dt-page-corner-mascot {
     right: calc(270px + 24px);
 }

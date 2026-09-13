@@ -1,0 +1,343 @@
+@namespace Gram.Desktop.Components.CanvasArea
+@using System.Threading.Tasks
+@using Gram.Desktop.Components
+@using Gram.Desktop.Services
+@using Gram.Blazor.Shared
+@implements IAsyncDisposable
+@inject DesktopSession Session
+@inject IJSRuntime JSRuntime
+
+<div class="dt-messages-scroll" @ref="messagesScrollRef">
+    @if (!IsStreaming && (Conversation == null || (Conversation.Messages != null && Conversation.Messages.Count == 0 && string.IsNullOrWhiteSpace(DraftResponse))))
+    {
+        <!-- Clean, Disciplined Workspace Hero -->
+        <div class="dt-hero">
+            <h2 class="dt-hero-title">What would you like to build?</h2>
+            <p class="dt-hero-desc">
+                Gram provides agentic coding, architecture reasoning, test execution, and workspace exploration.
+            </p>
+
+            <div class="dt-hero-actions">
+                <div class="dt-hero-card" @onclick="@(() => OnSuggestionClick.InvokeAsync("Explain the architecture of this project"))">
+                    <strong>Architect:</strong> Explain codebase structure
+                </div>
+                <div class="dt-hero-card" @onclick="@(() => OnSuggestionClick.InvokeAsync("Run the unit tests and inspect recent diffs"))">
+                    <strong>Verify:</strong> Run tests & check diffs
+                </div>
+                <div class="dt-hero-card" @onclick="@(() => OnSuggestionClick.InvokeAsync("Review security and provider boundaries"))">
+                    <strong>Audit:</strong> Check security boundaries
+                </div>
+            </div>
+        </div>
+    }
+    else if (Conversation?.Messages != null)
+    {
+        <div class="dt-messages-stack">
+            @{
+                var messages = Conversation.Messages;
+            }
+            @if (messages != null)
+            {
+                for (int i = 0; i < messages.Count; i++)
+                {
+                    var msg = messages[i];
+                    var isUser = msg.Role.Equals("user", StringComparison.OrdinalIgnoreCase);
+                    var msgIndex = i;
+
+                    <div class="dt-msg-row @(isUser ? "user" : "assistant")">
+                        @if (!isUser)
+                        {
+                            <div class="dt-msg-content-assistant">
+                                @if (msg.ToolCalls != null && msg.ToolCalls.Count > 0)
+                                {
+                                    <DesktopToolGroup ToolCalls="@msg.ToolCalls" />
+                                }
+                                @if (!string.IsNullOrWhiteSpace(msg.Text))
+                                {
+                                    <DesktopMarkdownView Content="@msg.Text" />
+                                }
+
+                                @if (msg.ToolCalls != null && msg.ToolCalls.Count > 0)
+                                {
+                                    <WorkspaceChangeReviewBar ToolCalls="@msg.ToolCalls" />
+                                }
+
+                                <!-- Message Actions Toolbar -->
+                                @if (!string.IsNullOrWhiteSpace(msg.Text) && (!IsStreaming || msgIndex < messages.Count - 1))
+                                {
+                                    <div class="dt-msg-actions">
+                                        <!-- Copy message -->
+                                        <button type="button"
+                                                class="dt-msg-action-btn @(copiedMessageIndex == msgIndex ? "active copied" : "")"
+                                                @onclick="() => HandleCopyMessage(msgIndex, msg.Text)"
+                                                title="@(copiedMessageIndex == msgIndex ? "Copied to clipboard" : "Copy message")">
+                                            @if (copiedMessageIndex == msgIndex)
+                                            {
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                                </svg>
+                                                <span class="dt-msg-action-label">Copied</span>
+                                            }
+                                            else
+                                            {
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                                </svg>
+                                            }
+                                        </button>
+
+                                        <!-- Retry response -->
+                                        <button type="button"
+                                                class="dt-msg-action-btn"
+                                                @onclick="() => HandleRetry(msg)"
+                                                disabled="@IsStreaming"
+                                                title="Retry response">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                            </svg>
+                                        </button>
+
+                                        <!-- Reply to -->
+                                        <button type="button"
+                                                class="dt-msg-action-btn"
+                                                @onclick="() => HandleReply(msg)"
+                                                title="Reply to message">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="9 17 4 12 9 7"></polyline>
+                                                <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+                                            </svg>
+                                        </button>
+
+                                        <div class="dt-msg-actions-divider"></div>
+
+                                        <!-- Rate: Thumbs Up -->
+                                        <button type="button"
+                                                class="dt-msg-action-btn @(msg.Rating == 1 ? "rate-good active" : "")"
+                                                @onclick="() => HandleRate(msg, 1)"
+                                                title="@(msg.Rating == 1 ? "Remove good rating" : "Good response")">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="@(msg.Rating == 1 ? "currentColor" : "none")" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+                                            </svg>
+                                        </button>
+
+                                        <!-- Rate: Thumbs Down -->
+                                        <button type="button"
+                                                class="dt-msg-action-btn @(msg.Rating == -1 ? "rate-bad active" : "")"
+                                                @onclick="() => HandleRate(msg, -1)"
+                                                title="@(msg.Rating == -1 ? "Remove bad rating" : "Bad response")">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="@(msg.Rating == -1 ? "currentColor" : "none")" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="dt-msg-user-container">
+                                <div class="dt-msg-bubble-user">
+                                    @msg.Text
+                                </div>
+                                <div class="dt-msg-actions user-actions">
+                                    <!-- Copy message -->
+                                    <button type="button"
+                                            class="dt-msg-action-btn @(copiedMessageIndex == msgIndex ? "active copied" : "")"
+                                            @onclick="() => HandleCopyMessage(msgIndex, msg.Text)"
+                                            title="@(copiedMessageIndex == msgIndex ? "Copied" : "Copy message")">
+                                        @if (copiedMessageIndex == msgIndex)
+                                        {
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                            </svg>
+                                            <span class="dt-msg-action-label">Copied</span>
+                                        }
+                                        else
+                                        {
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                            </svg>
+                                        }
+                                    </button>
+
+                                    <!-- Reply to -->
+                                    <button type="button"
+                                            class="dt-msg-action-btn"
+                                            @onclick="() => HandleReply(msg)"
+                                            title="Reply to message">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="9 17 4 12 9 7"></polyline>
+                                            <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+
+            @if (IsStreaming)
+            {
+                <div class="dt-msg-row assistant">
+                    <div class="dt-msg-content-assistant">
+                        @if (Session.CurrentStreamingToolCalls.Count > 0)
+                        {
+                            <DesktopToolGroup ToolCalls="@Session.CurrentStreamingToolCalls" />
+                        }
+                        @if (!string.IsNullOrWhiteSpace(DraftResponse))
+                        {
+                            <DesktopMarkdownView Content="@DraftResponse" />
+                            <span class="dt-streaming-cursor"></span>
+                        }
+                        else if (Session.ActivePermissionRequest == null)
+                        {
+                            <div class="dt-thinking-indicator">
+                                <span class="dt-thinking-dot"></span>
+                                <span>@(!string.IsNullOrWhiteSpace(Session.ActiveStepStatus) ? Session.ActiveStepStatus : (Session.IsThinking ? "Thinking & reasoning..." : (Session.CurrentStreamingToolCalls.Count > 0 ? "Executing tools..." : "Thinking...")))</span>
+                            </div>
+                        }
+
+                        @if (Session.CurrentStreamingToolCalls.Count > 0)
+                        {
+                            <WorkspaceChangeReviewBar ToolCalls="@Session.CurrentStreamingToolCalls" />
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public ConversationDetail? Conversation { get; set; }
+    [Parameter] public string DraftResponse { get; set; } = "";
+    [Parameter] public bool IsStreaming { get; set; }
+    [Parameter] public EventCallback<string> OnSuggestionClick { get; set; }
+    [Parameter] public EventCallback<Message> OnRetry { get; set; }
+    [Parameter] public EventCallback<Message> OnReply { get; set; }
+    [Parameter] public EventCallback<(Message Message, int Rating)> OnRate { get; set; }
+
+    private ElementReference messagesScrollRef;
+    private string? lastConversationId;
+    private int lastMessageCount;
+    private bool lastIsStreaming;
+    private int? copiedMessageIndex;
+
+    private async Task HandleCopyMessage(int index, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramDesktop.copyText", text);
+            copiedMessageIndex = index;
+            StateHasChanged();
+            _ = Task.Delay(2000).ContinueWith(_ =>
+            {
+                if (copiedMessageIndex == index)
+                {
+                    copiedMessageIndex = null;
+                    _ = InvokeAsync(StateHasChanged);
+                }
+            });
+        }
+        catch {}
+    }
+
+    private List<ToolCallInfo>? LatestRunToolCalls
+    {
+        get
+        {
+            if (Session.CurrentStreamingToolCalls != null && Session.CurrentStreamingToolCalls.Count > 0)
+            {
+                return Session.CurrentStreamingToolCalls;
+            }
+
+            var lastAssistantWithTools = Conversation?.Messages?
+                .LastOrDefault(m => !m.Role.Equals("user", StringComparison.OrdinalIgnoreCase) && m.ToolCalls != null && m.ToolCalls.Count > 0);
+
+            return lastAssistantWithTools?.ToolCalls;
+        }
+    }
+
+    private async Task HandleRetry(Message msg)
+    {
+        if (OnRetry.HasDelegate)
+        {
+            await OnRetry.InvokeAsync(msg);
+        }
+    }
+
+    private async Task HandleReply(Message msg)
+    {
+        if (OnReply.HasDelegate)
+        {
+            await OnReply.InvokeAsync(msg);
+        }
+    }
+
+    private async Task HandleRate(Message msg, int rating)
+    {
+        if (msg.Rating == rating)
+        {
+            msg.Rating = null;
+        }
+        else
+        {
+            msg.Rating = rating;
+        }
+        StateHasChanged();
+
+        if (OnRate.HasDelegate)
+        {
+            await OnRate.InvokeAsync((msg, msg.Rating ?? 0));
+        }
+        else
+        {
+            Session.UpdateMessageRating(msg, msg.Rating);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("gramDesktop.initMessagesScroll", messagesScrollRef);
+            await JSRuntime.InvokeVoidAsync("gramDesktop.scrollMessagesToBottom", messagesScrollRef, true);
+            lastConversationId = Conversation?.Id;
+            lastMessageCount = Conversation?.Messages?.Count ?? 0;
+            lastIsStreaming = IsStreaming;
+        }
+        else
+        {
+            bool convChanged = Conversation?.Id != lastConversationId;
+            int currentCount = Conversation?.Messages?.Count ?? 0;
+            bool messageAdded = currentCount > lastMessageCount;
+            bool streamingStarted = IsStreaming && !lastIsStreaming;
+
+            if (convChanged || messageAdded || streamingStarted)
+            {
+                lastConversationId = Conversation?.Id;
+                lastMessageCount = currentCount;
+                lastIsStreaming = IsStreaming;
+                await JSRuntime.InvokeVoidAsync("gramDesktop.scrollMessagesToBottom", messagesScrollRef, true);
+            }
+            else
+            {
+                lastIsStreaming = IsStreaming;
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("gramDesktop.disposeMessagesScroll", messagesScrollRef);
+        }
+        catch {}
+    }
+}

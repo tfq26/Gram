@@ -171,7 +171,18 @@ public sealed class RepositoryMapServiceUnitTests
 
         public void Dispose()
         {
-            if (Directory.Exists(Path)) Directory.Delete(Path, recursive: true);
+            if (Directory.Exists(Path))
+            {
+                try
+                {
+                    foreach (var file in Directory.GetFiles(Path, "*", SearchOption.AllDirectories))
+                    {
+                        File.SetAttributes(file, FileAttributes.Normal);
+                    }
+                    Directory.Delete(Path, recursive: true);
+                }
+                catch {}
+            }
         }
     }
 }

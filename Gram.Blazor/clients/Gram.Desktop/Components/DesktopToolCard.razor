@@ -118,7 +118,7 @@
                 @if (IsSubagentTool)
                 {
                     <div class="dt-tool-prose @(ToolCall.IsError ? "is-error-text" : "")">
-                        <MarkdownView Content="@ToolCall.Result" />
+                        <DesktopMarkdownView Content="@ToolCall.Result" />
                     </div>
                 }
                 else

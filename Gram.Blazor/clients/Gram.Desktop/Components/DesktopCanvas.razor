@@ -1,0 +1,509 @@
+@namespace Gram.Desktop.Components
+@using Gram.Desktop.Components.CanvasArea
+@using Gram.Desktop.Components.Platform
+@using Gram.Desktop.Services
+@using Gram.Blazor.Shared
+@inject IPlatformService Platform
+@inject WorkspaceTabService TabService
+@inject DesktopSession Session
+@inject GramBackendClient BackendClient
+@implements IDisposable
+
+<main class="dt-canvas @Platform.PlatformCssClass" data-ui-region="canvas" role="main" aria-label="Conversation Canvas">
+    @if (TabService.IsSplitView && TabService.SecondaryTab != null)
+    {
+        var leftTab = TabService.GetSplitLeftTab();
+        var rightTab = TabService.GetSplitRightTab();
+
+        <!-- Split Mode: 2 Panes Side-by-Side (Browser style linked tabs) -->
+        <div class="dt-canvas-split-container">
+            <!-- Left Pane -->
+            <div class="dt-canvas-split-pane left @(TabService.ActiveTabId == leftTab?.Id ? "focused-pane" : "")"
+                 @onclick="() => HandlePaneFocus(leftTab?.Id)">
+                @if (leftTab?.Type == WorkspaceTabType.Terminal)
+                {
+                    <TerminalPane @key="@leftTab?.Id" TabId="@leftTab?.Id" />
+                }
+                else if (leftTab?.Type == WorkspaceTabType.Git)
+                {
+                    <GitPane />
+                }
+                else
+                {
+                    var leftConv = (leftTab?.Id == TabService.ActiveTabId) ? Conversation : secondaryConversation;
+                    var isStreaming = (leftTab?.Id == TabService.ActiveTabId) ? IsStreaming : isSecondaryStreaming;
+                    var draft = (leftTab?.Id == TabService.ActiveTabId) ? DraftResponse : secondaryDraftResponse;
+
+                    <DesktopMessageList Conversation="@leftConv"
+                                 DraftResponse="@draft"
+                                 IsStreaming="@isStreaming"
+                                 OnSuggestionClick="(prompt) => HandlePaneSuggestionClick(leftTab?.Id, prompt)"
+                                 OnRetry="(msg) => HandleRetry(msg, isSecondary: leftTab?.Id != TabService.ActiveTabId)"
+                                 OnReply="(msg) => HandleReply(msg, isSecondary: leftTab?.Id != TabService.ActiveTabId)"
+                                 OnRate="(args) => HandleRate(args.Message, args.Rating, isSecondary: leftTab?.Id != TabService.ActiveTabId)" />
+
+                    <PermissionPromptCard />
+
+                    @if (!string.IsNullOrWhiteSpace(ErrorMessage) && leftTab?.Id == TabService.ActiveTabId)
+                    {
+                        <div class="dt-split-error-notice">
+                            <span>@ErrorMessage</span>
+                        </div>
+                    }
+
+                    @if (leftTab?.Id == TabService.ActiveTabId)
+                    {
+                        <ComposerDock @ref="composerRef"
+                                      Conversation="@Conversation"
+                                      Conversations="@Conversations"
+                                      Models="@Models"
+                                      SelectedModelId="@SelectedModelId"
+                                      SelectedModelIdChanged="@SelectedModelIdChanged"
+                                      IsStreaming="@IsStreaming"
+                                      IsLoading="@IsLoading"
+                                      OnSendMessage="@OnSendMessage"
+                                      OnCancel="@OnCancel" />
+                    }
+                    else
+                    {
+                        <ComposerDock @ref="secondaryComposerRef"
+                                      Conversation="@secondaryConversation"
+                                      Conversations="@Conversations"
+                                      Models="@Models"
+                                      SelectedModelId="@SelectedModelId"
+                                      SelectedModelIdChanged="@SelectedModelIdChanged"
+                                      IsStreaming="@isSecondaryStreaming"
+                                      IsLoading="@isSecondaryLoading"
+                                      OnSendMessage="HandleSecondarySendMessage"
+                                      OnCancel="HandleSecondaryCancel" />
+                    }
+                }
+            </div>
+
+            <!-- Clean Minimal Split Divider -->
+            <div class="dt-split-divider"></div>
+
+            <!-- Right Pane -->
+            <div class="dt-canvas-split-pane right @(TabService.ActiveTabId == rightTab?.Id ? "focused-pane" : "")"
+                 @onclick="() => HandlePaneFocus(rightTab?.Id)">
+                @if (rightTab?.Type == WorkspaceTabType.Terminal)
+                {
+                    <TerminalPane @key="@rightTab?.Id" TabId="@rightTab?.Id" />
+                }
+                else if (rightTab?.Type == WorkspaceTabType.Git)
+                {
+                    <GitPane />
+                }
+                else
+                {
+                    var rightConv = (rightTab?.Id == TabService.ActiveTabId) ? Conversation : secondaryConversation;
+                    var isStreaming = (rightTab?.Id == TabService.ActiveTabId) ? IsStreaming : isSecondaryStreaming;
+                    var draft = (rightTab?.Id == TabService.ActiveTabId) ? DraftResponse : secondaryDraftResponse;
+
+                    <DesktopMessageList Conversation="@rightConv"
+                                 DraftResponse="@draft"
+                                 IsStreaming="@isStreaming"
+                                 OnSuggestionClick="(prompt) => HandlePaneSuggestionClick(rightTab?.Id, prompt)"
+                                 OnRetry="(msg) => HandleRetry(msg, isSecondary: rightTab?.Id != TabService.ActiveTabId)"
+                                 OnReply="(msg) => HandleReply(msg, isSecondary: rightTab?.Id != TabService.ActiveTabId)"
+                                 OnRate="(args) => HandleRate(args.Message, args.Rating, isSecondary: rightTab?.Id != TabService.ActiveTabId)" />
+
+                    <PermissionPromptCard />
+
+                    @if (!string.IsNullOrWhiteSpace(ErrorMessage) && rightTab?.Id == TabService.ActiveTabId)
+                    {
+                        <div class="dt-split-error-notice">
+                            <span>@ErrorMessage</span>
+                        </div>
+                    }
+
+                    @if (rightTab?.Id == TabService.ActiveTabId)
+                    {
+                        <ComposerDock @ref="composerRef"
+                                      Conversation="@Conversation"
+                                      Conversations="@Conversations"
+                                      Models="@Models"
+                                      SelectedModelId="@SelectedModelId"
+                                      SelectedModelIdChanged="@SelectedModelIdChanged"
+                                      IsStreaming="@IsStreaming"
+                                      IsLoading="@IsLoading"
+                                      OnSendMessage="@OnSendMessage"
+                                      OnCancel="@OnCancel" />
+                    }
+                    else
+                    {
+                        <ComposerDock @ref="secondaryComposerRef"
+                                      Conversation="@secondaryConversation"
+                                      Conversations="@Conversations"
+                                      Models="@Models"
+                                      SelectedModelId="@SelectedModelId"
+                                      SelectedModelIdChanged="@SelectedModelIdChanged"
+                                      IsStreaming="@isSecondaryStreaming"
+                                      IsLoading="@isSecondaryLoading"
+                                      OnSendMessage="HandleSecondarySendMessage"
+                                      OnCancel="HandleSecondaryCancel" />
+                    }
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Single Full-Width Mode -->
+        @if (TabService.ActiveTab?.Type == WorkspaceTabType.Terminal)
+        {
+            <TerminalPane @key="@TabService.ActiveTab?.Id" TabId="@TabService.ActiveTab?.Id" />
+        }
+        else if (TabService.ActiveTab?.Type == WorkspaceTabType.Git)
+        {
+            <GitPane />
+        }
+        else
+        {
+            <DesktopMessageList Conversation="@Conversation"
+                         DraftResponse="@DraftResponse"
+                         IsStreaming="@IsStreaming"
+                         OnSuggestionClick="HandleSuggestionClick"
+                         OnRetry="(msg) => HandleRetry(msg, isSecondary: false)"
+                         OnReply="(msg) => HandleReply(msg, isSecondary: false)"
+                         OnRate="(args) => HandleRate(args.Message, args.Rating, isSecondary: false)" />
+
+            <PermissionPromptCard />
+
+            @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+            {
+                <div style="margin: 0 20px 8px; padding: 6px 10px; background: var(--dt-danger-bg); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--dt-radius-sm); color: var(--dt-danger); font-size: 11.5px; display: flex; align-items: center; gap: 6px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <span>@ErrorMessage</span>
+                </div>
+            }
+
+            <Gram.Desktop.Components.CanvasArea.ComposerDock @ref="composerRef"
+                          Conversation="@Conversation"
+                          Conversations="@Conversations"
+                          Models="@Models"
+                          SelectedModelId="@SelectedModelId"
+                          SelectedModelIdChanged="@SelectedModelIdChanged"
+                          IsStreaming="@IsStreaming"
+                          IsLoading="@IsLoading"
+                          OnSendMessage="@OnSendMessage"
+                          OnCancel="@OnCancel" />
+        }
+    }
+</main>
+
+@code {
+    [Parameter] public ConversationDetail? Conversation { get; set; }
+    [Parameter] public IReadOnlyList<ConversationSummary>? Conversations { get; set; }
+    [Parameter] public string DraftResponse { get; set; } = "";
+    [Parameter] public bool IsStreaming { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public bool IsSidebarOpen { get; set; }
+    [Parameter] public bool IsInfosheetOpen { get; set; }
+    [Parameter] public string? ErrorMessage { get; set; }
+    [Parameter] public IReadOnlyList<ModelSummary>? Models { get; set; }
+    [Parameter] public string? SelectedModelId { get; set; }
+    [Parameter] public EventCallback<string> SelectedModelIdChanged { get; set; }
+    [Parameter] public EventCallback OnToggleSidebar { get; set; }
+    [Parameter] public EventCallback OnToggleInfosheet { get; set; }
+    [Parameter] public EventCallback<string> OnSelectConversation { get; set; }
+    [Parameter] public EventCallback<string> OnSendMessage { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback OnNewConversation { get; set; }
+
+    private ComposerDock? composerRef;
+    private ComposerDock? secondaryComposerRef;
+    private ConversationDetail? secondaryConversation;
+    private string secondaryDraftResponse = "";
+    private bool isSecondaryStreaming = false;
+    private bool isSecondaryLoading = false;
+    private string? loadedSecondaryChatId;
+    private CancellationTokenSource? secondaryRunCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        TabService.OnTabsChanged += HandleTabsChanged;
+        await SyncSecondaryTabAsync();
+    }
+
+    private async void HandleTabsChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            await SyncSecondaryTabAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task SyncSecondaryTabAsync()
+    {
+        if (TabService.IsSplitView && TabService.SecondaryTab?.Type == WorkspaceTabType.Chat)
+        {
+            var chatId = TabService.SecondaryTab.ChatId;
+            if (!string.IsNullOrEmpty(chatId) && chatId != "default" && chatId != loadedSecondaryChatId)
+            {
+                await LoadSecondaryConversationAsync(chatId);
+            }
+            else if (string.IsNullOrEmpty(chatId) || chatId == "default")
+            {
+                secondaryConversation = null;
+                loadedSecondaryChatId = chatId;
+            }
+        }
+    }
+
+    private async Task LoadSecondaryConversationAsync(string chatId)
+    {
+        isSecondaryLoading = true;
+        StateHasChanged();
+        try
+        {
+            secondaryConversation = await BackendClient.GetAsync<ConversationDetail>($"/api/v1/conversations/{Uri.EscapeDataString(chatId)}");
+            loadedSecondaryChatId = chatId;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading secondary conversation {chatId}: {ex.Message}");
+        }
+        finally
+        {
+            isSecondaryLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleSecondaryTabChanged(ChangeEventArgs e)
+    {
+        var newTabId = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(newTabId))
+        {
+            TabService.SelectSecondaryTab(newTabId);
+            await SyncSecondaryTabAsync();
+        }
+    }
+
+    private Task HandleSecondarySendMessage(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || isSecondaryStreaming) return Task.CompletedTask;
+        _ = RunSecondarySendAsync(text);
+        return Task.CompletedTask;
+    }
+
+    private async Task RunSecondarySendAsync(string text)
+    {
+        secondaryDraftResponse = "";
+        isSecondaryStreaming = true;
+        secondaryRunCts?.Cancel();
+        secondaryRunCts = new CancellationTokenSource();
+        var ct = secondaryRunCts.Token;
+
+        if (secondaryConversation != null)
+        {
+            var trimmedText = text.Trim();
+            var last = secondaryConversation.Messages?.LastOrDefault();
+            var isAlreadyLastUser = last != null && last.Role.Equals("user", StringComparison.OrdinalIgnoreCase) && last.Text == trimmedText;
+            if (!isAlreadyLastUser)
+            {
+                var userMsg = new Message("user", trimmedText);
+                var updated = new List<Message>(secondaryConversation.Messages ?? []) { userMsg };
+                secondaryConversation = secondaryConversation with { Messages = updated, Updated = DateTimeOffset.UtcNow };
+            }
+        }
+        StateHasChanged();
+
+        try
+        {
+            if (secondaryConversation == null)
+            {
+                var created = await BackendClient.PostAsync<ConversationDetail>("/api/v1/conversations", new CreateConversationRequest(ModelId: SelectedModelId), ct);
+                secondaryConversation = created;
+                loadedSecondaryChatId = created.Id;
+                if (TabService.SecondaryTab != null)
+                {
+                    TabService.SecondaryTab.ChatId = created.Id;
+                    TabService.SecondaryTab.Title = created.Title;
+                    TabService.SaveTabs();
+                }
+            }
+
+            var run = await BackendClient.PostAsync<RunSummary>(
+                $"/api/v1/conversations/{Uri.EscapeDataString(secondaryConversation.Id)}/runs",
+                new SendMessageRequest(text.Trim(), SelectedModelId, WorkspacePath: Session.WorkspacePath, AllowLocalCapabilities: Session.LocalCapabilitiesEnabled),
+                ct);
+
+            await foreach (var ev in BackendClient.SubscribeToRunAsync(run.Id, ct: ct))
+            {
+                if (ev.EventType.Equals("text.delta", StringComparison.OrdinalIgnoreCase))
+                {
+                    secondaryDraftResponse += ev.Payload;
+                    StateHasChanged();
+                }
+                else if (ev.EventType.Equals("run.completed", StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+            }
+
+            // Refresh secondary conversation to get final saved state with the completed assistant message
+            await LoadSecondaryConversationAsync(secondaryConversation.Id);
+            await Session.LoadAsync();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Secondary send error: {ex.Message}");
+        }
+        finally
+        {
+            isSecondaryStreaming = false;
+            secondaryDraftResponse = "";
+            StateHasChanged();
+        }
+    }
+
+    private void HandleSecondaryCancel()
+    {
+        secondaryRunCts?.Cancel();
+        isSecondaryStreaming = false;
+        secondaryDraftResponse = "";
+    }
+
+    private async Task HandleSecondarySuggestionClick(string prompt)
+    {
+        if (isSecondaryStreaming || secondaryConversation == null) return;
+        secondaryComposerRef?.SetInputText(prompt);
+        if (secondaryComposerRef != null)
+        {
+            await secondaryComposerRef.HandleSubmit();
+        }
+    }
+
+    public void AddReferencedChat(ConversationSummary chat)
+    {
+        composerRef?.AddReferencedChat(chat);
+    }
+
+    private void HandleAddReferencedChat(ConversationSummary chat)
+    {
+        composerRef?.AddReferencedChat(chat);
+    }
+
+    private async Task HandleSuggestionClick(string prompt)
+    {
+        if (IsStreaming || Conversation == null) return;
+        composerRef?.SetInputText(prompt);
+        if (composerRef != null)
+        {
+            await composerRef.HandleSubmit();
+        }
+    }
+
+    private async Task HandlePaneFocus(string? tabId)
+    {
+        if (!string.IsNullOrEmpty(tabId) && TabService.ActiveTabId != tabId)
+        {
+            TabService.SelectTab(tabId);
+            var focused = TabService.ActiveTab;
+            if (!string.IsNullOrEmpty(focused?.ChatId))
+            {
+                await OnSelectConversation.InvokeAsync(focused.ChatId);
+            }
+        }
+    }
+
+    private async Task HandlePaneSuggestionClick(string? tabId, string prompt)
+    {
+        if (string.IsNullOrEmpty(tabId)) return;
+        if (tabId == TabService.ActiveTabId)
+        {
+            await HandleSuggestionClick(prompt);
+        }
+        else
+        {
+            await HandleSecondarySuggestionClick(prompt);
+        }
+    }
+
+    private async Task HandleRetry(Message assistantMsg, bool isSecondary)
+    {
+        if (isSecondary)
+        {
+            var messages = secondaryConversation?.Messages;
+            if (messages == null || messages.Count == 0) return;
+
+            var idx = -1;
+            for (int i = 0; i < messages.Count; i++)
+            {
+                if (messages[i] == assistantMsg)
+                {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx < 0) return;
+
+            Message? lastUserMsg = null;
+            for (int i = idx - 1; i >= 0; i--)
+            {
+                if (messages[i].Role.Equals("user", StringComparison.OrdinalIgnoreCase))
+                {
+                    lastUserMsg = messages[i];
+                    break;
+                }
+            }
+
+            if (lastUserMsg == null || string.IsNullOrWhiteSpace(lastUserMsg.Text)) return;
+
+            var updated = new List<Message>(messages);
+            updated.RemoveAt(idx);
+
+            secondaryConversation = secondaryConversation! with { Messages = updated, Updated = DateTimeOffset.UtcNow };
+            StateHasChanged();
+            _ = HandleSecondarySendMessage(lastUserMsg.Text);
+        }
+        else
+        {
+            await Session.RetryResponseAsync(assistantMsg, SelectedModelId);
+        }
+    }
+
+    private void HandleReply(Message msg, bool isSecondary)
+    {
+        if (isSecondary)
+        {
+            secondaryComposerRef?.SetReply(msg);
+        }
+        else
+        {
+            composerRef?.SetReply(msg);
+        }
+    }
+
+    private void HandleRate(Message msg, int rating, bool isSecondary)
+    {
+        if (isSecondary)
+        {
+            if (secondaryConversation != null)
+            {
+                msg.Rating = rating == 0 ? null : rating;
+                secondaryConversation = secondaryConversation with { Updated = DateTimeOffset.UtcNow };
+                StateHasChanged();
+            }
+        }
+        else
+        {
+            Session.UpdateMessageRating(msg, rating == 0 ? null : rating);
+        }
+    }
+
+    public void Dispose()
+    {
+        TabService.OnTabsChanged -= HandleTabsChanged;
+        secondaryRunCts?.Cancel();
+        secondaryRunCts?.Dispose();
+    }
+}

@@ -237,7 +237,15 @@ public sealed class GitGramIntegrationTests
         {
             if (Directory.Exists(Path))
             {
-                Directory.Delete(Path, recursive: true);
+                try
+                {
+                    foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
+                    {
+                        File.SetAttributes(file, FileAttributes.Normal);
+                    }
+                    Directory.Delete(Path, recursive: true);
+                }
+                catch { }
             }
 
             return ValueTask.CompletedTask;
