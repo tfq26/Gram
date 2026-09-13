@@ -21,7 +21,6 @@ data/
 storage/
 conversations/
 .gram/
-Gram/
 
 # Local Session & Settings (Credentials / API Keys)
 settings.json

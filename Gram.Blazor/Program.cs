@@ -174,6 +174,26 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.PostgresDatabaseConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector>(sp => sp.GetRequiredService<Gram.Blazor.Shared.PostgresDatabaseConnector>());
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.McpBridgeConnector>();
 
+// Modern Carbon Workspace Services
+builder.Services.AddSingleton<Gram.Desktop.Services.IPlatformService, Gram.Desktop.Services.PlatformService>();
+builder.Services.AddSingleton<Gram.Desktop.Services.DesktopLayoutService>();
+builder.Services.AddSingleton<Gram.Desktop.Services.TopBarService>();
+builder.Services.AddSingleton<Gram.Desktop.Services.CompanionTaskService>();
+builder.Services.AddSingleton<Gram.Desktop.Services.DesktopActionService>();
+builder.Services.AddSingleton<Gram.Desktop.Services.CommandPaletteService>();
+builder.Services.AddSingleton<Gram.Desktop.Services.PtyTerminalService>();
+builder.Services.AddSingleton<Gram.Desktop.DesktopOfflineCache>();
+builder.Services.AddScoped<Gram.Desktop.DesktopSession>(sp =>
+{
+    var httpFactory = sp.GetRequiredService<IHttpClientFactory>();
+    var http = httpFactory.CreateClient();
+    http.BaseAddress = new Uri("http://127.0.0.1:7337/");
+    var client = new Gram.Blazor.Shared.GramBackendClient(http, null);
+    var tabService = sp.GetRequiredService<Gram.Blazor.Shared.WorkspaceTabService>();
+    var offline = sp.GetRequiredService<Gram.Desktop.DesktopOfflineCache>();
+    return new Gram.Desktop.DesktopSession(client, "http://127.0.0.1:7337", offline, tabService: tabService);
+});
+
 var app = builder.Build();
 app.UseWebSockets();
 app.UseStaticFiles();

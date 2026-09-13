@@ -102,16 +102,16 @@ cd "${ROOT_DIR}"
 if [[ "${1:-}" == "--cli" || "${1:-}" == "--message" ]]; then
     MESSAGE="${2:-Hello Gram}"
     echo -e "${CYAN}Launching in Headless CLI Mode: \"${MESSAGE}\"${NC}"
-    exec dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj -- --backend "${BACKEND_URL}" --message "${MESSAGE}" 2>&1 | tee -a "${LOGS_DIR}/desktop.log"
+    exec dotnet run --project Gram.Blazor/clients/Gram.Maui/Gram.Maui.csproj -f net9.0-maccatalyst -- --backend "${BACKEND_URL}" --message "${MESSAGE}" 2>&1 | tee -a "${LOGS_DIR}/desktop.log"
 fi
 
 # 5. Native GUI Launch
-echo -e "${CYAN}Launching Gram Desktop Native GUI Window...${NC}"
+echo -e "${CYAN}Launching Gram Desktop Native GUI Window (MAUI MacCatalyst)...${NC}"
 
 if [[ "${1:-}" == "--bundle" && -d "${ROOT_DIR}/Gram.app" ]]; then
     echo -e "${GREEN}Opening native macOS application bundle (waiting for exit): Gram.app${NC}"
     open -W "${ROOT_DIR}/Gram.app"
 else
     echo -e "Press ${YELLOW}Ctrl+C${NC} in this terminal to exit.\n"
-    dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj -- --backend "${BACKEND_URL}" 2>&1 | tee -a "${LOGS_DIR}/desktop.log"
+    dotnet run --project Gram.Blazor/clients/Gram.Maui/Gram.Maui.csproj -f net9.0-maccatalyst -- --backend "${BACKEND_URL}" 2>&1 | tee -a "${LOGS_DIR}/desktop.log"
 fi

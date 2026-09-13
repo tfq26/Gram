@@ -1,21 +1,22 @@
-# Gram Desktop Client — Multi-Platform Launch Guide
+# Gram Desktop & Web Client — Multi-Platform Launch Guide
 
-Gram Desktop (`Gram.Desktop`) is a high-performance native desktop shell built with **.NET 9** and **Photino.Blazor**. It runs natively across **Windows**, **macOS**, and **Linux** without the memory overhead of Electron, using the platform's native webview component directly.
+Gram provides multiple native and web presentation surfaces built with **.NET 9**:
+1. **Gram.Maui** (Desktop): High-performance native desktop shell for **Windows** (WinUI 3 / Edge WebView2) and **macOS** (Mac Catalyst / WKWebView) using .NET MAUI Blazor Hybrid.
+2. **Gram.Blazor** (Web): Full-featured web application hosting both the **Classic Web UI** (at `/` and `/classic`) and the modern **Carbon 3-Pane Workspace UI** (at `/workspace`) for side-by-side comparison.
 
 ---
 
 ## 1. Architecture Overview
 
-Gram operates as a dual-component or unified client-server architecture:
-
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                  Gram Desktop GUI Shell                     │
-│               (Gram.Blazor/clients/Gram.Desktop)            │
+│             Gram Presentation Tier (Clients)                │
 │                                                             │
-│   Windows: Edge WebView2  │  macOS: WKWebView  │  Linux: WebKitGTK   │
+│  • Gram.Maui (Windows WinUI 3 & macOS Mac Catalyst)         │
+│  • Gram.Blazor Web (Modern Workspace at /workspace)         │
+│  • Gram.Blazor Web (Classic Web UI at /classic & /)         │
 └──────────────────────────────┬──────────────────────────────┘
-                               │ HTTP / SSE (Port 7337)
+                               │ HTTP / SSE / WebSockets (Port 7337)
 ┌──────────────────────────────▼──────────────────────────────┐
 │                    Gram Core Backend                        │
 │                   (Gram.Blazor/Gram.Blazor)                 │
@@ -25,8 +26,9 @@ Gram operates as a dual-component or unified client-server architecture:
 ```
 
 - **Backend API**: ASP.NET Core server listening by default on `http://localhost:7337`.
-- **Desktop Host**: Native window container powered by Photino.
-- **PTY Terminal**: Cross-platform pseudoterminal integration (ConPTY on Windows, POSIX PTY on macOS/Linux).
+- **Desktop Host (`Gram.Maui`)**: Native window container powered by .NET MAUI Blazor Hybrid.
+- **Web Host (`Gram.Blazor`)**: Interactive server-rendered Blazor application serving both modern and classic workspace interfaces.
+- **PTY Terminal**: Cross-platform pseudoterminal integration (ConPTY on Windows, POSIX PTY on macOS).
 - **Automation Scripts**: Automatically verify prerequisites, spawn the backend in the background if not running, wait for healthiness, and launch the GUI.
 
 ---
@@ -109,9 +111,9 @@ dotnet run --project Gram.Blazor\Gram.Blazor.csproj
 ```
 *(Wait until `Now listening on: http://0.0.0.0:7337` appears)*
 
-**Terminal 2 (Desktop Client):**
+**Terminal 2 (Desktop Client - Windows MAUI):**
 ```powershell
-dotnet run --project Gram.Blazor\clients\Gram.Desktop\Gram.Desktop.csproj
+dotnet run --project Gram.Blazor\clients\Gram.Maui\Gram.Maui.csproj -f net9.0-windows10.0.19041.0
 ```
 
 ---
@@ -148,14 +150,19 @@ open Gram.app
 dotnet run --project Gram.Blazor/Gram.Blazor.csproj
 ```
 
-**Terminal 2 (Desktop Client):**
+**Terminal 2 (Desktop Client - MacCatalyst MAUI):**
 ```bash
-dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj
+dotnet run --project Gram.Blazor/clients/Gram.Maui/Gram.Maui.csproj -f net9.0-maccatalyst
 ```
 
 ---
 
-## 5. How to Launch on Linux
+## 5. Web Interface Access (Dual UI)
+
+Gram.Blazor provides both modern Carbon Workspace and Classic web UIs simultaneously:
+- **Modern Carbon Workspace UI**: `http://localhost:7337/workspace`
+- **Classic Web UI**: `http://localhost:7337/classic` (or `http://localhost:7337/`)
+- A switcher bar at the top of each web page allows one-click switching between views.
 
 ### Method 1: Automated Script Launcher
 Open your terminal in the `Gram` folder:

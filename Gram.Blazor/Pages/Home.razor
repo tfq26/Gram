@@ -1,4 +1,5 @@
 @page "/"
+@page "/classic"
 @rendermode InteractiveServer
 @using Gram.Blazor.Shared
 @using Microsoft.AspNetCore.Components.Forms
@@ -41,6 +42,7 @@
         <div class="pane-content">
             <div class="rail-header">
                 <span class="rail-title">Previous Chats</span>
+                <a href="/workspace" class="classic-workspace-switch-btn" title="Switch to the new 3-pane Carbon workspace">✨ New Workspace</a>
                 @if (isSidebarOpen)
                 {
                     <button class="btn-pane-toggle sidebar-toggle-btn active" @onclick="() => ToggleSidebar(false)" title="Collapse sidebar" aria-label="Collapse sidebar">

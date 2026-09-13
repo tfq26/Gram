@@ -4,7 +4,7 @@
 # ==============================================================================
 
 param (
-    [string]$BackendUrl = "http://localhost:7337",
+    [string]$BackendUrl = "http://127.0.0.1:7337",
     [string]$LocalAgentUrl = "http://127.0.0.1:7340",
     [switch]$Cli,
     [string]$Message = ""
@@ -50,7 +50,7 @@ try {
     Write-Host "Real-time logs: $LogsDir\backend.log" -ForegroundColor Cyan
 
     # 2. Check or launch Gram Backend
-    Write-Host -NoNewline "Checking Gram backend at $BackendUrl... "
+    Write-Host "Checking Gram backend at $BackendUrl..."
     $backendHealthy = $false
     try {
         $res = Invoke-WebRequest -Uri "$BackendUrl/api/v1/models" -Method Get -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
@@ -64,19 +64,11 @@ try {
     } else {
         Write-Host "Not running. Starting backend in background..." -ForegroundColor Yellow
         $BackendLog = Join-Path $LogsDir "backend.log"
-        $backendStartInfo = New-Object System.Diagnostics.ProcessStartInfo
-        $backendStartInfo.FileName = "dotnet"
-        $backendStartInfo.Arguments = "run --project `"$RootDir\Gram.Blazor\Gram.Blazor.csproj`""
-        $backendStartInfo.WorkingDirectory = $RootDir
-        $backendStartInfo.RedirectStandardOutput = $true
-        $backendStartInfo.RedirectStandardError = $true
-        $backendStartInfo.UseShellExecute = $false
-        $backendStartInfo.CreateNoWindow = $true
-
-        $BackendProcess = [System.Diagnostics.Process]::Start($backendStartInfo)
+        $BackendErrLog = Join-Path $LogsDir "backend.err.log"
+        $BackendProcess = Start-Process -FilePath "dotnet" -ArgumentList @("run", "--project", "$RootDir\Gram.Blazor\Gram.Blazor.csproj") -WorkingDirectory $RootDir -RedirectStandardOutput $BackendLog -RedirectStandardError $BackendErrLog -NoNewWindow -PassThru
         Write-Host "Backend process launched (PID: $($BackendProcess.Id)). Logging to $BackendLog"
 
-        $retries = 30
+        $retries = 45
         $ready = $false
         for ($i = 1; $i -le $retries; $i++) {
             Start-Sleep -Milliseconds 800
@@ -98,7 +90,7 @@ try {
     }
 
     # 3. Check or launch Gram Local Agent
-    Write-Host -NoNewline "Checking Gram Local Agent at $LocalAgentUrl... "
+    Write-Host "Checking Gram Local Agent at $LocalAgentUrl..."
     $agentHealthy = $false
     try {
         $res = Invoke-WebRequest -Uri "$LocalAgentUrl/local/v1/health" -Method Get -TimeoutSec 1 -UseBasicParsing -ErrorAction Stop
@@ -112,22 +104,16 @@ try {
     } else {
         Write-Host "Not running. Starting Local Agent in background..." -ForegroundColor Yellow
         $AgentLog = Join-Path $LogsDir "local-agent.log"
-        $agentStartInfo = New-Object System.Diagnostics.ProcessStartInfo
-        $agentStartInfo.FileName = "dotnet"
-        $agentStartInfo.Arguments = "run --project `"$RootDir\Gram.Blazor\clients\Gram.LocalAgent\Gram.LocalAgent.csproj`""
-        $agentStartInfo.WorkingDirectory = $RootDir
-        $agentStartInfo.RedirectStandardOutput = $true
-        $agentStartInfo.RedirectStandardError = $true
-        $agentStartInfo.UseShellExecute = $false
-        $agentStartInfo.CreateNoWindow = $true
-
-        $LocalAgentProcess = [System.Diagnostics.Process]::Start($agentStartInfo)
+        $AgentErrLog = Join-Path $LogsDir "local-agent.err.log"
+        $LocalAgentProcess = Start-Process -FilePath "dotnet" -ArgumentList @("run", "--project", "$RootDir\Gram.Blazor\clients\Gram.LocalAgent\Gram.LocalAgent.csproj") -WorkingDirectory $RootDir -RedirectStandardOutput $AgentLog -RedirectStandardError $AgentErrLog -NoNewWindow -PassThru
         Write-Host "Local Agent launched (PID: $($LocalAgentProcess.Id)). Logging to $AgentLog"
         Start-Sleep -Seconds 1
     }
 
     # 4. Handle Arguments (Headless CLI vs GUI Mode)
     Set-Location $RootDir
+
+    $env:GRAM_BACKEND_URL = $BackendUrl
 
     if ($Cli -or -not [string]::IsNullOrWhiteSpace($Message)) {
         $msg = if ([string]::IsNullOrWhiteSpace($Message)) { "Hello Gram" } else { $Message }
@@ -136,11 +122,24 @@ try {
         exit $LASTEXITCODE
     }
 
-    # 5. Native GUI Launch
-    Write-Host "Launching Gram Desktop Native GUI Window..." -ForegroundColor Cyan
+    # 5. Native GUI Launch (.NET MAUI Blazor WinUI 3)
+    Write-Host "Launching Gram Desktop Native GUI Window (MAUI Blazor)..." -ForegroundColor Cyan
     Write-Host "Press Ctrl+C in this terminal to exit.`n" -ForegroundColor Yellow
 
-    dotnet run --project "$RootDir\Gram.Blazor\clients\Gram.Desktop\Gram.Desktop.csproj" -- --backend "$BackendUrl"
+    # Refresh the MAUI output before launching it so changes to Main.razor,
+    # wwwroot, or the shared Blazor project cannot be hidden by a stale exe.
+    dotnet build "$RootDir\Gram.Blazor\clients\Gram.Maui\Gram.Maui.csproj" -f net9.0-windows10.0.19041.0 --no-restore -v:minimal
+    if ($LASTEXITCODE -ne 0) {
+        throw "MAUI Windows build failed (exit code $LASTEXITCODE)."
+    }
+
+    $ExePath = Join-Path $RootDir "Gram.Blazor\clients\Gram.Maui\bin\Debug\net9.0-windows10.0.19041.0\win10-x64\Gram.Maui.exe"
+    if (Test-Path $ExePath) {
+        $guiProc = Start-Process -FilePath $ExePath -PassThru
+        $guiProc | Wait-Process
+    } else {
+        dotnet run --project "$RootDir\Gram.Blazor\clients\Gram.Maui\Gram.Maui.csproj" -f net9.0-windows10.0.19041.0
+    }
 }
 finally {
     Cleanup
