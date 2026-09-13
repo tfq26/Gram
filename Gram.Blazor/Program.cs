@@ -165,6 +165,7 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorCredentialVault, Gram
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorHostClient, Gram.Blazor.Shared.ConnectorHostClient>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorConnectionStore, Gram.Blazor.Shared.ConnectorConnectionStore>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorConnectionResolver, Gram.Blazor.Shared.ConnectorConnectionResolver>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.SpotifyOAuthService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.ReminderConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.ControlledHttpConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.DesktopUseConnector>();
