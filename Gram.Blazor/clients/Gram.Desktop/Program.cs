@@ -13,7 +13,9 @@ internal static class Program
     private static async Task<int> Main(string[] args)
     {
         var backendUrl = GetOption(args, "--backend") ?? Environment.GetEnvironmentVariable("GRAM_BACKEND_URL") ?? "http://localhost:7337";
-        var token = GetOption(args, "--token") ?? Environment.GetEnvironmentVariable("GRAM_ACCESS_TOKEN");
+        var token = GetOption(args, "--token") 
+            ?? Environment.GetEnvironmentVariable("GRAM_GATEWAY_TOKEN") 
+            ?? Environment.GetEnvironmentVariable("GRAM_ACCESS_TOKEN");
         var message = GetOption(args, "--message");
 
         // If --message is provided, run headless CLI mode

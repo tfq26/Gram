@@ -13,6 +13,9 @@ public interface IAuthService
 {
     AuthSettings Settings { get; }
     GramUser CurrentUser { get; }
+    bool IsWorkOsConfigured { get; }
+    string GetWorkOsLoginUrl(string? returnUrl = null);
+    Task<AuthResult> HandleWorkOsCallbackAsync(string code);
     Task<GramUser> GetCurrentUserAsync();
     Task<AuthResult> SignInWithEmailAsync(string email, string password);
     Task<AuthResult> SignUpWithEmailAsync(string name, string email, string password);
@@ -65,10 +68,18 @@ public sealed class GramAuthService : IAuthService
         _sessionTokenFilePath = _storageService.GetFilePath("auth_session.json");
 
         // Load configuration from appsettings, environment variables, or local config
-        var providerStr = _configuration["AUTH_PROVIDER"] ?? _configuration["Auth:Provider"] ?? "None";
-        if (Enum.TryParse<AuthProviderType>(providerStr, true, out var parsedProvider))
+        Settings.WorkOsApiKey = _configuration["WORKOS_API_KEY"] ?? _configuration["WorkOS:ApiKey"] ?? Environment.GetEnvironmentVariable("WORKOS_API_KEY");
+        Settings.WorkOsClientId = _configuration["WORKOS_CLIENT_ID"] ?? _configuration["WorkOS:ClientId"] ?? Environment.GetEnvironmentVariable("WORKOS_CLIENT_ID");
+        Settings.WorkOsRedirectUri = _configuration["WORKOS_REDIRECT_URI"] ?? _configuration["WorkOS:RedirectUri"] ?? Environment.GetEnvironmentVariable("WORKOS_REDIRECT_URI");
+
+        var providerStr = _configuration["AUTH_PROVIDER"] ?? _configuration["Auth:Provider"];
+        if (!string.IsNullOrWhiteSpace(providerStr) && Enum.TryParse<AuthProviderType>(providerStr, true, out var parsedProvider))
         {
             Settings.Provider = parsedProvider;
+        }
+        else if (IsWorkOsConfigured)
+        {
+            Settings.Provider = AuthProviderType.WorkOS;
         }
 
         Settings.BetterAuthUrl = _configuration["BETTER_AUTH_URL"] ?? _configuration["Auth:BetterAuthUrl"] ?? Settings.BetterAuthUrl;
@@ -84,9 +95,138 @@ public sealed class GramAuthService : IAuthService
         _ = TryRestoreSessionAsync();
     }
 
+    public bool IsWorkOsConfigured =>
+        !string.IsNullOrWhiteSpace(Settings.WorkOsApiKey) && !string.IsNullOrWhiteSpace(Settings.WorkOsClientId);
+
+    public string GetWorkOsLoginUrl(string? returnUrl = null)
+    {
+        var clientId = Settings.WorkOsClientId ?? "";
+        var redirectUri = Settings.WorkOsRedirectUri;
+        if (string.IsNullOrWhiteSpace(redirectUri) && _httpContextAccessor?.HttpContext != null)
+        {
+            var req = _httpContextAccessor.HttpContext.Request;
+            redirectUri = $"{req.Scheme}://{req.Host}/auth/callback";
+        }
+        else if (string.IsNullOrWhiteSpace(redirectUri))
+        {
+            redirectUri = "http://localhost:7337/auth/callback";
+        }
+
+        var state = returnUrl ?? "/";
+        var queryParams = new List<string>
+        {
+            $"client_id={Uri.EscapeDataString(clientId)}",
+            $"redirect_uri={Uri.EscapeDataString(redirectUri)}",
+            "response_type=code",
+            $"state={Uri.EscapeDataString(state)}"
+        };
+
+        return $"https://api.workos.com/user_management/authorize?{string.Join("&", queryParams)}";
+    }
+
+    public async Task<AuthResult> HandleWorkOsCallbackAsync(string code)
+    {
+        if (!IsWorkOsConfigured)
+        {
+            return new AuthResult { Success = false, ErrorMessage = "WorkOS is not configured." };
+        }
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient();
+            var payload = new
+            {
+                client_id = Settings.WorkOsClientId,
+                client_secret = Settings.WorkOsApiKey,
+                grant_type = "authorization_code",
+                code = code
+            };
+
+            var request = new HttpRequestMessage(HttpMethod.Post, "https://api.workos.com/user_management/authenticate")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Settings.WorkOsApiKey);
+
+            var response = await client.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return new AuthResult
+                {
+                    Success = false,
+                    ErrorMessage = $"WorkOS authentication failed ({response.StatusCode}): {content}"
+                };
+            }
+
+            var authResponse = JsonSerializer.Deserialize<WorkOsAuthenticateResponse>(content);
+            if (authResponse?.User == null)
+            {
+                return new AuthResult { Success = false, ErrorMessage = "WorkOS returned an empty user profile." };
+            }
+
+            var workOsUser = authResponse.User;
+            var name = !string.IsNullOrWhiteSpace(workOsUser.FirstName)
+                ? $"{workOsUser.FirstName} {workOsUser.LastName}".Trim()
+                : (!string.IsNullOrWhiteSpace(workOsUser.Email) ? workOsUser.Email : "WorkOS User");
+
+            _currentUser = new GramUser
+            {
+                Id = workOsUser.Id,
+                Name = name,
+                Email = workOsUser.Email,
+                Image = workOsUser.ProfilePictureUrl,
+                IsAuthenticated = true,
+                SessionToken = authResponse.AccessToken ?? code,
+                Roles = ["user"]
+            };
+
+            await SaveSessionTokenAsync(_currentUser.SessionToken, _currentUser);
+            OnAuthStateChanged?.Invoke();
+
+            return new AuthResult
+            {
+                Success = true,
+                User = _currentUser,
+                Token = _currentUser.SessionToken
+            };
+        }
+        catch (Exception ex)
+        {
+            return new AuthResult
+            {
+                Success = false,
+                ErrorMessage = $"WorkOS callback error: {ex.Message}"
+            };
+        }
+    }
+
     private GramUser InitializeUser()
     {
-        // 1. Check for Reverse Proxy Headers (Authentik / Authelia / Traefik / Cloudflare Access)
+        // 1. Check HttpContext.User for existing Claims / Cookies
+        if (_httpContextAccessor?.HttpContext?.User?.Identity?.IsAuthenticated == true)
+        {
+            var principal = _httpContextAccessor.HttpContext.User;
+            var id = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+            var name = principal.FindFirst(ClaimTypes.Name)?.Value ?? "User";
+            var email = principal.FindFirst(ClaimTypes.Email)?.Value;
+            var image = principal.FindFirst("image")?.Value;
+            var roles = principal.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+            if (roles.Count == 0) roles.Add("user");
+
+            return new GramUser
+            {
+                Id = id,
+                Name = name,
+                Email = email,
+                Image = image,
+                IsAuthenticated = true,
+                Roles = roles
+            };
+        }
+
+        // 2. Check for Reverse Proxy Headers (Authentik / Authelia / Traefik / Cloudflare Access)
         if (_httpContextAccessor?.HttpContext != null)
         {
             var headers = _httpContextAccessor.HttpContext.Request.Headers;
@@ -109,7 +249,7 @@ public sealed class GramAuthService : IAuthService
             }
         }
 
-        // 2. Default: Unauthenticated Guest (Requires login)
+        // 3. Default: Unauthenticated Guest (Requires login if WorkOS or other provider configured)
         return new GramUser
         {
             Id = "",

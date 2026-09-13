@@ -46,15 +46,40 @@
                 <div class="topbar-center"></div>
             }
 
-            <div class="topbar-right">
+            <div class="topbar-right" style="display: flex; align-items: center; gap: 10px;">
                 <a class="nav-link btn-toolbox-pin @(IsActive("/settings") && NavManager.Uri.Contains("category=Toolbox", StringComparison.OrdinalIgnoreCase) || IsActive("/toolbox") ? "active" : "")" href="/settings?category=Toolbox" title="Toolbox & Extensions">
                     Toolbox
                 </a>
+                @if (AuthService.CurrentUser.IsAuthenticated)
+                {
+                    <div class="user-pill-menu" style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-primary); padding: 3px 8px; background: var(--bg-hover); border-radius: 9999px; border: 1px solid var(--border-color);">
+                        @if (!string.IsNullOrWhiteSpace(AuthService.CurrentUser.Image))
+                        {
+                            <img src="@AuthService.CurrentUser.Image" alt="@AuthService.CurrentUser.Name" style="width: 18px; height: 18px; border-radius: 50%; object-fit: cover;" />
+                        }
+                        else
+                        {
+                            <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 10px; font-weight: 600;">
+                                @(string.IsNullOrWhiteSpace(AuthService.CurrentUser.Name) ? "U" : AuthService.CurrentUser.Name[0].ToString().ToUpperInvariant())
+                            </span>
+                        }
+                        <span style="font-weight: 500; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            @AuthService.CurrentUser.Name
+                        </span>
+                        <a href="/auth/logout" title="Sign out" style="color: var(--text-muted); text-decoration: none; margin-left: 2px; font-size: 12px; cursor: pointer;">✕</a>
+                    </div>
+                }
+                else if (AuthService.IsWorkOsConfigured)
+                {
+                    <a href="/auth/login" class="nav-link btn-workos-login" style="padding: 4px 12px; font-size: 12.5px; font-weight: 500; border-radius: var(--radius-sm); background: var(--primary); color: #fff; text-decoration: none;">
+                        Sign In
+                    </a>
+                }
             </div>
         </header>
     }
     <main class="page-frame @(IsLoginPage() ? "login-frame" : "")">
-        @if (!IsLoginPage() && !IsDiagnosticPage() && !AuthService.CurrentUser.IsAuthenticated)
+        @if (!IsLoginPage() && !IsDiagnosticPage() && !AuthService.CurrentUser.IsAuthenticated && AuthService.IsWorkOsConfigured)
         {
             <div style="display: flex; justify-content: center; align-items: center; height: 100%; color: var(--text-muted); font-size: 14px;">
                 <span>Redirecting to sign in...</span>
@@ -105,7 +130,7 @@
 
     private void CheckAuthentication()
     {
-        if (!IsLoginPage() && !IsDiagnosticPage() && !AuthService.CurrentUser.IsAuthenticated)
+        if (!IsLoginPage() && !IsDiagnosticPage() && !AuthService.CurrentUser.IsAuthenticated && AuthService.IsWorkOsConfigured)
         {
             var relativePath = NavManager.ToBaseRelativePath(NavManager.Uri);
             var returnUrl = string.IsNullOrWhiteSpace(relativePath) ? "/" : "/" + relativePath;

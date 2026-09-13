@@ -1,6 +1,7 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Components.Authorization;
 
@@ -65,10 +66,7 @@ if (!string.IsNullOrWhiteSpace(databaseUrl))
             sp.GetRequiredService<ILogger<Gram.Blazor.Shared.PostgresDatabaseProvider>>(),
             databaseUrl));
     builder.Services.AddSingleton<Gram.Blazor.Shared.IDatabaseProvider>(sp =>
-        new Gram.Blazor.Shared.ResilientDatabaseProvider(
-            sp.GetRequiredService<ILogger<Gram.Blazor.Shared.ResilientDatabaseProvider>>(),
-            sp.GetRequiredService<Gram.Blazor.Shared.PostgresDatabaseProvider>(),
-            sp.GetRequiredService<Gram.Blazor.Shared.SqliteDatabaseService>()));
+        sp.GetRequiredService<Gram.Blazor.Shared.PostgresDatabaseProvider>());
 }
 else
 {
@@ -106,22 +104,9 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.GramBoxService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxAccessPolicy, Gram.Blazor.Shared.SandboxAccessPolicy>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.SandboxJobQueue>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxJobQueue>(sp => sp.GetRequiredService<Gram.Blazor.Shared.SandboxJobQueue>());
-builder.Services.AddHostedService<Gram.Blazor.Shared.SandboxJobWorker>();
-var redisConnection = Environment.GetEnvironmentVariable("GRAM_REDIS_URL") ?? Environment.GetEnvironmentVariable("REDIS_URL");
-if (string.IsNullOrWhiteSpace(redisConnection))
-{
-    builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxMessageBus, Gram.Blazor.Shared.InProcessSandboxMessageBus>();
-    builder.Services.AddSingleton<Gram.Blazor.Shared.IGramCache, Gram.Blazor.Shared.InMemoryGramCache>();
-}
-else
-{
-    builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxMessageBus>(_ => new Gram.Blazor.Shared.RedisSandboxMessageBus(redisConnection));
-    builder.Services.AddSingleton<Gram.Blazor.Shared.IGramCache>(_ => new Gram.Blazor.Shared.RedisGramCache(redisConnection));
-}
-builder.Services.AddHostedService<Gram.Blazor.Shared.SandboxOutboxProcessor>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.ISandboxMessageBus, Gram.Blazor.Shared.InProcessSandboxMessageBus>();
+builder.Services.AddSingleton<Gram.Blazor.Shared.IGramCache, Gram.Blazor.Shared.InMemoryGramCache>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IGramBoxService>(sp => sp.GetRequiredService<Gram.Blazor.Shared.GramBoxService>());
-builder.Services.AddHostedService(sp => sp.GetRequiredService<Gram.Blazor.Shared.GramBoxService>());
-builder.Services.AddHostedService<Gram.Blazor.Shared.SandboxCleanupService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.ISubagentEngine, Gram.Blazor.Shared.SubagentEngineService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IQuotaTracker, Gram.Blazor.Shared.QuotaTracker>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IGramTool, Gram.Blazor.Shared.GitGramKernelTool>();
@@ -145,7 +130,18 @@ builder.Services.AddScoped<Gram.Blazor.Shared.ConversationService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.ChatStateService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.IAuthService, Gram.Blazor.Shared.GramAuthService>();
 builder.Services.AddScoped<AuthenticationStateProvider, Gram.Blazor.Shared.GramAuthStateProvider>();
-builder.Services.AddAuthentication();
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.Cookie.Name = "gram_auth_session";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        options.LoginPath = "/auth/login";
+        options.LogoutPath = "/auth/logout";
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+    });
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<Gram.Blazor.Shared.ISonnerService, Gram.Blazor.Shared.SonnerService>();
 builder.Services.AddScoped<Gram.Blazor.Shared.GitGramService>();
@@ -169,7 +165,6 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorCredentialVault, Gram
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorHostClient, Gram.Blazor.Shared.ConnectorHostClient>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorConnectionStore, Gram.Blazor.Shared.ConnectorConnectionStore>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectorConnectionResolver, Gram.Blazor.Shared.ConnectorConnectionResolver>();
-builder.Services.AddSingleton<Gram.Blazor.Shared.SpotifyOAuthService>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.ReminderConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.ControlledHttpConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.DesktopUseConnector>();
@@ -177,17 +172,56 @@ builder.Services.AddSingleton<Gram.Blazor.Shared.SqliteDatabaseConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector>(sp => sp.GetRequiredService<Gram.Blazor.Shared.SqliteDatabaseConnector>());
 builder.Services.AddSingleton<Gram.Blazor.Shared.PostgresDatabaseConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector>(sp => sp.GetRequiredService<Gram.Blazor.Shared.PostgresDatabaseConnector>());
-builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.SpotifyConnector>();
-builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.HomeAssistantConnector>();
-builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.PostmanConnector>();
 builder.Services.AddSingleton<Gram.Blazor.Shared.IConnectedConnector, Gram.Blazor.Shared.McpBridgeConnector>();
 
 var app = builder.Build();
 app.UseWebSockets();
 app.UseStaticFiles();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", version = "1.0.0", timestamp = DateTimeOffset.UtcNow }));
+
+// WorkOS Authentication Endpoints
+app.MapGet("/auth/login", (Gram.Blazor.Shared.IAuthService auth, HttpContext context, string? returnUrl) =>
+{
+    if (!auth.IsWorkOsConfigured)
+    {
+        return Results.Redirect(returnUrl ?? "/");
+    }
+    var loginUrl = auth.GetWorkOsLoginUrl(returnUrl);
+    return Results.Redirect(loginUrl);
+});
+
+app.MapGet("/auth/callback", async (Gram.Blazor.Shared.IAuthService auth, HttpContext context, string? code, string? state, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(code))
+    {
+        return Results.Redirect("/login?error=missing_code");
+    }
+
+    var result = await auth.HandleWorkOsCallbackAsync(code);
+    if (!result.Success || result.User == null)
+    {
+        return Results.Redirect($"/login?error={Uri.EscapeDataString(result.ErrorMessage ?? "Auth failed")}");
+    }
+
+    var claimsPrincipal = result.User.ToClaimsPrincipal();
+    await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, claimsPrincipal);
+
+    var target = !string.IsNullOrWhiteSpace(state) && state.StartsWith("/") ? state : "/";
+    return Results.Redirect(target);
+});
+
+app.MapGet("/auth/logout", async (Gram.Blazor.Shared.IAuthService auth, HttpContext context) =>
+{
+    await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    await auth.LogoutAsync();
+    return Results.Redirect("/");
+});
+
+app.MapGet("/api/v1/auth/me", (Gram.Blazor.Shared.IAuthService auth) => Results.Ok(auth.CurrentUser));
 
 var api = app.MapGroup("/api/v1").AddEndpointFilter<Gram.Blazor.Shared.BackendAuthorizationFilter>();
 api.MapPost("/conversations", async (Gram.Blazor.Shared.CreateConversationRequest request, Gram.Blazor.Shared.IConversationApi conversations, CancellationToken ct) => Results.Ok(await conversations.CreateAsync(request, ct)));

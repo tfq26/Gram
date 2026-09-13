@@ -6,6 +6,7 @@ namespace Gram.Blazor.Shared;
 public enum AuthProviderType
 {
     None,
+    WorkOS,
     BetterAuth,
     Oidc,
     ProxyHeader
@@ -15,6 +16,11 @@ public sealed class AuthSettings
 {
     public AuthProviderType Provider { get; set; } = AuthProviderType.None;
     
+    // WorkOS AuthKit settings
+    public string? WorkOsApiKey { get; set; }
+    public string? WorkOsClientId { get; set; }
+    public string? WorkOsRedirectUri { get; set; }
+
     // Better Auth settings
     public string BetterAuthUrl { get; set; } = "http://localhost:3000";
     public string? BetterAuthSecret { get; set; }
@@ -29,6 +35,42 @@ public sealed class AuthSettings
     public string ProxyUserHeader { get; set; } = "X-authentik-username";
     public string ProxyEmailHeader { get; set; } = "X-authentik-email";
     public string ProxyNameHeader { get; set; } = "X-authentik-name";
+}
+
+public sealed class WorkOsAuthenticateResponse
+{
+    [JsonPropertyName("user")]
+    public WorkOsUser? User { get; set; }
+
+    [JsonPropertyName("organization_id")]
+    public string? OrganizationId { get; set; }
+
+    [JsonPropertyName("access_token")]
+    public string? AccessToken { get; set; }
+
+    [JsonPropertyName("refresh_token")]
+    public string? RefreshToken { get; set; }
+}
+
+public sealed class WorkOsUser
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("email")]
+    public string Email { get; set; } = "";
+
+    [JsonPropertyName("first_name")]
+    public string? FirstName { get; set; }
+
+    [JsonPropertyName("last_name")]
+    public string? LastName { get; set; }
+
+    [JsonPropertyName("email_verified")]
+    public bool EmailVerified { get; set; }
+
+    [JsonPropertyName("profile_picture_url")]
+    public string? ProfilePictureUrl { get; set; }
 }
 
 public sealed class GramUser

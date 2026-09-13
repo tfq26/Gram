@@ -8,12 +8,13 @@ public sealed class BackendAuthorizationFilter : IEndpointFilter
         if (http.User.Identity?.IsAuthenticated != true)
         {
             var header = http.Request.Headers.Authorization.FirstOrDefault();
-            var devToken = Environment.GetEnvironmentVariable("GRAM_ACCESS_TOKEN");
+            var gatewayToken = Environment.GetEnvironmentVariable("GRAM_GATEWAY_TOKEN")
+                ?? Environment.GetEnvironmentVariable("GRAM_ACCESS_TOKEN");
 
             if (string.IsNullOrWhiteSpace(header) || !header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
-                // In local development, allow localhost loopback client if no strict token configured
-                if (string.IsNullOrWhiteSpace(devToken) && (http.Request.Host.Host == "localhost" || http.Request.Host.Host == "127.0.0.1"))
+                // In local development without gateway token, allow localhost loopback client
+                if (string.IsNullOrWhiteSpace(gatewayToken) && (http.Request.Host.Host == "localhost" || http.Request.Host.Host == "127.0.0.1"))
                 {
                     return await next(context);
                 }
@@ -21,7 +22,7 @@ public sealed class BackendAuthorizationFilter : IEndpointFilter
             }
 
             var token = header["Bearer ".Length..].Trim();
-            if (!string.IsNullOrWhiteSpace(devToken) && string.Equals(token, devToken, StringComparison.Ordinal))
+            if (!string.IsNullOrWhiteSpace(gatewayToken) && string.Equals(token, gatewayToken, StringComparison.Ordinal))
             {
                 return await next(context);
             }

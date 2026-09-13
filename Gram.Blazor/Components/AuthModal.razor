@@ -43,6 +43,18 @@
                     </Alert>
                 }
 
+                @if (AuthService.IsWorkOsConfigured)
+                {
+                    <a href="/auth/login" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; padding: 10px 14px; border-radius: var(--radius-sm); background: var(--primary); color: #fff; font-size: 13px; font-weight: 500; margin-bottom: 6px;">
+                        <span>Continue with WorkOS AuthKit</span>
+                    </a>
+                    <div style="display: flex; align-items: center; gap: 10px; margin: 2px 0;">
+                        <div style="flex: 1; height: 1px; background: var(--border-color);"></div>
+                        <span style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">or local database</span>
+                        <div style="flex: 1; height: 1px; background: var(--border-color);"></div>
+                    </div>
+                }
+
                 @if (AuthService.Settings.Provider == AuthProviderType.BetterAuth)
                 {
                     <!-- Social Login Providers -->
