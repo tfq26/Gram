@@ -121,4 +121,63 @@ C:\Users\foo\Program.cs(45,12): warning CS0168: The variable 'ex' is declared bu
         Assert.Contains("maximum repair budget", haltReason);
         Assert.False(coordinator.ShouldContinue(out _));
     }
+
+    [Fact]
+    public void AgentOrchestrator_IsRepairRelevantTool_DistinguishesRepairToolsFromNonRepairTools()
+    {
+        // Tools needed for inspection and repair
+        Assert.True(AgentOrchestrator.IsRepairRelevantTool("edit_file"));
+        Assert.True(AgentOrchestrator.IsRepairRelevantTool("write_file"));
+        Assert.True(AgentOrchestrator.IsRepairRelevantTool("replace_file_content"));
+        Assert.True(AgentOrchestrator.IsRepairRelevantTool("view_file"));
+        Assert.True(AgentOrchestrator.IsRepairRelevantTool("run_command"));
+        Assert.True(AgentOrchestrator.IsRepairRelevantTool("grep_search"));
+        Assert.True(AgentOrchestrator.IsRepairRelevantTool("find_files"));
+        Assert.True(AgentOrchestrator.IsRepairRelevantTool("list_directory"));
+        Assert.True(AgentOrchestrator.IsRepairRelevantTool("grambox_exec"));
+        Assert.True(AgentOrchestrator.IsRepairRelevantTool("rollback_checkpoint"));
+
+        // Tools that should be masked during compiler error repair
+        Assert.False(AgentOrchestrator.IsRepairRelevantTool("search_web"));
+        Assert.False(AgentOrchestrator.IsRepairRelevantTool("fetch_web_content"));
+        Assert.False(AgentOrchestrator.IsRepairRelevantTool("create_presentation_project"));
+        Assert.False(AgentOrchestrator.IsRepairRelevantTool("assemble_presentation_html"));
+    }
+
+    [Fact]
+    public async Task SelfHealingCoordinator_RollbackToPreRepairAsync_RestoresWorkspaceSnapshot()
+    {
+        using var tempDir = new TemporaryDirectory();
+        var relPath = "Program.cs";
+        var fullPath = Path.Combine(tempDir.Path, relPath);
+        await File.WriteAllTextAsync(fullPath, "public class Program { public static void Main() {} }");
+
+        var checkpointService = new WorkspaceCheckpointService();
+        var cp = await checkpointService.CapturePreWriteSnapshotAsync(tempDir.Path, relPath, "Pre-repair snapshot");
+
+        // Simulate agent corrupting the file during a bad repair attempt
+        await File.WriteAllTextAsync(fullPath, "public class Program { broken syntax");
+
+        var coordinator = new SelfHealingLoopCoordinator(new SelfHealingOptions
+        {
+            AutoRollbackOnRepeatedBlocker = true
+        });
+        coordinator.SetPreRepairCheckpoint(cp.Id);
+
+        // Simulate error repeating
+        var errorOutput = "Program.cs(1,32): error CS1002: ; expected";
+        coordinator.RecordValidationRun(errorOutput, exitCode: 1, out _);
+        coordinator.RecordValidationRun(errorOutput, exitCode: 1, out var haltReason);
+
+        Assert.NotNull(haltReason);
+        Assert.True(coordinator.State.HasRepetitionLoop);
+
+        // Execute rollback
+        var rollbackSuccess = await coordinator.RollbackToPreRepairAsync(checkpointService, tempDir.Path);
+        Assert.True(rollbackSuccess);
+
+        // Verify file was restored to pristine pre-repair state
+        var restored = await File.ReadAllTextAsync(fullPath);
+        Assert.Equal("public class Program { public static void Main() {} }", restored);
+    }
 }

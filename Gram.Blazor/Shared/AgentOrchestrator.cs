@@ -36,6 +36,8 @@ public sealed class AgentOrchestrator
     private readonly SearchGroundingHarness? _searchGroundingHarness;
     private readonly ResearchEvidenceService? _researchEvidenceService;
     private readonly IWorkspaceDiagnosticService _diagnosticService;
+    private readonly IWorkspaceCheckpointService _checkpointService;
+    private readonly SelfHealingOptions _selfHealingOptions;
     private readonly HttpClient _httpClient = new();
 
     public AgentOrchestrator(
@@ -48,7 +50,9 @@ public sealed class AgentOrchestrator
         IRateLimitCoordinator? rateLimiter = null,
         SearchGroundingHarness? searchGroundingHarness = null,
         ResearchEvidenceService? researchEvidenceService = null,
-        IWorkspaceDiagnosticService? diagnosticService = null)
+        IWorkspaceDiagnosticService? diagnosticService = null,
+        IWorkspaceCheckpointService? checkpointService = null,
+        SelfHealingOptions? selfHealingOptions = null)
     {
         _modelService = modelService;
         _toolExecutor = toolExecutor;
@@ -60,6 +64,8 @@ public sealed class AgentOrchestrator
         _searchGroundingHarness = searchGroundingHarness;
         _researchEvidenceService = researchEvidenceService;
         _diagnosticService = diagnosticService ?? new WorkspaceDiagnosticService();
+        _checkpointService = checkpointService ?? new WorkspaceCheckpointService();
+        _selfHealingOptions = selfHealingOptions ?? new SelfHealingOptions();
     }
 
     public async IAsyncEnumerable<AgentStepUpdate> RunAgentLoopAsync(
@@ -135,6 +141,8 @@ public sealed class AgentOrchestrator
                 .Where(tool => !tool.Name.Equals("search_web", StringComparison.OrdinalIgnoreCase))
                 .ToList();
         }
+
+        var allTools = tools.ToList();
 
         // Build system prompt with workspace and tools guidance
         var fullSystemPrompt = new StringBuilder();
@@ -266,8 +274,8 @@ public sealed class AgentOrchestrator
         var iteration = 0;
         var webLookupsCount = 0;
         const int maxWebLookups = 4;
-        var autoRepairAttempts = 0;
-        const int maxAutoRepairAttempts = 3;
+        var selfHealingCoordinator = new SelfHealingLoopCoordinator(_selfHealingOptions);
+        var lastVerificationPassed = true;
         var modifiedFilesHistory = new List<string>();
         while (iteration < maxIterations && !cancellationToken.IsCancellationRequested)
         {
@@ -614,6 +622,79 @@ public sealed class AgentOrchestrator
             // If no tool calls were requested, the model finished its response
             if (accumulatedToolCalls.Count == 0)
             {
+                // Pre-Completion Quality Gate: Verify workspace before finishing if unverified code changes exist
+                if (isLocal && !lastVerificationPassed && modifiedFilesHistory.Count > 0 && !string.IsNullOrWhiteSpace(workspacePath) && Directory.Exists(workspacePath))
+                {
+                    var verification = await _diagnosticService.VerifyTargetedAsync(workspacePath, modifiedFilesHistory, cancellationToken).ConfigureAwait(false);
+                    var errorCount = verification.Diagnostics.Count(d => d.Severity.Equals("ERROR", StringComparison.OrdinalIgnoreCase));
+                    if (string.IsNullOrEmpty(selfHealingCoordinator.State.LastErrorHash))
+                    {
+                        var latestSnapshot = _checkpointService.GetHistory(workspacePath).LastOrDefault();
+                        if (latestSnapshot != null)
+                        {
+                            selfHealingCoordinator.SetPreRepairCheckpoint(latestSnapshot.Id);
+                        }
+                    }
+
+                    var passed = selfHealingCoordinator.RecordValidationRun(verification.RawOutput, verification.ExitCode, out var haltReason);
+                    if (passed)
+                    {
+                        lastVerificationPassed = true;
+                        tools = allTools.ToList();
+                        toolSchemas = tools.Count > 0 ? new JsonArray(tools.Select(t => t.ToOpenAiFunctionSchema()).ToArray()) : null;
+                    }
+                    else
+                    {
+                        lastVerificationPassed = false;
+                        if (!selfHealingCoordinator.ShouldContinue(out var stopReason) || haltReason != null)
+                        {
+                            var rollbackMsg = "";
+                            if (selfHealingCoordinator.Options.AutoRollbackOnRepeatedBlocker && selfHealingCoordinator.State.HasRepetitionLoop)
+                            {
+                                var rolledBack = await selfHealingCoordinator.RollbackToPreRepairAsync(_checkpointService, workspacePath, cancellationToken).ConfigureAwait(false);
+                                if (rolledBack) rollbackMsg = " Automatically rolled back workspace to pre-repair state.";
+                            }
+
+                            yield return new AgentStepUpdate
+                            {
+                                ContentDelta = $"\n\n> [Pre-Completion Quality Gate Failed]: {haltReason ?? stopReason}{rollbackMsg}\n\n",
+                                IsComplete = true
+                            };
+                            yield break;
+                        }
+
+                        // Dynamic Tool Masking: Mask non-repair tools during active self-healing
+                        tools = allTools.Where(t => IsRepairRelevantTool(t.Name)).ToList();
+                        toolSchemas = tools.Count > 0
+                            ? new JsonArray(tools.Select(t => t.ToOpenAiFunctionSchema()).ToArray())
+                            : null;
+
+                        var errorDetails = string.Join("\n", verification.Diagnostics
+                            .Where(d => d.Severity.Equals("ERROR", StringComparison.OrdinalIgnoreCase))
+                            .Take(8)
+                            .Select(d => $"- {d.Formatted}"));
+                        if (string.IsNullOrWhiteSpace(errorDetails))
+                        {
+                            errorDetails = verification.RawOutput.Length > 2000
+                                ? verification.RawOutput[..2000] + "...[truncated]"
+                                : verification.RawOutput;
+                        }
+
+                        yield return new AgentStepUpdate
+                        {
+                            ContentDelta = $"\n\n> [Pre-Completion Quality Gate Blocked]: Unresolved compiler diagnostics detected ({errorCount} error(s)). Auto-repair initiated (attempt {selfHealingCoordinator.State.AttemptCount}/{selfHealingCoordinator.Options.MaxAttempts})...\n\n"
+                        };
+
+                        loopMessages.Add(new JsonObject
+                        {
+                            ["role"] = "user",
+                            ["content"] = $"[Pre-Completion Quality Gate Blocked]\nThe workspace toolchain '{verification.ToolchainName}' failed with exit code {verification.ExitCode}. Completion is blocked because the codebase has compile errors:\n{errorDetails}\n\nPlease inspect the compiler errors, use edit_file to fix them, and ensure all projects compile cleanly before concluding."
+                        });
+
+                        continue;
+                    }
+                }
+
                 var rawText = contentBuilder.ToString();
                 var userWantsVerbosity = UserRequestedVerbosity(lastUserPrompt, history);
                 var finalContent = EnforceMaxTwoParagraphs(rawText, userWantsVerbosity);
@@ -743,6 +824,7 @@ public sealed class AgentOrchestrator
                             if (IsCodeFile(targetPath))
                             {
                                 codeFilesModifiedThisTurn = true;
+                                lastVerificationPassed = false;
                                 if (!string.IsNullOrWhiteSpace(targetPath))
                                 {
                                     modifiedFilesThisTurn.Add(targetPath);
@@ -794,11 +876,41 @@ public sealed class AgentOrchestrator
             {
                 var verification = await _diagnosticService.VerifyTargetedAsync(workspacePath, modifiedFilesThisTurn, cancellationToken).ConfigureAwait(false);
                 var errorCount = verification.Diagnostics.Count(d => d.Severity.Equals("ERROR", StringComparison.OrdinalIgnoreCase));
-                if (!verification.Success || errorCount > 0)
+                if (string.IsNullOrEmpty(selfHealingCoordinator.State.LastErrorHash))
                 {
-                    if (autoRepairAttempts < maxAutoRepairAttempts)
+                    var latestSnapshot = _checkpointService.GetHistory(workspacePath).LastOrDefault();
+                    if (latestSnapshot != null)
                     {
-                        autoRepairAttempts++;
+                        selfHealingCoordinator.SetPreRepairCheckpoint(latestSnapshot.Id);
+                    }
+                }
+
+                var passed = selfHealingCoordinator.RecordValidationRun(verification.RawOutput, verification.ExitCode, out var haltReason);
+                if (!passed)
+                {
+                    lastVerificationPassed = false;
+                    if (!selfHealingCoordinator.ShouldContinue(out var stopReason) || haltReason != null)
+                    {
+                        var rollbackMsg = "";
+                        if (selfHealingCoordinator.Options.AutoRollbackOnRepeatedBlocker && selfHealingCoordinator.State.HasRepetitionLoop)
+                        {
+                            var rolledBack = await selfHealingCoordinator.RollbackToPreRepairAsync(_checkpointService, workspacePath, cancellationToken).ConfigureAwait(false);
+                            if (rolledBack) rollbackMsg = " Automatically rolled back workspace to pre-repair state.";
+                        }
+
+                        yield return new AgentStepUpdate
+                        {
+                            ContentDelta = $"\n\n> [Auto-Repair Halted]: {haltReason ?? stopReason}{rollbackMsg}\n\n"
+                        };
+                    }
+                    else
+                    {
+                        // Dynamic Tool Masking: Mask non-repair tools during active self-healing
+                        tools = allTools.Where(t => IsRepairRelevantTool(t.Name)).ToList();
+                        toolSchemas = tools.Count > 0
+                            ? new JsonArray(tools.Select(t => t.ToOpenAiFunctionSchema()).ToArray())
+                            : null;
+
                         var errorDetails = string.Join("\n", verification.Diagnostics
                             .Where(d => d.Severity.Equals("ERROR", StringComparison.OrdinalIgnoreCase))
                             .Take(8)
@@ -813,7 +925,7 @@ public sealed class AgentOrchestrator
 
                         yield return new AgentStepUpdate
                         {
-                            ContentDelta = $"\n\n> [Verification Failed] (`{verification.ToolchainName}`): Detected {errorCount} error(s). Initiating auto-repair (attempt {autoRepairAttempts}/{maxAutoRepairAttempts})...\n\n"
+                            ContentDelta = $"\n\n> [Verification Failed] (`{verification.ToolchainName}`): Detected {errorCount} error(s). Initiating auto-repair (attempt {selfHealingCoordinator.State.AttemptCount}/{selfHealingCoordinator.Options.MaxAttempts})...\n\n"
                         };
 
                         loopMessages.Add(new JsonObject
@@ -822,20 +934,22 @@ public sealed class AgentOrchestrator
                             ["content"] = $"[Auto-Verification: Toolchain Verification Failed]\nThe workspace toolchain '{verification.ToolchainName}' failed with exit code {verification.ExitCode} after recent code modifications:\n{errorDetails}\n\nPlease inspect the error(s), use edit_file to fix the root cause, and ensure the project compiles cleanly."
                         });
                     }
-                    else
+                }
+                else
+                {
+                    lastVerificationPassed = true;
+                    tools = allTools.ToList();
+                    toolSchemas = tools.Count > 0
+                        ? new JsonArray(tools.Select(t => t.ToOpenAiFunctionSchema()).ToArray())
+                        : null;
+
+                    if (selfHealingCoordinator.State.AttemptCount > 0)
                     {
                         yield return new AgentStepUpdate
                         {
-                            ContentDelta = $"\n\n> [Auto-Repair Limit Reached]: Project still has {errorCount} build/syntax error(s) after {maxAutoRepairAttempts} repair attempts.\n\n"
+                            ContentDelta = $"\n\n> [Verification Passed] (`{verification.ToolchainName}`): Auto-repair succeeded with 0 compiler errors.\n\n"
                         };
                     }
-                }
-                else if (verification.Success && autoRepairAttempts > 0)
-                {
-                    yield return new AgentStepUpdate
-                    {
-                        ContentDelta = $"\n\n> [Verification Passed] (`{verification.ToolchainName}`): Auto-repair succeeded with 0 compiler errors.\n\n"
-                    };
                 }
             }
         }
@@ -936,10 +1050,11 @@ public sealed class AgentOrchestrator
         var quotaKey = QuotaRequestKey.Create("openai", actualModel, "byok", apiKey);
 
         var inputItems = initialMessages.Select(x => x.DeepClone().AsObject()).ToList();
+        var allTools = tools.ToList();
         var responseTools = ConvertToResponsesTools(tools);
         var cacheKey = PromptCacheKey.ForAgent(actualModel, workspacePath);
-        var autoRepairAttempts = 0;
-        const int maxAutoRepairAttempts = 3;
+        var selfHealingCoordinator = new SelfHealingLoopCoordinator(_selfHealingOptions);
+        var lastVerificationPassed = true;
 
         var modifiedFilesHistory = new List<string>();
         var iteration = 0;
@@ -1133,6 +1248,78 @@ public sealed class AgentOrchestrator
 
             if (functionCalls.Count == 0)
             {
+                // Pre-Completion Quality Gate: Verify workspace before finishing if unverified code changes exist
+                if (!lastVerificationPassed && modifiedFilesHistory.Count > 0 && !string.IsNullOrWhiteSpace(workspacePath) && Directory.Exists(workspacePath))
+                {
+                    var verification = await _diagnosticService.VerifyTargetedAsync(workspacePath, modifiedFilesHistory, cancellationToken).ConfigureAwait(false);
+                    var errorCount = verification.Diagnostics.Count(d => d.Severity.Equals("ERROR", StringComparison.OrdinalIgnoreCase));
+                    if (string.IsNullOrEmpty(selfHealingCoordinator.State.LastErrorHash))
+                    {
+                        var latestSnapshot = _checkpointService.GetHistory(workspacePath).LastOrDefault();
+                        if (latestSnapshot != null)
+                        {
+                            selfHealingCoordinator.SetPreRepairCheckpoint(latestSnapshot.Id);
+                        }
+                    }
+
+                    var passed = selfHealingCoordinator.RecordValidationRun(verification.RawOutput, verification.ExitCode, out var haltReason);
+                    if (passed)
+                    {
+                        lastVerificationPassed = true;
+                        tools = allTools.ToList();
+                        responseTools = ConvertToResponsesTools(tools);
+                    }
+                    else
+                    {
+                        lastVerificationPassed = false;
+                        if (!selfHealingCoordinator.ShouldContinue(out var stopReason) || haltReason != null)
+                        {
+                            var rollbackMsg = "";
+                            if (selfHealingCoordinator.Options.AutoRollbackOnRepeatedBlocker && selfHealingCoordinator.State.HasRepetitionLoop)
+                            {
+                                var rolledBack = await selfHealingCoordinator.RollbackToPreRepairAsync(_checkpointService, workspacePath, cancellationToken).ConfigureAwait(false);
+                                if (rolledBack) rollbackMsg = " Automatically rolled back workspace to pre-repair state.";
+                            }
+
+                            yield return new AgentStepUpdate
+                            {
+                                ContentDelta = $"\n\n> [Pre-Completion Quality Gate Failed]: {haltReason ?? stopReason}{rollbackMsg}\n\n",
+                                IsComplete = true
+                            };
+                            yield break;
+                        }
+
+                        // Dynamic Tool Masking: Mask non-repair tools during active self-healing
+                        tools = allTools.Where(t => IsRepairRelevantTool(t.Name)).ToList();
+                        responseTools = ConvertToResponsesTools(tools);
+
+                        var errorDetails = string.Join("\n", verification.Diagnostics
+                            .Where(d => d.Severity.Equals("ERROR", StringComparison.OrdinalIgnoreCase))
+                            .Take(8)
+                            .Select(d => $"- {d.Formatted}"));
+                        if (string.IsNullOrWhiteSpace(errorDetails))
+                        {
+                            errorDetails = verification.RawOutput.Length > 2000
+                                ? verification.RawOutput[..2000] + "...[truncated]"
+                                : verification.RawOutput;
+                        }
+
+                        yield return new AgentStepUpdate
+                        {
+                            ContentDelta = $"\n\n> [Pre-Completion Quality Gate Blocked]: Unresolved compiler diagnostics detected ({errorCount} error(s)). Auto-repair initiated (attempt {selfHealingCoordinator.State.AttemptCount}/{selfHealingCoordinator.Options.MaxAttempts})...\n\n"
+                        };
+
+                        inputItems.Add(new JsonObject
+                        {
+                            ["type"] = "message",
+                            ["role"] = "user",
+                            ["content"] = $"[Pre-Completion Quality Gate Blocked]\nThe workspace toolchain '{verification.ToolchainName}' failed with exit code {verification.ExitCode}. Completion is blocked because the codebase has compile errors:\n{errorDetails}\n\nPlease inspect the compiler errors, use edit_file to fix them, and ensure all projects compile cleanly before concluding."
+                        });
+
+                        continue;
+                    }
+                }
+
                 var rawText = responseContentBuilder.ToString();
                 var userWantsVerbosity = UserRequestedVerbosity(initialMessages.LastOrDefault(m => m["role"]?.ToString() == "user")?["content"]?.ToString());
                 var finalContent = EnforceMaxTwoParagraphs(rawText, userWantsVerbosity);
@@ -1190,6 +1377,7 @@ public sealed class AgentOrchestrator
                             if (IsCodeFile(targetPath))
                             {
                                 codeFilesModifiedThisTurn = true;
+                                lastVerificationPassed = false;
                                 if (!string.IsNullOrWhiteSpace(targetPath))
                                 {
                                     modifiedFilesThisTurn.Add(targetPath);
@@ -1215,11 +1403,39 @@ public sealed class AgentOrchestrator
             {
                 var verification = await _diagnosticService.VerifyTargetedAsync(workspacePath, modifiedFilesThisTurn, cancellationToken).ConfigureAwait(false);
                 var errorCount = verification.Diagnostics.Count(d => d.Severity.Equals("ERROR", StringComparison.OrdinalIgnoreCase));
-                if (!verification.Success || errorCount > 0)
+                if (string.IsNullOrEmpty(selfHealingCoordinator.State.LastErrorHash))
                 {
-                    if (autoRepairAttempts < maxAutoRepairAttempts)
+                    var latestSnapshot = _checkpointService.GetHistory(workspacePath).LastOrDefault();
+                    if (latestSnapshot != null)
                     {
-                        autoRepairAttempts++;
+                        selfHealingCoordinator.SetPreRepairCheckpoint(latestSnapshot.Id);
+                    }
+                }
+
+                var passed = selfHealingCoordinator.RecordValidationRun(verification.RawOutput, verification.ExitCode, out var haltReason);
+                if (!passed)
+                {
+                    lastVerificationPassed = false;
+                    if (!selfHealingCoordinator.ShouldContinue(out var stopReason) || haltReason != null)
+                    {
+                        var rollbackMsg = "";
+                        if (selfHealingCoordinator.Options.AutoRollbackOnRepeatedBlocker && selfHealingCoordinator.State.HasRepetitionLoop)
+                        {
+                            var rolledBack = await selfHealingCoordinator.RollbackToPreRepairAsync(_checkpointService, workspacePath, cancellationToken).ConfigureAwait(false);
+                            if (rolledBack) rollbackMsg = " Automatically rolled back workspace to pre-repair state.";
+                        }
+
+                        yield return new AgentStepUpdate
+                        {
+                            ContentDelta = $"\n\n> [Auto-Repair Halted]: {haltReason ?? stopReason}{rollbackMsg}\n\n"
+                        };
+                    }
+                    else
+                    {
+                        // Dynamic Tool Masking: Mask non-repair tools during active self-healing
+                        tools = allTools.Where(t => IsRepairRelevantTool(t.Name)).ToList();
+                        responseTools = ConvertToResponsesTools(tools);
+
                         var errorDetails = string.Join("\n", verification.Diagnostics
                             .Where(d => d.Severity.Equals("ERROR", StringComparison.OrdinalIgnoreCase))
                             .Take(8)
@@ -1234,7 +1450,7 @@ public sealed class AgentOrchestrator
 
                         yield return new AgentStepUpdate
                         {
-                            ContentDelta = $"\n\n> [Verification Failed] (`{verification.ToolchainName}`): Detected {errorCount} error(s). Initiating auto-repair (attempt {autoRepairAttempts}/{maxAutoRepairAttempts})...\n\n"
+                            ContentDelta = $"\n\n> [Verification Failed] (`{verification.ToolchainName}`): Detected {errorCount} error(s). Initiating auto-repair (attempt {selfHealingCoordinator.State.AttemptCount}/{selfHealingCoordinator.Options.MaxAttempts})...\n\n"
                         };
 
                         inputItems.Add(new JsonObject
@@ -1244,20 +1460,20 @@ public sealed class AgentOrchestrator
                             ["content"] = $"[Auto-Verification: Toolchain Verification Failed]\nThe workspace toolchain '{verification.ToolchainName}' failed with exit code {verification.ExitCode} after recent code modifications:\n{errorDetails}\n\nPlease inspect the error(s), use edit_file to fix the root cause, and ensure the project compiles cleanly."
                         });
                     }
-                    else
+                }
+                else
+                {
+                    lastVerificationPassed = true;
+                    tools = allTools.ToList();
+                    responseTools = ConvertToResponsesTools(tools);
+
+                    if (selfHealingCoordinator.State.AttemptCount > 0)
                     {
                         yield return new AgentStepUpdate
                         {
-                            ContentDelta = $"\n\n> [Auto-Repair Limit Reached]: Project still has {errorCount} build/syntax error(s) after {maxAutoRepairAttempts} repair attempts.\n\n"
+                            ContentDelta = $"\n\n> [Verification Passed] (`{verification.ToolchainName}`): Auto-repair succeeded with 0 compiler errors.\n\n"
                         };
                     }
-                }
-                else if (verification.Success && autoRepairAttempts > 0)
-                {
-                    yield return new AgentStepUpdate
-                    {
-                        ContentDelta = $"\n\n> [Verification Passed] (`{verification.ToolchainName}`): Auto-repair succeeded with 0 compiler errors.\n\n"
-                    };
                 }
             }
         }
@@ -1444,6 +1660,32 @@ public sealed class AgentOrchestrator
             || toolName.Equals("write_to_file", StringComparison.OrdinalIgnoreCase)
             || toolName.Equals("replace_file_content", StringComparison.OrdinalIgnoreCase)
             || toolName.Equals("grambox_write_file", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static readonly HashSet<string> RepairRelevantTools = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "view_file",
+        "edit_file",
+        "write_file",
+        "replace_file",
+        "write_to_file",
+        "replace_file_content",
+        "list_directory",
+        "find_files",
+        "grep_search",
+        "run_command",
+        "grambox_read_file",
+        "grambox_write_file",
+        "grambox_exec",
+        "grambox_rollback",
+        "grambox_status",
+        "rollback_checkpoint",
+        "create_checkpoint"
+    };
+
+    public static bool IsRepairRelevantTool(string toolName)
+    {
+        return RepairRelevantTools.Contains(toolName);
     }
 
     public static async Task<string?> DiscoverWorkspaceRulesAsync(string? workspacePath, CancellationToken cancellationToken = default)
