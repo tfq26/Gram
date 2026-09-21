@@ -61,7 +61,7 @@ if curl -s -f -m 2 "${BACKEND_URL}/api/v1/models" >/dev/null 2>&1; then
 else
     echo -e "${YELLOW}Not running. Starting backend in background...${NC}"
     cd "${ROOT_DIR}"
-    dotnet run --project Gram.Blazor/Gram.Blazor.csproj >> "${LOGS_DIR}/backend.log" 2>&1 &
+    dotnet run --project Gram.Blazor/Gram.Server/Gram.Server.csproj >> "${LOGS_DIR}/backend.log" 2>&1 &
     BACKEND_PID=$!
     echo -e "Backend process launched (PID: ${BACKEND_PID}). Logging to ${CYAN}${LOGS_DIR}/backend.log${NC}"
 

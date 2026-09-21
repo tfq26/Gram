@@ -68,7 +68,7 @@
                                     <div class="dt-msg-actions">
                                         <!-- Copy message -->
                                         <button type="button"
-                                                class="dt-msg-action-btn @(copiedMessageIndex == msgIndex ? "active copied" : "")"
+                                                class="@(copiedMessageIndex == msgIndex ? "dt-msg-action-btn active copied" : "dt-msg-action-btn")"
                                                 @onclick="() => HandleCopyMessage(msgIndex, msg.Text)"
                                                 title="@(copiedMessageIndex == msgIndex ? "Copied to clipboard" : "Copy message")">
                                             @if (copiedMessageIndex == msgIndex)
@@ -114,7 +114,7 @@
 
                                         <!-- Rate: Thumbs Up -->
                                         <button type="button"
-                                                class="dt-msg-action-btn @(msg.Rating == 1 ? "rate-good active" : "")"
+                                                class="@(msg.Rating == 1 ? "dt-msg-action-btn rate-good active" : "dt-msg-action-btn")"
                                                 @onclick="() => HandleRate(msg, 1)"
                                                 title="@(msg.Rating == 1 ? "Remove good rating" : "Good response")">
                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="@(msg.Rating == 1 ? "currentColor" : "none")" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -124,7 +124,7 @@
 
                                         <!-- Rate: Thumbs Down -->
                                         <button type="button"
-                                                class="dt-msg-action-btn @(msg.Rating == -1 ? "rate-bad active" : "")"
+                                                class="@(msg.Rating == -1 ? "dt-msg-action-btn rate-bad active" : "dt-msg-action-btn")"
                                                 @onclick="() => HandleRate(msg, -1)"
                                                 title="@(msg.Rating == -1 ? "Remove bad rating" : "Bad response")">
                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="@(msg.Rating == -1 ? "currentColor" : "none")" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -144,7 +144,7 @@
                                 <div class="dt-msg-actions user-actions">
                                     <!-- Copy message -->
                                     <button type="button"
-                                            class="dt-msg-action-btn @(copiedMessageIndex == msgIndex ? "active copied" : "")"
+                                            class="@(copiedMessageIndex == msgIndex ? "dt-msg-action-btn active copied" : "dt-msg-action-btn")"
                                             @onclick="() => HandleCopyMessage(msgIndex, msg.Text)"
                                             title="@(copiedMessageIndex == msgIndex ? "Copied" : "Copy message")">
                                         @if (copiedMessageIndex == msgIndex)

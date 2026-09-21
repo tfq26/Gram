@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../Gram.Blazor.csproj" />
+    <ProjectReference Include="../../Gram.Server/Gram.Server.csproj" />
     <ProjectReference Include="../../clients/Gram.LocalAgent/Gram.LocalAgent.csproj" />
   </ItemGroup>
 </Project>

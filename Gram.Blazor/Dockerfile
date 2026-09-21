@@ -5,11 +5,12 @@ WORKDIR /source
 
 # Copy project files and restore dependencies
 COPY *.csproj .
-RUN dotnet restore -a $TARGETARCH
+COPY Gram.Server/*.csproj Gram.Server/
+RUN dotnet restore Gram.Server/Gram.Server.csproj -a $TARGETARCH
 
 # Copy full application sources and publish
 COPY . .
-RUN dotnet publish -c Release -a $TARGETARCH -o /app/publish --no-restore
+RUN dotnet publish Gram.Server/Gram.Server.csproj -c Release -a $TARGETARCH -o /app/publish --no-restore
 
 # Runtime Stage
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-alpine AS final
@@ -40,4 +41,4 @@ EXPOSE 7337
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD wget -qO- http://localhost:7337/health || exit 1
 
-ENTRYPOINT ["dotnet", "Gram.Blazor.dll"]
+ENTRYPOINT ["dotnet", "Gram.Server.dll"]

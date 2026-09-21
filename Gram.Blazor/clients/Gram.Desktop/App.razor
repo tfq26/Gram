@@ -67,17 +67,17 @@
                      OnOpenSettings="() => isSettingsOpen = !isSettingsOpen" />
 
             <!-- 3. Canvas Region (Center Pane) -->
-            <Canvas @ref="canvasRef"
-                    Conversation="Session.ActiveConversation"
-                    Conversations="Session.Conversations"
-                    DraftResponse="@Session.DraftResponse"
-                    IsStreaming="Session.IsStreaming"
-                    IsLoading="Session.IsLoading"
-                    IsSidebarOpen="@isSidebarOpen"
-                    IsInfosheetOpen="@isInfosheetOpen"
-                    ErrorMessage="@Session.Error"
-                    Models="Session.Models"
-                    SelectedModelId="@SelectedModelId"
+            <DesktopCanvas @ref="canvasRef"
+                           Conversation="Session.ActiveConversation"
+                           Conversations="Session.Conversations"
+                           DraftResponse="@Session.DraftResponse"
+                           IsStreaming="Session.IsStreaming"
+                           IsLoading="Session.IsLoading"
+                           IsSidebarOpen="@isSidebarOpen"
+                           IsInfosheetOpen="@isInfosheetOpen"
+                           ErrorMessage="@Session.Error"
+                           Models="Session.Models"
+                           SelectedModelId="@SelectedModelId"
                     SelectedModelIdChanged="HandleModelSelected"
                     OnToggleSidebar="ToggleSidebar"
                     OnToggleInfosheet="ToggleInfosheet"
@@ -169,7 +169,7 @@
 
             <div class="dt-corner-mascot-pod">
                 <div class="dt-mascot-resize-handle" title="Drag to resize • Double-click to reset position & size" aria-label="Resize Gram Assistant"></div>
-                <GramCharacter Size="140" State="@(Session.IsStreaming ? "thinking" : "idle")" Interactive="true" AutoWaveOnLoad="false" />
+                <DesktopGramCharacter Size="140" State="@(Session.IsStreaming ? "thinking" : "idle")" Interactive="true" AutoWaveOnLoad="false" />
             </div>
 
             <!-- Minimal status bar under Hex -->
@@ -217,7 +217,7 @@
     private bool _preExpandSidebar = true;
     private bool _preExpandInfosheet = true;
     private bool isSettingsOpen { get; set; } = false;
-    private Canvas? canvasRef;
+    private DesktopCanvas? canvasRef;
 
     private bool IsBackendConnected => Session.Models != null && Session.Models.Count > 0 && string.IsNullOrWhiteSpace(Session.Error);
 

@@ -10,6 +10,7 @@
         <SingleProject>true</SingleProject>
         <ImplicitUsings>enable</ImplicitUsings>
         <EnableDefaultCssItems>false</EnableDefaultCssItems>
+        <DisableTransitiveFrameworkReference>true</DisableTransitiveFrameworkReference>
         <Nullable>enable</Nullable>
 
         <!-- Display name -->
@@ -48,8 +49,16 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\Gram.Blazor.csproj" />
+        <ProjectReference Include="..\Gram.Client.Shared\Gram.Client.Shared.csproj" />
         <ProjectReference Include="..\GramBox.Contracts\GramBox.Contracts.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\Gram.Desktop\Services\**\*.cs" LinkBase="Desktop\Services" />
+        <Compile Include="..\Gram.Desktop\Desktop*.cs" LinkBase="Desktop" />
+        <RazorComponent Include="..\Gram.Desktop\_Imports.razor" Link="Desktop\_Imports.razor" />
+        <RazorComponent Include="..\Gram.Desktop\Components\**\*.razor" LinkBase="Desktop\Components" />
+        <RazorComponent Include="..\Components\**\*.razor" LinkBase="Components" />
     </ItemGroup>
 
     <ItemGroup>

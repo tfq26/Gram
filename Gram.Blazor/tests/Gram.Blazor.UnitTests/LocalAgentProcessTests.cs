@@ -10,6 +10,7 @@ using GramBox.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Xunit;
 using ApiError = GramBox.Contracts.ApiError;
+using LocalAgentProgram = Gram.LocalAgent.Program;
 
 namespace Gram.Blazor.UnitTests;
 
@@ -61,7 +62,7 @@ public sealed class LocalAgentProcessTests
     {
         var port = GetFreePort();
         var secret = "test-secret-" + Guid.NewGuid().ToString("N");
-        var app = Program.CreateApp([], explicitSecret: secret, explicitPort: port);
+        var app = LocalAgentProgram.CreateApp([], explicitSecret: secret, explicitPort: port);
         await app.StartAsync();
 
         try
@@ -106,7 +107,7 @@ public sealed class LocalAgentProcessTests
     {
         var port = GetFreePort();
         var secret = "test-secret-" + Guid.NewGuid().ToString("N");
-        var app = Program.CreateApp([], explicitSecret: secret, explicitPort: port);
+        var app = LocalAgentProgram.CreateApp([], explicitSecret: secret, explicitPort: port);
         await app.StartAsync();
 
         try
@@ -135,7 +136,7 @@ public sealed class LocalAgentProcessTests
     {
         var port = GetFreePort();
         var secret = "test-secret-" + Guid.NewGuid().ToString("N");
-        var app = Program.CreateApp([], explicitSecret: secret, explicitPort: port);
+        var app = LocalAgentProgram.CreateApp([], explicitSecret: secret, explicitPort: port);
         await app.StartAsync();
 
         var workspace = Path.Combine(Path.GetTempPath(), "gram-files-test-" + Guid.NewGuid().ToString("N"));
@@ -176,7 +177,7 @@ public sealed class LocalAgentProcessTests
     {
         var port = GetFreePort();
         var secret = "test-secret-" + Guid.NewGuid().ToString("N");
-        var app = Program.CreateApp([], explicitSecret: secret, explicitPort: port);
+        var app = LocalAgentProgram.CreateApp([], explicitSecret: secret, explicitPort: port);
         await app.StartAsync();
 
         try
@@ -212,7 +213,7 @@ public sealed class LocalAgentProcessTests
     {
         var port = GetFreePort();
         var secret = "test-secret-" + Guid.NewGuid().ToString("N");
-        var app = Program.CreateApp([], explicitSecret: secret, explicitPort: port);
+        var app = LocalAgentProgram.CreateApp([], explicitSecret: secret, explicitPort: port);
         await app.StartAsync();
 
         var baseDir = Path.Combine(Path.GetTempPath(), "gram-sandbox-test-" + Guid.NewGuid().ToString("N"));
@@ -243,7 +244,7 @@ public sealed class LocalAgentProcessTests
     {
         var port = GetFreePort();
         var secret = "test-secret-" + Guid.NewGuid().ToString("N");
-        var app = Program.CreateApp([], explicitSecret: secret, explicitPort: port);
+        var app = LocalAgentProgram.CreateApp([], explicitSecret: secret, explicitPort: port);
         await app.StartAsync();
 
         var tempDir = Path.Combine(Path.GetTempPath(), "gram-session-test-" + Guid.NewGuid().ToString("N"));

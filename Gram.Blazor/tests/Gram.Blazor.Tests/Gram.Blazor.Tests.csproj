@@ -18,5 +18,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../Gram.Blazor.csproj" />
+    <ProjectReference Include="../../Gram.Server/Gram.Server.csproj" />
   </ItemGroup>
 </Project>

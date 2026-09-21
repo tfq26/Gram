@@ -19,7 +19,7 @@ dotnet test Gram.Blazor/tests/Gram.Blazor.UnitTests/Gram.Blazor.UnitTests.csproj
 echo ""
 echo "📦 [2/4] Verifying Release Compilation..."
 rm -rf /tmp/gram-railway-publish
-dotnet publish Gram.Blazor/Gram.Blazor.csproj -c Release -o /tmp/gram-railway-publish /p:UseAppHost=false
+dotnet publish Gram.Blazor/Gram.Server/Gram.Server.csproj -c Release -o /tmp/gram-railway-publish /p:UseAppHost=false
 rm -rf /tmp/gram-railway-publish
 echo "✅ Compilation and packaging verified."
 
