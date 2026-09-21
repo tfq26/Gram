@@ -260,6 +260,22 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                 }
             });
 
+            // 10. run_tests
+            tools.Add(new AgentToolDefinition
+            {
+                Name = "run_tests",
+                Description = "Execute the workspace unit test suite with optional targeted test filtering, returning structured pass/fail counts, assertion diagnostics, and stack traces.",
+                Parameters = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["filter"] = new JsonObject { ["type"] = "string", ["description"] = "Optional test name, class, or method pattern to target (e.g. 'AuthTests', 'CalculateTotal', 'TestLogin')." },
+                        ["targetFile"] = new JsonObject { ["type"] = "string", ["description"] = "Optional specific test file path to run." }
+                    }
+                }
+            });
+
             // 10. find_symbol_definition
             tools.Add(new AgentToolDefinition
             {
@@ -1317,6 +1333,77 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     }
 
                     result.IsError = procResult.ExitCode != 0;
+                    result.Output = sb.ToString().Trim();
+                    break;
+                }
+
+                case "run_tests":
+                {
+                    var filter = args?["filter"]?.ToString()?.Trim();
+                    var targetFile = args?["targetFile"]?.ToString()?.Trim();
+
+                    var detected = ProjectValidationDetector.Detect(workspacePath);
+                    if (detected == null)
+                    {
+                        result.IsError = true;
+                        result.Output = "No supported test framework or project manifest (.sln, .csproj, package.json, Cargo.toml, pytest, go.mod) detected in workspace.";
+                        break;
+                    }
+
+                    var testCommand = ProjectValidationDetector.ResolveTestCommandWithFilter(detected, filter, targetFile);
+
+                    var procResult = await _processRunner.ExecuteAsync(new ProcessExecutionOptions
+                    {
+                        CommandLine = testCommand,
+                        WorkingDirectory = workspacePath,
+                        WorkspaceRoot = workspacePath,
+                        TimeoutSeconds = 90,
+                        RunId = callId
+                    }, cancellationToken);
+
+                    var testSummary = TestResultParser.Parse(procResult.CombinedOutput, procResult.ExitCode);
+                    var diagnostics = CompilerDiagnosticParser.Parse(procResult.CombinedOutput);
+                    var errHash = CompilerDiagnosticParser.ComputeErrorHash(diagnostics);
+
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"Test Framework: {detected.Ecosystem} ({detected.ManifestFileName})");
+                    sb.AppendLine($"Command: {testCommand} (Exit Code: {procResult.ExitCode}, Duration: {procResult.DurationMs}ms)");
+                    sb.AppendLine($"Summary: {(testSummary.Success ? "PASSED" : "FAILED")} - {testSummary.Passed} passed, {testSummary.Failed} failed, {testSummary.Skipped} skipped (Total: {testSummary.Total})");
+
+                    if (!testSummary.Success)
+                    {
+                        sb.AppendLine($"Error Hash: {errHash}");
+                        if (testSummary.Failures.Count > 0)
+                        {
+                            sb.AppendLine($"\nFailing Tests ({testSummary.Failures.Count}):");
+                            foreach (var f in testSummary.Failures.Take(10))
+                            {
+                                var loc = !string.IsNullOrEmpty(f.FilePath) ? $" at {f.FilePath}:{f.Line}" : "";
+                                sb.AppendLine($"- {f.TestName}{loc}: {f.Message}");
+                            }
+                        }
+                        else
+                        {
+                            var errors = diagnostics.Where(d => d.Severity == "ERROR").ToList();
+                            if (errors.Count > 0)
+                            {
+                                sb.AppendLine("\nDiagnostics:");
+                                foreach (var err in errors.Take(10))
+                                {
+                                    sb.AppendLine($"- {err.FilePath}({err.Line}): {err.Message}");
+                                }
+                            }
+                            else
+                            {
+                                sb.AppendLine("\nOutput:");
+                                sb.AppendLine(procResult.CombinedOutput.Length > 2000
+                                    ? procResult.CombinedOutput[..2000] + "...[truncated]"
+                                    : procResult.CombinedOutput);
+                            }
+                        }
+                    }
+
+                    result.IsError = !testSummary.Success || procResult.ExitCode != 0;
                     result.Output = sb.ToString().Trim();
                     break;
                 }

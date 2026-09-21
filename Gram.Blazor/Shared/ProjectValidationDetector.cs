@@ -129,4 +129,35 @@ public static class ProjectValidationDetector
 
         return null;
     }
+
+    public static string ResolveTestCommandWithFilter(DetectedProjectValidation validation, string? filter = null, string? targetFile = null)
+    {
+        var hasFilter = !string.IsNullOrWhiteSpace(filter);
+        var hasFile = !string.IsNullOrWhiteSpace(targetFile);
+
+        return validation.Ecosystem switch
+        {
+            ProjectEcosystem.DotNet => hasFilter
+                ? $"dotnet test --filter \"FullyQualifiedName~{filter!.Trim()}\" --no-restore"
+                : (hasFile ? $"dotnet test \"{targetFile!.Trim()}\" --no-restore" : "dotnet test --no-restore"),
+
+            ProjectEcosystem.NodeJs => hasFilter
+                ? $"{validation.TestCommand} -- -t \"{filter!.Trim()}\""
+                : (hasFile ? $"{validation.TestCommand} -- \"{targetFile!.Trim()}\"" : validation.TestCommand),
+
+            ProjectEcosystem.Rust => hasFilter
+                ? $"cargo test {filter!.Trim()}"
+                : "cargo test",
+
+            ProjectEcosystem.Python => (hasFile && hasFilter)
+                ? $"pytest \"{targetFile!.Trim()}\" -k \"{filter!.Trim()}\""
+                : (hasFilter ? $"pytest -k \"{filter!.Trim()}\"" : (hasFile ? $"pytest \"{targetFile!.Trim()}\"" : "pytest")),
+
+            ProjectEcosystem.Go => hasFilter
+                ? $"go test -v -run \"{filter!.Trim()}\" ./..."
+                : (hasFile ? $"go test -v \"{targetFile!.Trim()}\"" : "go test ./..."),
+
+            _ => validation.TestCommand
+        };
+    }
 }

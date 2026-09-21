@@ -1674,6 +1674,8 @@ public sealed class AgentOrchestrator
         "find_files",
         "grep_search",
         "run_command",
+        "validate_project",
+        "run_tests",
         "grambox_read_file",
         "grambox_write_file",
         "grambox_exec",
