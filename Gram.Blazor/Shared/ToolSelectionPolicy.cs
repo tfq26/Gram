@@ -21,7 +21,7 @@ public static class ToolSelectionPolicy
     {
         var tools = availableTools.ToList();
         var text = (intent ?? "").ToLowerInvariant();
-        var isChangeTask = ContainsAny(text, "implement", "create", "add", "update", "fix", "refactor", "edit", "write", "build", "test", "run", "component", "feature", "exec", "execute", "terminal", "command", "shell", "bash", "zsh", "script", "install", "compile", "check", "modify", "patch", "delete", "remove", "file", "code", "run_command", "write_file", "edit_file");
+        var isChangeTask = ContainsAny(text, "implement", "create", "add", "update", "fix", "refactor", "edit", "write", "build", "test", "run", "component", "feature", "exec", "execute", "terminal", "command", "shell", "bash", "zsh", "script", "install", "compile", "check", "modify", "patch", "delete", "remove", "file", "code", "run_command", "write_file", "edit_file", "apply_changeset", "changeset");
         var isWebTask = ContainsAny(text, "web", "internet", "online", "documentation", "docs", "latest", "research", "search");
         var isGitTask = ContainsAny(text, "git", "repository", "repo", "branch", "commit", "push", "pull request", "merge", "diff");
         var isToolboxTask = ContainsAny(text, "toolbox", "sandbox", "ast", "tree-sitter", "lsp", "playwright", "browser", "verify", "diagnostic", "cde");
@@ -44,7 +44,7 @@ public static class ToolSelectionPolicy
 
         if (isChangeTask)
         {
-            allowed.UnionWith(["list_directory", "write_file", "edit_file", "run_command"]);
+            allowed.UnionWith(["list_directory", "write_file", "edit_file", "apply_changeset", "run_command"]);
         }
 
         if (isGitTask)

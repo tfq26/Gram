@@ -817,18 +817,37 @@ public sealed class AgentOrchestrator
                         try
                         {
                             var argsNode = JsonNode.Parse(toolArgs);
-                            var targetPath = argsNode?["filePath"]?.ToString()
-                                ?? argsNode?["path"]?.ToString()
-                                ?? argsNode?["TargetFile"]?.ToString()
-                                ?? argsNode?["AbsolutePath"]?.ToString();
-                            if (IsCodeFile(targetPath))
+                            var extractedPaths = new List<string>();
+
+                            if (toolName.Equals("apply_changeset", StringComparison.OrdinalIgnoreCase))
                             {
-                                codeFilesModifiedThisTurn = true;
-                                lastVerificationPassed = false;
-                                if (!string.IsNullOrWhiteSpace(targetPath))
+                                var changes = argsNode?["changes"]?.AsArray();
+                                if (changes != null)
                                 {
-                                    modifiedFilesThisTurn.Add(targetPath);
-                                    modifiedFilesHistory.Add(targetPath);
+                                    foreach (var c in changes)
+                                    {
+                                        var p = c?["filePath"]?.ToString();
+                                        if (!string.IsNullOrWhiteSpace(p)) extractedPaths.Add(p);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                var targetPath = argsNode?["filePath"]?.ToString()
+                                    ?? argsNode?["path"]?.ToString()
+                                    ?? argsNode?["TargetFile"]?.ToString()
+                                    ?? argsNode?["AbsolutePath"]?.ToString();
+                                if (!string.IsNullOrWhiteSpace(targetPath)) extractedPaths.Add(targetPath);
+                            }
+
+                            foreach (var p in extractedPaths)
+                            {
+                                if (IsCodeFile(p))
+                                {
+                                    codeFilesModifiedThisTurn = true;
+                                    lastVerificationPassed = false;
+                                    modifiedFilesThisTurn.Add(p);
+                                    modifiedFilesHistory.Add(p);
                                 }
                             }
                         }
@@ -1370,18 +1389,37 @@ public sealed class AgentOrchestrator
                         try
                         {
                             var argsNode = JsonNode.Parse(args);
-                            var targetPath = argsNode?["filePath"]?.ToString()
-                                ?? argsNode?["path"]?.ToString()
-                                ?? argsNode?["TargetFile"]?.ToString()
-                                ?? argsNode?["AbsolutePath"]?.ToString();
-                            if (IsCodeFile(targetPath))
+                            var extractedPaths = new List<string>();
+
+                            if (toolName.Equals("apply_changeset", StringComparison.OrdinalIgnoreCase))
                             {
-                                codeFilesModifiedThisTurn = true;
-                                lastVerificationPassed = false;
-                                if (!string.IsNullOrWhiteSpace(targetPath))
+                                var changes = argsNode?["changes"]?.AsArray();
+                                if (changes != null)
                                 {
-                                    modifiedFilesThisTurn.Add(targetPath);
-                                    modifiedFilesHistory.Add(targetPath);
+                                    foreach (var c in changes)
+                                    {
+                                        var p = c?["filePath"]?.ToString();
+                                        if (!string.IsNullOrWhiteSpace(p)) extractedPaths.Add(p);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                var targetPath = argsNode?["filePath"]?.ToString()
+                                    ?? argsNode?["path"]?.ToString()
+                                    ?? argsNode?["TargetFile"]?.ToString()
+                                    ?? argsNode?["AbsolutePath"]?.ToString();
+                                if (!string.IsNullOrWhiteSpace(targetPath)) extractedPaths.Add(targetPath);
+                            }
+
+                            foreach (var p in extractedPaths)
+                            {
+                                if (IsCodeFile(p))
+                                {
+                                    codeFilesModifiedThisTurn = true;
+                                    lastVerificationPassed = false;
+                                    modifiedFilesThisTurn.Add(p);
+                                    modifiedFilesHistory.Add(p);
                                 }
                             }
                         }
@@ -1656,6 +1694,7 @@ public sealed class AgentOrchestrator
     {
         return toolName.Equals("write_file", StringComparison.OrdinalIgnoreCase)
             || toolName.Equals("edit_file", StringComparison.OrdinalIgnoreCase)
+            || toolName.Equals("apply_changeset", StringComparison.OrdinalIgnoreCase)
             || toolName.Equals("replace_file", StringComparison.OrdinalIgnoreCase)
             || toolName.Equals("write_to_file", StringComparison.OrdinalIgnoreCase)
             || toolName.Equals("replace_file_content", StringComparison.OrdinalIgnoreCase)
@@ -1667,6 +1706,7 @@ public sealed class AgentOrchestrator
         "view_file",
         "edit_file",
         "write_file",
+        "apply_changeset",
         "replace_file",
         "write_to_file",
         "replace_file_content",

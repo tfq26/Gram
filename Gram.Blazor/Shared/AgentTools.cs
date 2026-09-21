@@ -164,6 +164,40 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                 }
             });
 
+            // 3b. apply_changeset
+            tools.Add(new AgentToolDefinition
+            {
+                Name = "apply_changeset",
+                Description = "Apply multiple atomic file edits or writes in a single transactional changeset across the workspace with rollback on error.",
+                Parameters = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["changes"] = new JsonArray
+                        {
+                            new JsonObject
+                            {
+                                ["type"] = "object",
+                                ["properties"] = new JsonObject
+                                {
+                                    ["filePath"] = new JsonObject { ["type"] = "string", ["description"] = "Relative path of the target file." },
+                                    ["operation"] = new JsonObject { ["type"] = "string", ["description"] = "'write' (create/overwrite file) or 'edit' (surgical search/replace)." },
+                                    ["content"] = new JsonObject { ["type"] = "string", ["description"] = "Full text content (required if operation is 'write')." },
+                                    ["targetContent"] = new JsonObject { ["type"] = "string", ["description"] = "Snippet to search and replace (required if operation is 'edit')." },
+                                    ["replacementContent"] = new JsonObject { ["type"] = "string", ["description"] = "Replacement snippet (required if operation is 'edit')." },
+                                    ["startLine"] = new JsonObject { ["type"] = "integer", ["description"] = "Optional 1-indexed start line anchor for 'edit'." },
+                                    ["endLine"] = new JsonObject { ["type"] = "integer", ["description"] = "Optional 1-indexed end line anchor for 'edit'." }
+                                },
+                                ["required"] = new JsonArray { "filePath", "operation" }
+                            }
+                        },
+                        ["description"] = new JsonObject { ["type"] = "string", ["description"] = "Summary description of this atomic changeset." }
+                    },
+                    ["required"] = new JsonArray { "changes" }
+                }
+            });
+
             // 4. list_directory
             tools.Add(new AgentToolDefinition
             {
@@ -1048,6 +1082,160 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     await File.WriteAllTextAsync(fullPath, patchResult.PatchedText, cancellationToken);
                     var tierNote = patchResult.AppliedTier > 1 ? $" (via Tier {patchResult.AppliedTier}: {patchResult.DiagnosticDetails})" : "";
                     result.Output = $"Successfully edited {filePath}{tierNote} [Checkpoint: {cp.Id}].";
+                    break;
+                }
+
+                case "apply_changeset":
+                {
+                    var changesArray = args?["changes"]?.AsArray();
+                    var description = args?["description"]?.ToString() ?? "Atomic changeset";
+
+                    if (changesArray == null || changesArray.Count == 0)
+                    {
+                        result.IsError = true;
+                        result.Output = "Changeset requires at least one file change.";
+                        break;
+                    }
+
+                    var pendingMutations = new List<(string relPath, string fullPath, string targetContent, bool existed, string? priorContent)>();
+                    string? validationError = null;
+
+                    // Phase 1: Security validation and pre-flight content calculation
+                    foreach (var itemNode in changesArray)
+                    {
+                        if (itemNode is not JsonObject item)
+                        {
+                            validationError = "Malformed change item in changeset array.";
+                            break;
+                        }
+
+                        var relPath = item["filePath"]?.ToString() ?? "";
+                        var operation = item["operation"]?.ToString()?.ToLowerInvariant() ?? "";
+
+                        if (string.IsNullOrWhiteSpace(relPath))
+                        {
+                            validationError = "Missing 'filePath' in changeset item.";
+                            break;
+                        }
+
+                        var fileCheck = _securityService.EvaluateFileAccess(relPath, workspacePath, isWrite: true);
+                        if (!fileCheck.IsAllowed)
+                        {
+                            validationError = fileCheck.Reason ?? $"Access denied for '{relPath}'.";
+                            break;
+                        }
+
+                        if (!AgentSecurityService.TryResolveWithinWorkspace(workspacePath, relPath, out var fullPath, out var err))
+                        {
+                            validationError = err ?? $"File path '{relPath}' escapes workspace root.";
+                            break;
+                        }
+
+                        bool existed = File.Exists(fullPath);
+                        string? priorContent = existed ? await File.ReadAllTextAsync(fullPath, cancellationToken) : null;
+                        string computedNewContent;
+
+                        if (operation == "write")
+                        {
+                            computedNewContent = item["content"]?.ToString() ?? "";
+                        }
+                        else if (operation == "edit")
+                        {
+                            if (!existed)
+                            {
+                                validationError = $"Cannot edit non-existent file: {relPath}";
+                                break;
+                            }
+
+                            var targetContent = item["targetContent"]?.ToString() ?? "";
+                            var replacementContent = item["replacementContent"]?.ToString() ?? "";
+                            int? startLine = item["startLine"]?.GetValue<int>();
+                            int? endLine = item["endLine"]?.GetValue<int>();
+
+                            var patchResult = SurgicalPatchEngine.ApplyPatch(priorContent!, targetContent, replacementContent, startLine, endLine);
+                            if (!patchResult.Success)
+                            {
+                                validationError = $"Error patching '{relPath}': {patchResult.ErrorMessage ?? "Target content not found"}";
+                                break;
+                            }
+                            computedNewContent = patchResult.PatchedText;
+                        }
+                        else
+                        {
+                            validationError = $"Unsupported operation '{operation}' in changeset. Must be 'write' or 'edit'.";
+                            break;
+                        }
+
+                        pendingMutations.Add((relPath, fullPath, computedNewContent, existed, priorContent));
+                    }
+
+                    if (validationError != null)
+                    {
+                        result.IsError = true;
+                        result.Output = $"Changeset validation failed: {validationError}\nNo files were modified (atomic abort).";
+                        break;
+                    }
+
+                    // Phase 2: Create durable pre-write checkpoints for all files
+                    var checkpointIds = new List<string>();
+                    foreach (var (relPath, _, _, _, _) in pendingMutations)
+                    {
+                        var cp = await _checkpointService.CapturePreWriteSnapshotAsync(
+                            workspacePath,
+                            relPath,
+                            $"changeset: {description}",
+                            callId,
+                            cancellationToken);
+                        checkpointIds.Add(cp.Id);
+                    }
+
+                    // Phase 3: Apply all mutations atomically
+                    var writtenFiles = new List<string>();
+                    bool writeFailed = false;
+                    string? writeError = null;
+
+                    foreach (var (relPath, fullPath, newContent, _, _) in pendingMutations)
+                    {
+                        try
+                        {
+                            var dir = Path.GetDirectoryName(fullPath);
+                            if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
+                            {
+                                Directory.CreateDirectory(dir);
+                            }
+                            await File.WriteAllTextAsync(fullPath, newContent, cancellationToken);
+                            writtenFiles.Add(relPath);
+                        }
+                        catch (Exception ex)
+                        {
+                            writeFailed = true;
+                            writeError = $"Disk write error on '{relPath}': {ex.Message}";
+                            break;
+                        }
+                    }
+
+                    // Phase 4: Rollback if write failed
+                    if (writeFailed)
+                    {
+                        foreach (var cpId in checkpointIds)
+                        {
+                            await _checkpointService.RollbackCheckpointAsync(cpId, cancellationToken);
+                        }
+                        result.IsError = true;
+                        result.Output = $"Changeset aborted and all {checkpointIds.Count} files rolled back to pre-change state: {writeError}";
+                        break;
+                    }
+
+                    var sbOut = new StringBuilder();
+                    sbOut.AppendLine($"Atomic changeset applied successfully ({writtenFiles.Count} files updated).");
+                    sbOut.AppendLine($"Description: {description}");
+                    sbOut.AppendLine("Modified files:");
+                    foreach (var f in writtenFiles)
+                    {
+                        sbOut.AppendLine($"  - {f}");
+                    }
+                    sbOut.AppendLine($"Checkpoints: {string.Join(", ", checkpointIds)}");
+                    result.Output = sbOut.ToString().Trim();
                     break;
                 }
 

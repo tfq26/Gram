@@ -267,6 +267,93 @@ public sealed class AgentToolsExecutionTests
         }
     }
 
+    [Fact]
+    public async Task AgentTools_ApplyChangeset_ModifiesMultipleFilesAtomically()
+    {
+        var (registry, _, tempDir) = CreateTestContext();
+        using (tempDir)
+        {
+            var file1 = Path.Combine(tempDir.Path, "src/A.cs");
+            var file2 = Path.Combine(tempDir.Path, "src/B.cs");
+            Directory.CreateDirectory(Path.GetDirectoryName(file1)!);
+            await File.WriteAllTextAsync(file1, "public class A { public int X = 1; }");
+
+            var changesetJson = new JsonObject
+            {
+                ["description"] = "Refactor A and create B",
+                ["changes"] = new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["filePath"] = "src/A.cs",
+                        ["operation"] = "edit",
+                        ["targetContent"] = "public int X = 1;",
+                        ["replacementContent"] = "public int X = 42;"
+                    },
+                    new JsonObject
+                    {
+                        ["filePath"] = "src/B.cs",
+                        ["operation"] = "write",
+                        ["content"] = "public class B { public string Name = \"Beta\"; }"
+                    }
+                }
+            }.ToJsonString();
+
+            var result = await registry.ExecuteToolAsync("apply_changeset", "call-cs-1", changesetJson, tempDir.Path);
+
+            Assert.False(result.IsError, result.Output);
+            Assert.Contains("Atomic changeset applied successfully", result.Output);
+            Assert.Contains("2 files updated", result.Output);
+
+            var aContent = await File.ReadAllTextAsync(file1);
+            var bContent = await File.ReadAllTextAsync(file2);
+            Assert.Contains("public int X = 42;", aContent);
+            Assert.Contains("public class B", bContent);
+        }
+    }
+
+    [Fact]
+    public async Task AgentTools_ApplyChangeset_AbortsAtomicallyWhenPatchFails()
+    {
+        var (registry, _, tempDir) = CreateTestContext();
+        using (tempDir)
+        {
+            var file1 = Path.Combine(tempDir.Path, "src/First.cs");
+            Directory.CreateDirectory(Path.GetDirectoryName(file1)!);
+            await File.WriteAllTextAsync(file1, "initial content in first file");
+
+            var changesetJson = new JsonObject
+            {
+                ["description"] = "Failed changeset with missing target",
+                ["changes"] = new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["filePath"] = "src/First.cs",
+                        ["operation"] = "write",
+                        ["content"] = "mutated content"
+                    },
+                    new JsonObject
+                    {
+                        ["filePath"] = "src/NonExistent.cs",
+                        ["operation"] = "edit",
+                        ["targetContent"] = "missing",
+                        ["replacementContent"] = "replaced"
+                    }
+                }
+            }.ToJsonString();
+
+            var result = await registry.ExecuteToolAsync("apply_changeset", "call-cs-2", changesetJson, tempDir.Path);
+
+            Assert.True(result.IsError);
+            Assert.Contains("atomic abort", result.Output);
+
+            // Verify file1 was NOT touched
+            var content1 = await File.ReadAllTextAsync(file1);
+            Assert.Equal("initial content in first file", content1);
+        }
+    }
+
     private sealed class TemporaryDirectory : IDisposable
     {
         public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "gram-test-" + Guid.NewGuid().ToString("N"));
