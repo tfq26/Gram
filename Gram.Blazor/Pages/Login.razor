@@ -10,7 +10,7 @@
 @inject ISonnerService SonnerService
 @implements IAsyncDisposable
 
-<PageTitle>@(isForgotPasswordMode ? "Reset Password - Gram" : isSignUpMode ? "Create an account - Gram" : "Welcome back - Gram")</PageTitle>
+<PageTitle>Sign In - Gram</PageTitle>
 
 <div class="gram-auth-page-purple">
     <!-- Left Column: Purple Dark Minimalist Authentication Form -->
@@ -24,42 +24,9 @@
 
             <!-- Header -->
             <div class="gram-auth-headings">
-                <h1 class="gram-auth-heading-title">
-                    @if (isForgotPasswordMode)
-                    {
-                        <span>@(forgotPasswordStep == 1 ? "Reset your password" : "Enter recovery code")</span>
-                    }
-                    else if (isSignUpMode)
-                    {
-                        <span>Create an account</span>
-                    }
-                    else
-                    {
-                        <span>Welcome back</span>
-                    }
-                </h1>
+                <h1 class="gram-auth-heading-title">Welcome to Gram</h1>
                 <div class="gram-auth-heading-sub">
-                    @if (isForgotPasswordMode)
-                    {
-                        <span>Remembered your password?</span>
-                        <button type="button" class="gram-auth-text-link" @onclick="SwitchToSignIn">
-                            Back to sign in
-                        </button>
-                    }
-                    else if (isSignUpMode)
-                    {
-                        <span>Already have an account?</span>
-                        <button type="button" class="gram-auth-text-link" @onclick="SwitchToSignIn">
-                            Sign in
-                        </button>
-                    }
-                    else
-                    {
-                        <span>Don't have an account yet?</span>
-                        <button type="button" class="gram-auth-text-link" @onclick="SwitchToSignUp">
-                            Sign up now
-                        </button>
-                    }
+                    <span>Autonomous AI pair programmer & workspace engine</span>
                 </div>
             </div>
 
@@ -70,283 +37,38 @@
                 </div>
             }
 
-            @if (!string.IsNullOrWhiteSpace(infoMessage))
-            {
-                <div class="gram-auth-alert-info">
-                    @infoMessage
-                </div>
-            }
-
+            <!-- Single Styled Sign In Action -->
             @if (AuthService.IsWorkOsConfigured)
             {
-                <div class="gram-workos-auth-card" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
-                    <a href="@GetWorkOsLoginUrl()" class="gram-auth-submit-btn" style="display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; font-size: 14px; font-weight: 600; padding: 13px 20px; border-radius: var(--radius-md); background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35); transition: transform 0.15s ease;">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <div class="gram-workos-auth-card" style="display: flex; flex-direction: column; gap: 14px; width: 100%;">
+                    <a href="@GetWorkOsLoginUrl()" class="gram-auth-submit-btn" style="display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; font-size: 14.5px; font-weight: 600; padding: 14px 20px; border-radius: var(--radius-md, 8px); background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; box-shadow: 0 4px 18px rgba(99, 102, 241, 0.38); transition: transform 0.15s ease, box-shadow 0.15s ease;">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
                             <polyline points="10 17 15 12 10 7"></polyline>
                             <line x1="15" y1="12" x2="3" y2="12"></line>
                         </svg>
-                        <span>Continue with WorkOS AuthKit</span>
+                        <span>Sign in with WorkOS</span>
                     </a>
                     <div style="display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11.5px; color: var(--text-muted);">
                         <span>Google</span> · <span>GitHub</span> · <span>Microsoft</span> · <span>Passkeys</span> · <span>SSO</span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 10px; margin: 4px 0;">
-                        <div style="flex: 1; height: 1px; background: var(--border-color);"></div>
-                        <span style="font-size: 10.5px; color: var(--text-muted); text-transform: uppercase;">or local database</span>
-                        <div style="flex: 1; height: 1px; background: var(--border-color);"></div>
-                    </div>
                 </div>
             }
             else
             {
-                <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; padding: 12px; background: var(--bg-hover); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                        <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Local / Guest Mode</span>
-                        <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.15); color: #22c55e;">Zero Config</span>
-                    </div>
-                    <span style="font-size: 11.5px; color: var(--text-muted);">
-                        WorkOS is not configured. You can enter directly as a guest or sign in with your local SQLite database.
-                    </span>
-                    <button type="button" class="gram-auth-submit-btn" style="padding: 9px 14px; font-size: 13px;" @onclick="EnterAsGuest">
-                        Enter Gram Directly
+                <div class="gram-workos-auth-card" style="display: flex; flex-direction: column; gap: 14px; width: 100%;">
+                    <button type="button" class="gram-auth-submit-btn" style="display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 14.5px; font-weight: 600; padding: 14px 20px; border-radius: var(--radius-md, 8px); background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; box-shadow: 0 4px 18px rgba(99, 102, 241, 0.38); border: none; cursor: pointer; transition: transform 0.15s ease;" @onclick="EnterAsGuest">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                            <polyline points="10 17 15 12 10 7"></polyline>
+                            <line x1="15" y1="12" x2="3" y2="12"></line>
+                        </svg>
+                        <span>Continue as Guest</span>
                     </button>
+                    <div style="display: flex; align-items: center; justify-content: center; font-size: 11.5px; color: var(--text-muted);">
+                        <span>Zero configuration required · Local workspace mode</span>
+                    </div>
                 </div>
-            }
-
-            <!-- Forms -->
-            @if (isForgotPasswordMode)
-            {
-                @if (forgotPasswordStep == 1)
-                {
-                    <form @onsubmit="HandleRequestResetCode" class="gram-auth-form-body">
-                        <div class="gram-auth-field">
-                            <input type="email"
-                                   class="gram-auth-dark-input"
-                                   @bind="emailInput"
-                                   @onfocus="HandleNameFocus"
-                                   @oninput="HandleNameInput"
-                                   @onblur="HandleInputBlur"
-                                   placeholder="Enter your account email"
-                                   required
-                                   disabled="@isLoading" />
-                        </div>
-
-                        <button type="submit" class="gram-auth-submit-btn" disabled="@isLoading">
-                            @if (isLoading)
-                            {
-                                <span>Sending recovery code...</span>
-                            }
-                            else
-                            {
-                                <span>Send recovery code</span>
-                            }
-                        </button>
-                    </form>
-                }
-                else
-                {
-                    <form @onsubmit="HandleCompletePasswordReset" class="gram-auth-form-body">
-                        @if (!string.IsNullOrWhiteSpace(devModeCode))
-                        {
-                            <div class="gram-auth-dev-code-box">
-                                <div class="gram-auth-dev-code-label">💡 Local Dev / Self-Hosted Reset Code:</div>
-                                <div class="gram-auth-dev-code-val">@devModeCode</div>
-                                <button type="button" class="gram-auth-text-link sm" @onclick="() => resetCodeInput = devModeCode">
-                                    Auto-fill Code
-                                </button>
-                            </div>
-                        }
-
-                        <div class="gram-auth-field">
-                            <input type="email"
-                                   class="gram-auth-dark-input"
-                                   @bind="emailInput"
-                                   placeholder="Email address"
-                                   required
-                                   disabled="@isLoading" />
-                        </div>
-
-                        <div class="gram-auth-field">
-                            <input type="text"
-                                   class="gram-auth-dark-input gram-auth-code-input"
-                                   @bind="resetCodeInput"
-                                   @onfocus="HandleNameFocus"
-                                   @oninput="HandleNameInput"
-                                   @onblur="HandleInputBlur"
-                                   placeholder="6-digit code (e.g. 482910)"
-                                   maxlength="16"
-                                   required
-                                   disabled="@isLoading" />
-                        </div>
-
-                        <div class="gram-auth-field has-toggle">
-                            <input type="@(showPassword ? "text" : "password")"
-                                   class="gram-auth-dark-input"
-                                   @bind="newPasswordInput"
-                                   @onfocus="HandlePasswordFocus"
-                                   @oninput="HandlePasswordInput"
-                                   @onblur="HandleInputBlur"
-                                   placeholder="New password (min 6 chars)"
-                                   required
-                                   disabled="@isLoading" />
-                            
-                            <button type="button" class="gram-auth-eye-btn" @onclick="() => showPassword = !showPassword" tabindex="-1">
-                                @if (showPassword)
-                                {
-                                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                                        <line x1="1" y1="1" x2="23" y2="23"></line>
-                                    </svg>
-                                }
-                                else
-                                {
-                                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                                        <circle cx="12" cy="12" r="3"></circle>
-                                    </svg>
-                                }
-                            </button>
-                        </div>
-
-                        <div class="gram-auth-field has-toggle">
-                            <input type="@(showPassword ? "text" : "password")"
-                                   class="gram-auth-dark-input"
-                                   @bind="confirmPasswordInput"
-                                   @onfocus="HandlePasswordFocus"
-                                   @oninput="HandlePasswordInput"
-                                   @onblur="HandleInputBlur"
-                                   placeholder="Confirm new password"
-                                   required
-                                   disabled="@isLoading" />
-                        </div>
-
-                        <button type="submit" class="gram-auth-submit-btn" disabled="@isLoading">
-                            @if (isLoading)
-                            {
-                                <span>Updating password...</span>
-                            }
-                            else
-                            {
-                                <span>Reset password & sign in</span>
-                            }
-                        </button>
-
-                        <div class="gram-auth-meta-row" style="justify-content: center; margin-top: 10px;">
-                            <button type="button" class="gram-auth-text-link sm" @onclick="() => forgotPasswordStep = 1">
-                                Need another code?
-                            </button>
-                        </div>
-                    </form>
-                }
-            }
-            else
-            {
-                <form @onsubmit="HandleSubmit" class="gram-auth-form-body">
-                    @if (isSignUpMode)
-                    {
-                        <div class="gram-auth-field">
-                            <input type="text"
-                                   class="gram-auth-dark-input"
-                                   @bind="nameInput"
-                                   @onfocus="HandleNameFocus"
-                                   @oninput="HandleNameInput"
-                                   @onblur="HandleInputBlur"
-                                   placeholder="Full name"
-                                   disabled="@isLoading" />
-                        </div>
-                    }
-
-                    <div class="gram-auth-field">
-                        <input type="email"
-                               class="gram-auth-dark-input"
-                               @bind="emailInput"
-                               @onfocus="HandleNameFocus"
-                               @oninput="HandleNameInput"
-                               @onblur="HandleInputBlur"
-                               placeholder="Email address"
-                               required
-                               disabled="@isLoading" />
-                    </div>
-
-                    <div class="gram-auth-field has-toggle">
-                        <input type="@(showPassword ? "text" : "password")"
-                               class="gram-auth-dark-input"
-                               @bind="passwordInput"
-                               @onfocus="HandlePasswordFocus"
-                               @oninput="HandlePasswordInput"
-                               @onblur="HandleInputBlur"
-                               placeholder="Password"
-                               required
-                               disabled="@isLoading" />
-                        
-                        <button type="button" class="gram-auth-eye-btn" @onclick="() => showPassword = !showPassword" tabindex="-1" title="Toggle password visibility">
-                            @if (showPassword)
-                            {
-                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                                    <line x1="1" y1="1" x2="23" y2="23"></line>
-                                </svg>
-                            }
-                            else
-                            {
-                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                                    <circle cx="12" cy="12" r="3"></circle>
-                                </svg>
-                            }
-                        </button>
-                    </div>
-
-                    <!-- Remember Me & Help -->
-                    <div class="gram-auth-meta-row">
-                        <label class="gram-auth-remember">
-                            <input type="checkbox" class="gram-auth-check" @bind="rememberMe" />
-                            <span>Remember me</span>
-                        </label>
-
-                        @if (!isSignUpMode)
-                        {
-                            <button type="button" class="gram-auth-text-link sm" @onclick="SwitchToForgotPassword">
-                                Forgot password?
-                            </button>
-                        }
-                    </div>
-
-                    <!-- Action Button -->
-                    <button type="submit" class="gram-auth-submit-btn" disabled="@isLoading">
-                        @if (isLoading)
-                        {
-                            <span>Authenticating...</span>
-                        }
-                        else
-                        {
-                            <span>@(isSignUpMode ? "Create account" : "Log in")</span>
-                        }
-                    </button>
-
-                    @if (!isSignUpMode && isPasskeySupported)
-                    {
-                        <div class="gram-auth-divider">
-                            <span>or</span>
-                        </div>
-
-                        <button type="button" class="gram-auth-passkey-btn" @onclick="HandlePasskeySignIn" disabled="@isLoading">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="gram-auth-passkey-icon">
-                                <path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path>
-                                <path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path>
-                                <path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"></path>
-                                <path d="M2 12a10 10 0 0 1 18-6"></path>
-                                <path d="M2 16h.01"></path>
-                                <path d="M21.8 16c.2-2 .131-5.354 0-6"></path>
-                                <path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"></path>
-                                <path d="M8.65 22c.21-.66.45-1.32.57-2"></path>
-                                <path d="M9 6.8a6 6 0 0 1 9 5.2v2"></path>
-                            </svg>
-                            <span>Sign in with Passkey</span>
-                        </button>
-                    }
-                </form>
             }
 
         </div>
@@ -369,36 +91,14 @@
 </div>
 
 @code {
-    private bool isSignUpMode = false;
-    private bool isForgotPasswordMode = false;
-    private int forgotPasswordStep = 1;
-    private bool isLoading = false;
-    private bool showPassword = false;
-    private bool rememberMe = true;
-    private bool isPasskeySupported = false;
     private string mascotState = "landing";
-
-    private string nameInput = "";
-    private string emailInput = "";
-    private string passwordInput = "";
-    private string resetCodeInput = "";
-    private string newPasswordInput = "";
-    private string confirmPasswordInput = "";
-    private string? devModeCode;
     private string? errorMessage;
-    private string? infoMessage;
 
     [SupplyParameterFromQuery(Name = "returnUrl")]
     public string? ReturnUrl { get; set; }
 
     [SupplyParameterFromQuery(Name = "error")]
     public string? ErrorQuery { get; set; }
-
-    [SupplyParameterFromQuery(Name = "resetCode")]
-    public string? QueryResetCode { get; set; }
-
-    [SupplyParameterFromQuery(Name = "email")]
-    public string? QueryEmail { get; set; }
 
     protected override void OnInitialized()
     {
@@ -412,18 +112,6 @@
             var redirectTarget = !string.IsNullOrWhiteSpace(ReturnUrl) && !ReturnUrl.Contains("login", StringComparison.OrdinalIgnoreCase) && !ReturnUrl.Contains("signin", StringComparison.OrdinalIgnoreCase) ? ReturnUrl : "/";
             NavManager.NavigateTo(redirectTarget);
             return;
-        }
-
-        if (!string.IsNullOrWhiteSpace(QueryResetCode))
-        {
-            isForgotPasswordMode = true;
-            forgotPasswordStep = 2;
-            resetCodeInput = QueryResetCode;
-            if (!string.IsNullOrWhiteSpace(QueryEmail))
-            {
-                emailInput = QueryEmail;
-            }
-            mascotState = "typing_name";
         }
     }
 
@@ -445,13 +133,6 @@
 
         await JSRuntime.InvokeVoidAsync("gramLoginArtwork.init", "gramLoginArtwork");
 
-        try
-        {
-            isPasskeySupported = await JSRuntime.InvokeAsync<bool>("gramPasskey.isAvailable");
-            StateHasChanged();
-        }
-        catch {}
-
         // Settle from excited landing jump to interactive idle after 3 seconds
         _ = Task.Run(async () =>
         {
@@ -465,246 +146,6 @@
                 });
             }
         });
-    }
-
-    private void SwitchToSignIn()
-    {
-        isSignUpMode = false;
-        isForgotPasswordMode = false;
-        errorMessage = null;
-        infoMessage = null;
-        mascotState = "idle";
-    }
-
-    private void SwitchToSignUp()
-    {
-        isSignUpMode = true;
-        isForgotPasswordMode = false;
-        errorMessage = null;
-        infoMessage = null;
-        mascotState = "idle";
-    }
-
-    private void SwitchToForgotPassword()
-    {
-        isForgotPasswordMode = true;
-        forgotPasswordStep = 1;
-        errorMessage = null;
-        infoMessage = null;
-        devModeCode = null;
-        mascotState = "thinking";
-    }
-
-    private void HandleNameFocus()
-    {
-        mascotState = "typing_name";
-    }
-
-    private void HandleNameInput(ChangeEventArgs e)
-    {
-        mascotState = "typing_name";
-    }
-
-    private void HandlePasswordFocus()
-    {
-        mascotState = "typing_password";
-    }
-
-    private void HandlePasswordInput(ChangeEventArgs e)
-    {
-        mascotState = "typing_password";
-    }
-
-    private void HandleInputBlur()
-    {
-        mascotState = "idle";
-    }
-
-    private async Task HandleRequestResetCode()
-    {
-        if (string.IsNullOrWhiteSpace(emailInput))
-        {
-            errorMessage = "Please enter your account email.";
-            return;
-        }
-
-        isLoading = true;
-        errorMessage = null;
-        infoMessage = null;
-        StateHasChanged();
-
-        try
-        {
-            var uri = new Uri(NavManager.Uri);
-            var baseUri = $"{uri.Scheme}://{uri.Authority}";
-            var res = await AuthService.RequestPasswordResetAsync(emailInput, baseUri);
-
-            if (res.Success)
-            {
-                forgotPasswordStep = 2;
-                if (res.IsDevMode && !string.IsNullOrWhiteSpace(res.DevCode))
-                {
-                    devModeCode = res.DevCode;
-                    infoMessage = "Recovery code generated. In local mode, check your console or use the helper below.";
-                }
-                else
-                {
-                    infoMessage = "We've sent a 6-digit recovery code to your email.";
-                }
-                mascotState = "typing_name";
-            }
-            else
-            {
-                errorMessage = res.ErrorMessage ?? "Could not send password recovery code.";
-            }
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Error: {ex.Message}";
-        }
-        finally
-        {
-            isLoading = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task HandleCompletePasswordReset()
-    {
-        if (string.IsNullOrWhiteSpace(resetCodeInput))
-        {
-            errorMessage = "Please enter the 6-digit verification code.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(newPasswordInput) || newPasswordInput.Length < 6)
-        {
-            errorMessage = "New password must be at least 6 characters.";
-            return;
-        }
-
-        if (newPasswordInput != confirmPasswordInput)
-        {
-            errorMessage = "Passwords do not match.";
-            return;
-        }
-
-        isLoading = true;
-        errorMessage = null;
-        infoMessage = null;
-        StateHasChanged();
-
-        try
-        {
-            var res = await AuthService.CompletePasswordResetAsync(emailInput, resetCodeInput, newPasswordInput);
-            if (res.Success)
-            {
-                mascotState = "excited";
-                SonnerService.Success("Password Updated", "Your password has been successfully reset. Welcome back!");
-                var redirectTarget = !string.IsNullOrWhiteSpace(ReturnUrl) ? ReturnUrl : "/";
-                NavManager.NavigateTo(redirectTarget);
-            }
-            else
-            {
-                errorMessage = res.ErrorMessage ?? "Invalid or expired verification code.";
-            }
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Reset error: {ex.Message}";
-        }
-        finally
-        {
-            isLoading = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task HandlePasskeySignIn()
-    {
-        isLoading = true;
-        errorMessage = null;
-        StateHasChanged();
-
-        try
-        {
-            var res = await JSRuntime.InvokeAsync<PasskeyAuthJsResult>("gramPasskey.authenticate", (object?)null);
-            if (!res.Success || string.IsNullOrWhiteSpace(res.CredentialId))
-            {
-                if (!string.IsNullOrWhiteSpace(res.Error) && !res.Error.Contains("cancelled", StringComparison.OrdinalIgnoreCase))
-                {
-                    errorMessage = res.Error;
-                }
-                return;
-            }
-
-            var authResult = await AuthService.SignInWithPasskeyAsync(res.CredentialId);
-            if (authResult.Success)
-            {
-                SonnerService.Success("Welcome back", $"Signed in with Passkey as {authResult.User?.Name ?? "User"}");
-                var redirectTarget = !string.IsNullOrWhiteSpace(ReturnUrl) ? ReturnUrl : "/";
-                NavManager.NavigateTo(redirectTarget);
-            }
-            else
-            {
-                errorMessage = authResult.ErrorMessage ?? "Passkey authentication failed.";
-            }
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Passkey error: {ex.Message}";
-        }
-        finally
-        {
-            isLoading = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task HandleSubmit()
-    {
-        if (string.IsNullOrWhiteSpace(emailInput) || string.IsNullOrWhiteSpace(passwordInput))
-        {
-            errorMessage = "Please enter your email and password.";
-            return;
-        }
-
-        isLoading = true;
-        errorMessage = null;
-        StateHasChanged();
-
-        try
-        {
-            AuthResult result;
-            if (isSignUpMode)
-            {
-                result = await AuthService.SignUpWithEmailAsync(nameInput, emailInput, passwordInput);
-            }
-            else
-            {
-                result = await AuthService.SignInWithEmailAsync(emailInput, passwordInput);
-            }
-
-            if (result.Success)
-            {
-                SonnerService.Success("Welcome back", $"Signed in as {result.User?.Name ?? emailInput}");
-                var redirectTarget = !string.IsNullOrWhiteSpace(ReturnUrl) ? ReturnUrl : "/";
-                NavManager.NavigateTo(redirectTarget);
-            }
-            else
-            {
-                errorMessage = result.ErrorMessage ?? "Invalid email or password.";
-            }
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Authentication error: {ex.Message}";
-        }
-        finally
-        {
-            isLoading = false;
-            StateHasChanged();
-        }
     }
 
     public async ValueTask DisposeAsync()
