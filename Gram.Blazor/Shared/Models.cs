@@ -275,7 +275,10 @@ public sealed class ArtifactInfo
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string RelativePath { get; set; } = "";
     public string? Language { get; set; }
+    public bool IsPlan => FileName.EndsWith("plan.md", StringComparison.OrdinalIgnoreCase) || (Title != null && Title.Contains("plan", StringComparison.OrdinalIgnoreCase));
 }
+
+public sealed record PlanArtifactDetails(string FileName, string Title, string? Description, string Content);
 
 public sealed class ChatStateService
 {

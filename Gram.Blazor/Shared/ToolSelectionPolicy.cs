@@ -11,8 +11,9 @@ public static class ToolSelectionPolicy
         "search_web",
         "manage_tasks",
         "remember_rule",
-        "set_reminder"
-        ,"resolve_capability"
+        "set_reminder",
+        "resolve_capability",
+        "create_plan_artifact"
     };
 
     public static List<AgentToolDefinition> SelectForIntent(
@@ -21,7 +22,7 @@ public static class ToolSelectionPolicy
     {
         var tools = availableTools.ToList();
         var text = (intent ?? "").ToLowerInvariant();
-        var isChangeTask = ContainsAny(text, "implement", "create", "add", "update", "fix", "refactor", "edit", "write", "build", "test", "run", "component", "feature", "exec", "execute", "terminal", "command", "shell", "bash", "zsh", "script", "install", "compile", "check", "modify", "patch", "delete", "remove", "file", "code", "run_command", "write_file", "edit_file", "apply_changeset", "changeset");
+        var isChangeTask = ContainsAny(text, "implement", "create", "add", "update", "fix", "refactor", "edit", "write", "build", "test", "run", "component", "feature", "exec", "execute", "terminal", "command", "shell", "bash", "zsh", "script", "install", "compile", "check", "modify", "patch", "delete", "remove", "file", "code", "run_command", "write_file", "edit_file", "apply_changeset", "changeset", "plan", "scaffold", "architecture");
         var isWebTask = ContainsAny(text, "web", "internet", "online", "documentation", "docs", "latest", "research", "search");
         var isGitTask = ContainsAny(text, "git", "repository", "repo", "branch", "commit", "push", "pull request", "merge", "diff");
         var isToolboxTask = ContainsAny(text, "toolbox", "sandbox", "ast", "tree-sitter", "lsp", "playwright", "browser", "verify", "diagnostic", "cde");

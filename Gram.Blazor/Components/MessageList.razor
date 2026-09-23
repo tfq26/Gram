@@ -87,10 +87,57 @@
 
                             @{
                                 var detectedSandboxId = ExtractSandboxId(message);
+                                var detectedPlan = ExtractPlanArtifact(message);
                             }
                             @if (!string.IsNullOrWhiteSpace(detectedSandboxId))
                             {
                                 <SandboxChatCard SandboxId="@detectedSandboxId" ActiveChatId="@ActiveChatId" OnOpenDiff="OnOpenDiff" OnMergeSandbox="OnMergeSandbox" />
+                            }
+                            @if (detectedPlan != null)
+                            {
+                                <div class="plan-chat-card" style="margin: 10px 0; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-panel-subtle); overflow: hidden;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--bg-panel); border-bottom: 1px solid var(--border-color); gap: 8px;">
+                                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent); flex-shrink: 0;">
+                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                                <polyline points="14 2 14 8 20 8"></polyline>
+                                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                <polyline points="10 9 9 9 8 9"></polyline>
+                                            </svg>
+                                            <span style="font-size: 13px; font-weight: 600; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                                                @detectedPlan.Title
+                                            </span>
+                                            <span style="font-size: 10px; font-family: monospace; color: var(--text-muted); background: var(--bg-hover); padding: 2px 6px; border-radius: 4px;">
+                                                @detectedPlan.FileName
+                                            </span>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <span style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--accent); font-weight: 600; background: var(--accent-subtle, rgba(59, 130, 246, 0.1)); padding: 2px 8px; border-radius: 12px; border: 1px solid var(--border-color);">
+                                                Plan Deliverable
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+                                        @if (!string.IsNullOrWhiteSpace(detectedPlan.Description))
+                                        {
+                                            <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.45;">
+                                                @detectedPlan.Description
+                                            </div>
+                                        }
+                                        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                                            <Button Variant="outline" Size="sm" OnClick="() => OnOpenArtifact.InvokeAsync(detectedPlan.FileName)">
+                                                Review in Sidecar
+                                            </Button>
+                                            <Button Variant="default" Size="sm" Disabled="@IsGenerating" OnClick="() => OnExecutePlan.InvokeAsync(detectedPlan.FileName)">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="margin-right: 5px;">
+                                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                                </svg>
+                                                Approve &amp; Execute
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
                             }
 
                             @if (string.IsNullOrEmpty(message.Text) && isLastGenerating && (message.ToolCalls is null || message.ToolCalls.Count == 0))
@@ -159,11 +206,40 @@
     [Parameter] public string? ActiveChatId { get; set; }
     [Parameter] public EventCallback<string> OnOpenDiff { get; set; }
     [Parameter] public EventCallback<string> OnMergeSandbox { get; set; }
+    [Parameter] public EventCallback<string> OnOpenArtifact { get; set; }
+    [Parameter] public EventCallback<string> OnExecutePlan { get; set; }
     [Parameter] public EventCallback<Message> EditMessage { get; set; }
     [Parameter] public EventCallback<string> ToggleError { get; set; }
     [Parameter] public EventCallback<Message> CopyMessage { get; set; }
     [Parameter] public EventCallback<Message> ReadAloud { get; set; }
     [Parameter] public EventCallback<Message> RetryMessage { get; set; }
+
+    public static PlanArtifactDetails? ExtractPlanArtifact(Message message)
+    {
+        if (message.ToolCalls != null)
+        {
+            foreach (var tool in message.ToolCalls)
+            {
+                if (tool.ToolName.Equals("create_plan_artifact", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var node = System.Text.Json.Nodes.JsonNode.Parse(tool.Arguments ?? "{}");
+                        var fileName = node?["fileName"]?.ToString()?.Trim();
+                        if (!string.IsNullOrWhiteSpace(fileName))
+                        {
+                            var title = node?["title"]?.ToString()?.Trim() ?? System.IO.Path.GetFileNameWithoutExtension(fileName);
+                            var desc = node?["description"]?.ToString()?.Trim();
+                            var content = node?["content"]?.ToString() ?? "";
+                            return new PlanArtifactDetails(fileName, title, desc, content);
+                        }
+                    }
+                    catch { }
+                }
+            }
+        }
+        return null;
+    }
 
     private static string? ExtractSandboxId(Message message)
     {

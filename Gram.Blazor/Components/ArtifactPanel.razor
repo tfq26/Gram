@@ -58,5 +58,5 @@
     [Parameter] public EventCallback Back { get; set; }
 
     private static bool IsMarkup(ArtifactInfo artifact) => artifact.Language?.Equals("html", StringComparison.OrdinalIgnoreCase) == true || artifact.FileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase) || artifact.FileName.EndsWith(".svg", StringComparison.OrdinalIgnoreCase);
-    private static bool IsPlanArtifact(ArtifactInfo artifact) => artifact.FileName.EndsWith("plan.md", StringComparison.OrdinalIgnoreCase) || artifact.Title?.Contains("plan", StringComparison.OrdinalIgnoreCase) == true;
+    private static bool IsPlanArtifact(ArtifactInfo artifact) => artifact.IsPlan;
 }

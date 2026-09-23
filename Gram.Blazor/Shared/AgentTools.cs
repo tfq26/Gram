@@ -198,6 +198,25 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                 }
             });
 
+            // 3c. create_plan_artifact
+            tools.Add(new AgentToolDefinition
+            {
+                Name = "create_plan_artifact",
+                Description = "Formulate and publish a structured project architecture or execution plan deliverable as a reviewable artifact in the Sidecar panel. Use this when defining new applications, major refactors, or multi-step implementations before touching code files.",
+                Parameters = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["fileName"] = new JsonObject { ["type"] = "string", ["description"] = "Artifact file name ending in 'plan.md' (e.g. 'project_scaffolding_plan.md', 'event_booking_plan.md')." },
+                        ["title"] = new JsonObject { ["type"] = "string", ["description"] = "Human-readable title of the plan (e.g. 'Event Booking Service Architecture & Scaffolding Plan')." },
+                        ["description"] = new JsonObject { ["type"] = "string", ["description"] = "Brief 1-line summary of the project architecture and technology stack." },
+                        ["content"] = new JsonObject { ["type"] = "string", ["description"] = "Full markdown content of the plan, specifying architecture, file layout blueprint, dependencies, and execution milestones." }
+                    },
+                    ["required"] = new JsonArray { "fileName", "title", "content" }
+                }
+            });
+
             // 4. list_directory
             tools.Add(new AgentToolDefinition
             {
@@ -1236,6 +1255,61 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
                     }
                     sbOut.AppendLine($"Checkpoints: {string.Join(", ", checkpointIds)}");
                     result.Output = sbOut.ToString().Trim();
+                    break;
+                }
+
+                case "create_plan_artifact":
+                {
+                    var fileName = args?["fileName"]?.ToString()?.Trim() ?? "";
+                    var title = args?["title"]?.ToString()?.Trim() ?? "";
+                    var desc = args?["description"]?.ToString()?.Trim() ?? "";
+                    var content = args?["content"]?.ToString() ?? "";
+
+                    if (string.IsNullOrWhiteSpace(fileName)) fileName = "plan.md";
+                    if (!fileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase)) fileName += ".md";
+                    if (string.IsNullOrWhiteSpace(title)) title = Path.GetFileNameWithoutExtension(fileName);
+
+                    if (string.IsNullOrWhiteSpace(content))
+                    {
+                        result.IsError = true;
+                        result.Output = "Plan content cannot be empty.";
+                        break;
+                    }
+
+                    // Save artifact to workspace or session artifacts directory
+                    var effectiveWorkspace = string.IsNullOrWhiteSpace(workspacePath) ? Environment.CurrentDirectory : workspacePath;
+                    var artifactsDir = Path.Combine(effectiveWorkspace, ".gram", "artifacts");
+                    try
+                    {
+                        if (!Directory.Exists(artifactsDir))
+                        {
+                            Directory.CreateDirectory(artifactsDir);
+                        }
+                        var fullArtifactPath = Path.Combine(artifactsDir, fileName);
+                        await File.WriteAllTextAsync(fullArtifactPath, content, cancellationToken);
+
+                        var planJson = new JsonObject
+                        {
+                            ["artifactId"] = Guid.NewGuid().ToString("N")[..8],
+                            ["fileName"] = fileName,
+                            ["title"] = title,
+                            ["description"] = desc,
+                            ["relativePath"] = Path.Combine(".gram", "artifacts", fileName).Replace('\\', '/'),
+                            ["content"] = content,
+                            ["isPlan"] = true
+                        };
+
+                        result.Output = $"Plan artifact '{fileName}' successfully published to Sidecar.\n" +
+                                        $"Title: {title}\n" +
+                                        $"Description: {desc}\n" +
+                                        $"Relative Path: .gram/artifacts/{fileName}\n\n" +
+                                        $"Artifact Payload:\n{planJson.ToJsonString()}";
+                    }
+                    catch (Exception ex)
+                    {
+                        result.IsError = true;
+                        result.Output = $"Failed to save plan artifact: {ex.Message}";
+                    }
                     break;
                 }
 

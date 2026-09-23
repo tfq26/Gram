@@ -535,6 +535,8 @@
                      ActiveChatId="@activeId"
                      OnOpenDiff="HandleSandboxOpenDiff"
                      OnMergeSandbox="HandleSandboxMerge"
+                     OnOpenArtifact="HandleOpenPlanArtifact"
+                     OnExecutePlan="HandleExecutePlanFromChat"
                      EditMessage="EditUserPrompt" ToggleError="ToggleErrorDetails" CopyMessage="CopyResponseText"
                      ReadAloud="ToggleReadAloud" RetryMessage="RetryResponseAsync" />
         </div>
@@ -1451,8 +1453,31 @@
     private async Task ExecutePlanArtifact(ArtifactInfo? art)
     {
         if (art == null) return;
-        draft = $"The project plan '{art.Title ?? art.FileName}' has been approved. Please execute the plan: initialize the project structure, scaffold all required files using write_file, and run test verification.";
+        draft = $"The project plan '{art.Title ?? art.FileName}' has been approved by the user.\n\n" +
+                $"Execute the plan step-by-step:\n" +
+                $"1. Run non-interactive project initializers via run_command (using --yes or non-interactive defaults).\n" +
+                $"2. Scaffold all necessary source files and configurations using apply_changeset or write_file.\n" +
+                $"3. Create comprehensive unit tests matching the project toolchain.\n" +
+                $"4. Verify the entire project with run_tests to ensure zero errors and passing test suites.";
         await Send();
+    }
+
+    private Task HandleOpenPlanArtifact(string fileName)
+    {
+        var art = Active.Artifacts.FirstOrDefault(a => a.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase));
+        if (art != null)
+        {
+            selectedArtifact = art;
+            OpenSidecar(SidecarTab.Artifact);
+        }
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleExecutePlanFromChat(string fileName)
+    {
+        var art = Active.Artifacts.FirstOrDefault(a => a.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase))
+                  ?? new ArtifactInfo { FileName = fileName, Title = Path.GetFileNameWithoutExtension(fileName) };
+        await ExecutePlanArtifact(art);
     }
 
     private Task ClearSelectedArtifact()
@@ -3276,6 +3301,47 @@
                         var existing = assistantMsg.ToolCalls.FirstOrDefault(t => t.Id == update.ToolCall.Id);
                         if (existing is not null) { existing.Result = update.ToolCall.Result; existing.IsError = update.ToolCall.IsError; }
                         else assistantMsg.ToolCalls.Add(update.ToolCall);
+
+                        // If the agent created a plan artifact, auto-register it in the conversation and open the Sidecar
+                        if (!update.ToolCall.IsError && update.ToolCall.ToolName.Equals("create_plan_artifact", StringComparison.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                var argsNode = System.Text.Json.Nodes.JsonNode.Parse(update.ToolCall.Arguments ?? "{}");
+                                var planFileName = argsNode?["fileName"]?.ToString() ?? "plan.md";
+                                var planTitle = argsNode?["title"]?.ToString() ?? Path.GetFileNameWithoutExtension(planFileName);
+                                var planContent = argsNode?["content"]?.ToString() ?? "";
+                                var planDesc = argsNode?["description"]?.ToString();
+
+                                var existingArtifact = Active.Artifacts.FirstOrDefault(a => a.FileName.Equals(planFileName, StringComparison.OrdinalIgnoreCase));
+                                if (existingArtifact != null)
+                                {
+                                    existingArtifact.Title = planTitle;
+                                    existingArtifact.Content = planContent;
+                                    existingArtifact.Description = planDesc;
+                                    selectedArtifact = existingArtifact;
+                                }
+                                else
+                                {
+                                    var newArtifact = new ArtifactInfo
+                                    {
+                                        FileName = planFileName,
+                                        Title = planTitle,
+                                        Description = planDesc,
+                                        Content = planContent,
+                                        Language = "markdown",
+                                        RelativePath = Path.Combine("artifacts", planFileName)
+                                    };
+                                    Active.Artifacts.Add(newArtifact);
+                                    selectedArtifact = newArtifact;
+                                }
+
+                                OpenSidecar(SidecarTab.Artifact);
+                                SonnerService.Success("Project Plan Created", $"Plan '{planTitle}' is ready for review in the Sidecar.");
+                            }
+                            catch {}
+                        }
+
                         await InvokeAsync(StateHasChanged);
                         _ = JSRuntime.InvokeVoidAsync("gramAudio.scrollToBottom", "messagesContainer");
                     }
