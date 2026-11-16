@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "crates/gram-core-rs",
+]
+resolver = "2"

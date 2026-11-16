@@ -1,0 +1,21 @@
+{
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://127.0.0.1:5174"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Gram",
+        "width": 1320,
+        "height": 860,
+        "minWidth": 900,
+        "minHeight": 620,
+        "resizable": true,
+        "backgroundColor": "#0a0a0c",
+        "url": "http://127.0.0.1:5174"
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -e
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
+
+if command -v bun >/dev/null 2>&1; then
+  exec bun run "$DIR/src/cli/index.ts" "$@"
+else
+  echo "Error: Bun is required to run Gram v2. Install it via https://bun.sh" >&2
+  exit 1
+fi

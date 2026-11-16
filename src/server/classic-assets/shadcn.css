@@ -1,0 +1,630 @@
+/* ==========================================================================
+   ShadCN Blazor Design Tokens & Component Styles
+   ========================================================================== */
+
+:root {
+  /* HSL Colors */
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+
+  --primary: 222.2 47.4% 11.2%;
+  --primary-foreground: 210 40% 98%;
+
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 222.2 84% 4.9%;
+
+  --radius: 0.5rem;
+
+  --sidebar: var(--background);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+
+.dark, [data-theme="dark"], body.dark {
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+
+  --card: 222.2 84% 4.9%;
+  --card-foreground: 210 40% 98%;
+
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+
+  --primary: 210 40% 98%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 212.7 26.8% 83.9%;
+
+  --sidebar: var(--background);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+
+/* ==========================================================================
+   ShadCN Button Component
+   ========================================================================== */
+.shadcn-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  border-radius: var(--radius);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  border: 1px solid transparent;
+  outline: none;
+  font-family: inherit;
+  user-select: none;
+  text-decoration: none;
+  gap: 8px;
+}
+
+.shadcn-btn:disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Button Variants */
+.shadcn-btn-default {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.shadcn-btn-default:hover {
+  opacity: 0.9;
+}
+
+.shadcn-btn-destructive {
+  background-color: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+.shadcn-btn-destructive:hover {
+  opacity: 0.9;
+}
+
+.shadcn-btn-outline {
+  border-color: hsl(var(--border));
+  background-color: transparent;
+  color: hsl(var(--foreground));
+}
+.shadcn-btn-outline:hover {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.shadcn-btn-secondary {
+  background-color: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+}
+.shadcn-btn-secondary:hover {
+  opacity: 0.85;
+}
+
+.shadcn-btn-ghost {
+  background-color: transparent;
+  color: hsl(var(--foreground));
+}
+.shadcn-btn-ghost:hover {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.shadcn-btn-link {
+  background-color: transparent;
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* Button Sizes */
+.shadcn-btn-size-default {
+  height: 36px;
+  padding: 0 16px;
+}
+.shadcn-btn-size-sm {
+  height: 30px;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0 12px;
+  font-size: 12px;
+}
+.shadcn-btn-size-lg {
+  height: 42px;
+  border-radius: calc(var(--radius) + 2px);
+  padding: 0 24px;
+  font-size: 15px;
+}
+.shadcn-btn-size-icon {
+  height: 36px;
+  width: 36px;
+  padding: 0;
+}
+
+/* ==========================================================================
+   ShadCN Card Component
+   ========================================================================== */
+.shadcn-card {
+  border-radius: var(--radius);
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.shadcn-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 24px 24px 16px 24px;
+}
+
+.shadcn-card-title {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  color: hsl(var(--card-foreground));
+  margin: 0;
+}
+
+.shadcn-card-description {
+  font-size: 13.5px;
+  color: hsl(var(--muted-foreground));
+  margin: 0;
+  line-height: 1.45;
+}
+
+.shadcn-card-content {
+  padding: 0 24px 24px 24px;
+}
+
+.shadcn-card-footer {
+  display: flex;
+  align-items: center;
+  padding: 0 24px 24px 24px;
+}
+
+/* ==========================================================================
+   ShadCN Alert Component
+   ========================================================================== */
+.shadcn-alert {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid hsl(var(--border));
+  padding: 14px 16px;
+  font-size: 13.5px;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  box-sizing: border-box;
+}
+
+.shadcn-alert-destructive {
+  border-color: hsl(var(--destructive) / 0.5);
+  color: hsl(var(--destructive));
+}
+
+.shadcn-alert-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.shadcn-alert-description {
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
+/* ==========================================================================
+   ShadCN Badge Component
+   ========================================================================== */
+.shadcn-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.shadcn-badge-default {
+  border-color: transparent;
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.shadcn-badge-secondary {
+  border-color: transparent;
+  background-color: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+}
+
+.shadcn-badge-destructive {
+  border-color: transparent;
+  background-color: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+
+.shadcn-badge-outline {
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+  background-color: transparent;
+}
+
+/* ==========================================================================
+   ShadCN Input Component
+   ========================================================================== */
+.shadcn-input {
+  display: flex;
+  height: 36px;
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid hsl(var(--border));
+  background-color: transparent;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  color: hsl(var(--foreground));
+  box-sizing: border-box;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+  outline: none;
+}
+
+.shadcn-input:focus {
+  border-color: hsl(var(--border-focus, var(--primary)));
+  outline: none;
+  box-shadow: none;
+}
+
+.shadcn-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.shadcn-input::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+/* ==========================================================================
+   ShadCN Separator Component
+   ========================================================================== */
+.shadcn-separator {
+  flex-shrink: 0;
+  background-color: hsl(var(--border));
+}
+
+.shadcn-separator-horizontal {
+  height: 1px;
+  width: 100%;
+  margin: 12px 0;
+}
+
+.shadcn-separator-vertical {
+  height: 100%;
+  width: 1px;
+  margin: 0 12px;
+}
+
+/* ==========================================================================
+   ShadCN Sonner Toast Component
+   ========================================================================== */
+.sonner-container {
+  position: fixed;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  max-width: 380px;
+  width: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.sonner-position-bottomright { bottom: 0; right: 0; }
+.sonner-position-bottomleft { bottom: 0; left: 0; }
+.sonner-position-topright { top: 0; right: 0; }
+.sonner-position-topleft { top: 0; left: 0; }
+.sonner-position-topcenter { top: 0; left: 50%; transform: translateX(-50%); }
+.sonner-position-bottomcenter { bottom: 0; left: 50%; transform: translateX(-50%); }
+
+.sonner-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 15px;
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  animation: sonner-slide-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+  width: 100%;
+}
+
+@keyframes sonner-slide-in {
+  from {
+    transform: translateY(16px) scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.sonner-toast-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sonner-toast-success .sonner-toast-icon { color: #10b981; }
+.sonner-toast-destructive .sonner-toast-icon { color: hsl(var(--destructive)); }
+.sonner-toast-destructive { border-color: hsl(var(--destructive) / 0.4); }
+.sonner-toast-warning .sonner-toast-icon { color: #f59e0b; }
+.sonner-toast-info .sonner-toast-icon { color: #3b82f6; }
+
+.sonner-toast-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.sonner-toast-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: hsl(var(--foreground));
+}
+
+.sonner-toast-description {
+  font-size: 12.5px;
+  color: hsl(var(--muted-foreground));
+  margin-top: 3px;
+  line-height: 1.45;
+}
+
+.sonner-toast-close {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.sonner-toast-close:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+/* ==========================================================================
+   ShadCN Context Menu Component (Theme-Aware)
+   ========================================================================== */
+.shadcn-context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: transparent;
+}
+
+.shadcn-context-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 175px;
+  max-width: 260px;
+  overflow: hidden;
+  border-radius: var(--radius-md, var(--radius));
+  border: 1px solid var(--border-color, hsl(var(--border)));
+  background-color: var(--bg-panel, hsl(var(--popover)));
+  color: var(--text-primary, hsl(var(--popover-foreground)));
+  padding: 4px;
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2);
+  animation: context-menu-pop 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+@keyframes context-menu-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.shadcn-context-menu-item {
+  position: relative;
+  display: flex;
+  width: 100%;
+  cursor: pointer;
+  user-select: none;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-sm, calc(var(--radius) - 2px));
+  padding: 6px 9px;
+  font-size: 12.5px;
+  outline: none;
+  border: none;
+  background: transparent;
+  color: var(--text-primary, hsl(var(--foreground)));
+  text-align: left;
+  transition: background-color 0.1s ease, color 0.1s ease;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.shadcn-context-menu-item:hover {
+  background-color: var(--bg-hover, hsl(var(--accent)));
+  color: var(--text-primary, hsl(var(--accent-foreground)));
+}
+
+.shadcn-context-menu-item.destructive {
+  color: var(--danger, hsl(var(--destructive)));
+}
+
+.shadcn-context-menu-item.destructive:hover {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: var(--danger, hsl(var(--destructive)));
+}
+
+.shadcn-context-menu-item.disabled {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+.shadcn-context-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: currentColor;
+  opacity: 0.85;
+}
+
+.shadcn-context-menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shadcn-context-menu-shortcut {
+  margin-left: auto;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, hsl(var(--muted-foreground)));
+}
+
+.shadcn-context-menu-separator {
+  height: 1px;
+  margin: 4px -4px;
+  background-color: var(--border-color, hsl(var(--border)));
+}
+
+/* ==========================================================================
+   ShadCN Avatar Component
+   ========================================================================== */
+.shadcn-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 9999px;
+  background-color: var(--bg-hover, hsl(var(--muted)));
+  user-select: none;
+  border: 1px solid var(--border-color, hsl(var(--border)));
+}
+
+.shadcn-avatar-xs {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
+}
+
+.shadcn-avatar-sm {
+  width: 24px;
+  height: 24px;
+  font-size: 10.5px;
+}
+
+.shadcn-avatar-md {
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.shadcn-avatar-lg {
+  width: 40px;
+  height: 40px;
+  font-size: 14px;
+}
+
+.shadcn-avatar-xl {
+  width: 48px;
+  height: 48px;
+  font-size: 16px;
+}
+
+.shadcn-avatar-image {
+  aspect-ratio: 1 / 1;
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+}
+
+.shadcn-avatar-fallback {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: var(--text-primary, hsl(var(--foreground)));
+  background-color: var(--bg-hover, hsl(var(--muted)));
+  text-transform: uppercase;
+}

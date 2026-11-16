@@ -2,6 +2,7 @@
 bin/
 obj/
 dist/
+target/
 node_modules/
 *.app/
 Gram.app/
@@ -10,6 +11,7 @@ Gram.app/
 .vs/
 .idea/
 .vscode/
+.DS_Store
 
 # Local Databases and Storage
 *.db

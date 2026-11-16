@@ -1,0 +1,52 @@
+{
+  "name": "gram",
+  "version": "2.0.0",
+  "description": "Gram v2 — Unified Agent-Native Coding Platform (GramFS, Code Mode, Semantic URIs, 8 Agent-First Tools, AHP v2 & AWS Bedrock Continuity)",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "gram": "./src/cli/index.ts"
+  },
+  "scripts": {
+    "dev": "concurrently -n \"DAEMON,STUDIO\" -c \"emerald,cyan\" \"bun --watch src/server/index.ts\" \"vite\"",
+    "dev:server": "bun --watch src/server/index.ts",
+    "dev:studio": "vite",
+    "cli": "bun run src/cli/index.ts",
+    "doctor": "bun run src/cli/index.ts doctor",
+    "graph": "bun run src/cli/index.ts graph",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "build:rust": "cargo build --release --manifest-path Cargo.toml",
+    "build:studio": "vite build",
+    "build": "tsc --noEmit && vite build",
+    "tauri:dev": "bunx @tauri-apps/cli dev --config src-tauri/tauri.dev.conf.json",
+    "tauri:build": "bunx @tauri-apps/cli build"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1161.0",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@streamdown/mermaid": "^1.0.3",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.37.0",
+    "radix-ui": "^1.8.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "streamdown": "^2.7.1",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "playwright": "^1.64.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2"
+  }
+}

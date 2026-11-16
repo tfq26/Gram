@@ -1,0 +1,270 @@
+@import "tailwindcss";
+@source "../../node_modules/streamdown/dist/*.js";
+
+.gram-markdown [data-streamdown="code-block"],
+.gram-markdown [data-streamdown="code-block-header"],
+.gram-markdown [data-streamdown="code-block-body"],
+.gram-markdown [data-streamdown="mermaid-block"],
+.gram-markdown [data-streamdown="code-block"] button,
+.gram-markdown [data-streamdown="mermaid-block"] button {
+  border-color: transparent !important;
+  border-width: 0 !important;
+}
+
+@theme inline {
+  --color-background: var(--bg-body, #050505);
+  --color-foreground: var(--text-primary, #f4f4f5);
+  --color-card: var(--bg-panel, #0d0d0d);
+  --color-card-foreground: var(--text-primary, #f4f4f5);
+  --color-primary: var(--text-primary, #f4f4f5);
+  --color-primary-foreground: var(--bg-body, #050505);
+  --color-secondary: var(--bg-panel-subtle, #141414);
+  --color-secondary-foreground: var(--text-primary, #f4f4f5);
+  --color-muted: var(--bg-panel-subtle, #141414);
+  --color-muted-foreground: var(--text-muted, #636366);
+  --color-accent: var(--bg-hover, #1f1f1f);
+  --color-accent-foreground: var(--text-primary, #f4f4f5);
+  --color-border: var(--border-color, #242424);
+  --color-input: var(--border-color, #242424);
+  --color-ring: var(--border-focus, #52525b);
+  --color-destructive: #ef4444;
+  --font-sans: "Geist Variable", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.message-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease;
+}
+
+.message-action-btn:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+/* Directional View Transitions & Onboarding / Auth Motion */
+@keyframes gram-slide-to-left {
+  to {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+
+@keyframes gram-slide-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+
+@keyframes gram-slide-to-right {
+  to {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+
+@keyframes gram-slide-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+
+@keyframes gram-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes gram-tile-reveal {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.gram-fade-up {
+  animation: gram-fade-up 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.gram-step-forward {
+  animation: gram-slide-from-right 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.gram-step-backward {
+  animation: gram-slide-from-left 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.gram-tile-reveal {
+  animation: gram-tile-reveal 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+::view-transition-group(root) {
+  animation-duration: 0.32s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html:active-view-transition-type(forward)::view-transition-old(root) {
+  animation-name: gram-slide-to-left;
+}
+
+html:active-view-transition-type(forward)::view-transition-new(root) {
+  animation-name: gram-slide-from-right;
+}
+
+html:active-view-transition-type(backward)::view-transition-old(root) {
+  animation-name: gram-slide-to-right;
+}
+
+html:active-view-transition-type(backward)::view-transition-new(root) {
+  animation-name: gram-slide-from-left;
+}
+
+@keyframes gram-boot-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.gram-boot-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a0c;
+  color: #ffffff;
+  z-index: 9999;
+}
+
+.gram-boot-logo {
+  width: 44px;
+  height: 44px;
+  animation: gram-boot-spin 1.35s linear infinite;
+}
+
+@media (prefers-color-scheme: light) {
+  .gram-boot-screen {
+    background: #f6f6f7;
+    color: #111113;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gram-fade-up,
+  .gram-step-forward,
+  .gram-step-backward,
+  .gram-tile-reveal,
+  .gram-boot-logo {
+    animation: none !important;
+  }
+
+  ::view-transition-group(root) {
+    animation: none !important;
+  }
+}
+
+.gram-markdown > *:first-child {
+  margin-top: 0;
+}
+
+.gram-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.gram-markdown h1,
+.gram-markdown h2,
+.gram-markdown h3,
+.gram-markdown h4 {
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 14px 0 6px;
+}
+
+.gram-markdown h1 { font-size: 1.25em; }
+.gram-markdown h2 { font-size: 1.12em; }
+.gram-markdown h3 { font-size: 1.03em; }
+.gram-markdown h4 { font-size: 0.98em; }
+
+.gram-markdown ul {
+  list-style-type: disc;
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.gram-markdown ol {
+  list-style-type: decimal;
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.gram-markdown li {
+  margin: 3px 0;
+}
+
+.gram-markdown li > ul,
+.gram-markdown li > ol {
+  margin: 4px 0;
+}
+
+.gram-markdown strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.gram-markdown a {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.gram-markdown blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 2px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.gram-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  margin: 12px 0;
+}
+
+.gram-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.gram-markdown th,
+.gram-markdown td {
+  border: 1px solid var(--border-color);
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.gram-markdown th {
+  background: var(--bg-panel-subtle);
+  font-weight: 600;
+}

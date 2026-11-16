@@ -1,6 +1,6 @@
 # Gram Desktop & Web Client — Multi-Platform Launch Guide
 
-Gram provides multiple native and web presentation surfaces built with **.NET 9**:
+Gram provides multiple native and web presentation surfaces built with **.NET 10**:
 1. **Gram.Maui** (Desktop): High-performance native desktop shell for **Windows** (WinUI 3 / Edge WebView2) and **macOS** (Mac Catalyst / WKWebView) using .NET MAUI Blazor Hybrid.
 2. **Gram.Blazor** (Web): Full-featured web application hosting both the **Classic Web UI** (at `/` and `/classic`) and the modern **Carbon 3-Pane Workspace UI** (at `/workspace`) for side-by-side comparison.
 
@@ -36,9 +36,10 @@ Gram provides multiple native and web presentation surfaces built with **.NET 9*
 ## 2. Platform Prerequisites
 
 ### Common Prerequisites (All Platforms)
-- **.NET 9 SDK**: Ensure `dotnet --version` outputs `9.0.x` or higher.  
-  Download: [https://dotnet.microsoft.com/download/dotnet/9.0](https://dotnet.microsoft.com/download/dotnet/9.0)
+- **.NET 10 SDK**: Ensure `dotnet --version` outputs `10.0.x` or higher.
+  Download: [https://dotnet.microsoft.com/download/dotnet/10.0](https://dotnet.microsoft.com/download/dotnet/10.0)
 - **Git**: Installed and accessible in your system `PATH`.
+- **MAUI workload**: Install with `dotnet workload install maui-maccatalyst` on macOS or `dotnet workload install maui-windows` on Windows.
 
 ---
 
@@ -55,9 +56,7 @@ Gram provides multiple native and web presentation surfaces built with **.NET 9*
 ### macOS (Apple Silicon & Intel)
 - **macOS 12.0+** (Monterey, Ventura, Sonoma, Sequoia).
 - Apple WebKit is built into macOS — no additional runtime download required.
-- **Interactive WindowServer Requirement**:
-  > [!NOTE]
-  > On macOS, native GUI windows (`NSApplication`) require an active interactive Cocoa WindowServer session with Mach port access to the screen. If launched from a headless background subshell or CI runner, Photino will exit after the first render. Run commands in an interactive Terminal window or use `Launch Gram Desktop.command`.
+- Requires Xcode command line tools or full Xcode for compilation.
 
 ---
 
@@ -83,10 +82,19 @@ Gram provides multiple native and web presentation surfaces built with **.NET 9*
 
 ## 3. How to Launch on Windows
 
+Choose a mode with the PowerShell launcher:
+
+```powershell
+.\scripts\launch-desktop.ps1 -Desktop
+.\scripts\launch-desktop.ps1 -Web
+```
+
+The desktop mode is the default when no switch is provided.
+
 ### Method 1: Double-Click Launcher (Easiest)
 In Windows File Explorer, navigate to the `Gram` folder and double-click:
 
-📄 **`Launch Gram Desktop.bat`**
+**`Launch Gram Desktop.bat`**
 
 This starts a background backend server (if needed) and opens the native Windows window.
 
@@ -94,7 +102,7 @@ This starts a background backend server (if needed) and opens the native Windows
 Open Windows Terminal or PowerShell in the `Gram` folder:
 
 ```powershell
-.\scripts\launch-desktop.ps1
+.\scripts\launch-desktop.ps1 -Desktop
 ```
 
 If script execution is disabled on your system, bypass it with:
@@ -113,23 +121,32 @@ dotnet run --project Gram.Blazor\Gram.Blazor.csproj
 
 **Terminal 2 (Desktop Client - Windows MAUI):**
 ```powershell
-dotnet run --project Gram.Blazor\clients\Gram.Maui\Gram.Maui.csproj -f net9.0-windows10.0.19041.0
+dotnet run --project Gram.Blazor\clients\Gram.Maui\Gram.Maui.csproj -f net10.0-windows10.0.19041.0
 ```
 
 ---
 
 ## 4. How to Launch on macOS
 
+Choose either app from the unified launcher:
+
+```bash
+./launch.sh --desktop
+./launch.sh --web
+```
+
+With no mode flag, macOS starts the desktop app.
+
 ### Method 1: Double-Click from Finder
 In Finder, open the `Gram` folder and double-click:
 
-📁 **`Launch Gram Desktop.command`**
+**`Launch Gram Desktop.command`**
 
 ### Method 2: Terminal Interactive Shell
 Open Terminal, iTerm2, or VS Code terminal:
 
 ```bash
-./scripts/launch-desktop.sh
+./launch.sh --desktop
 ```
 
 To spawn a dedicated fresh Terminal window programmatically:
@@ -152,7 +169,7 @@ dotnet run --project Gram.Blazor/Gram.Blazor.csproj
 
 **Terminal 2 (Desktop Client - MacCatalyst MAUI):**
 ```bash
-dotnet run --project Gram.Blazor/clients/Gram.Maui/Gram.Maui.csproj -f net9.0-maccatalyst
+dotnet run --project Gram.Blazor/clients/Gram.Maui/Gram.Maui.csproj -f net10.0-maccatalyst27.0
 ```
 
 ---
@@ -168,27 +185,16 @@ Gram.Blazor provides both modern Carbon Workspace and Classic web UIs simultaneo
 Open your terminal in the `Gram` folder:
 
 ```bash
-./scripts/launch-desktop.sh
+./launch.sh --web
 ```
 
-The script automatically detects Linux, checks your `.NET 9 SDK`, checks if the backend is running, boots it in the background if necessary, and opens the native GTK3/WebKit window.
+On Linux, the script automatically checks your `.NET 10 SDK`, starts the background backend if necessary, and opens the Web UI in your default browser.
 
-### Method 2: Manual Launch
-**Terminal 1 (Backend):**
+### Method 2: Manual Backend Launch
 ```bash
-dotnet run --project Gram.Blazor/Gram.Blazor.csproj
+dotnet run --project Gram.Blazor/Gram.Server/Gram.Server.csproj
 ```
-
-**Terminal 2 (Desktop Client):**
-```bash
-dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj
-```
-
-> [!TIP]
-> **Wayland Note**: If your desktop uses pure Wayland and the window does not display, run with XWayland compatibility:
-> ```bash
-> GDK_BACKEND=x11 dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj
-> ```
+Then navigate to `http://localhost:7337/workspace` in any modern web browser.
 
 ---
 
@@ -215,67 +221,34 @@ dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj -- --b
 
 ## 7. Building Standalone Release Executables
 
-To build self-contained or framework-dependent production binaries for distribution:
+To build production binaries for the native MAUI desktop application:
 
-### Windows x64:
+### macOS Application Bundle (`Gram.app`):
+```bash
+./scripts/bundle-macos-app.sh Release
+```
+*Output: `Gram.app` in the repository root. Launch via `open Gram.app`.*
+
+### Windows x64 (WinUI 3):
 ```powershell
-dotnet publish Gram.Blazor\clients\Gram.Desktop\Gram.Desktop.csproj `
+dotnet publish Gram.Blazor\clients\Gram.Maui\Gram.Maui.csproj `
+  -f net10.0-windows10.0.19041.0 `
   -c Release `
-  -r win-x64 `
-  --self-contained false `
-  -o .\dist\win-x64
+  -p:WindowsPackageType=None
 ```
-*Output: `dist\win-x64\Gram.Desktop.exe`*
-
-### macOS (Apple Silicon ARM64):
-```bash
-dotnet publish Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj \
-  -c Release \
-  -r osx-arm64 \
-  --self-contained false \
-  -o ./dist/osx-arm64
-```
-*Or run `./scripts/bundle-macos-app.sh` to package into a notarizable `Gram.app`.*
-
-### macOS (Intel x64):
-```bash
-dotnet publish Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj \
-  -c Release \
-  -r osx-x64 \
-  --self-contained false \
-  -o ./dist/osx-x64
-```
-
-### Linux x64:
-```bash
-dotnet publish Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj \
-  -c Release \
-  -r linux-x64 \
-  --self-contained false \
-  -o ./dist/linux-x64
-```
-*Output: `dist/linux-x64/Gram.Desktop` (make executable with `chmod +x`)*
-
-### Linux ARM64:
-```bash
-dotnet publish Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj \
-  -c Release \
-  -r linux-arm64 \
-  --self-contained false \
-  -o ./dist/linux-arm64
-```
+*Output: `Gram.Blazor\clients\Gram.Maui\bin\Release\net10.0-windows10.0.19041.0\win10-x64\publish\Gram.Maui.exe`*
 
 ---
 
 ## 8. Platform Behavior & Shortcuts Matrix
 
-| Feature / Shortcut | Windows | macOS | Linux |
+| Feature / Shortcut | Windows | macOS | Web / Linux |
 | :--- | :--- | :--- | :--- |
 | **Submit Message** | `Ctrl + Enter` | `⌘ + Enter` | `Ctrl + Enter` |
 | **Command Palette** | `Ctrl + K` | `⌘ + K` | `Ctrl + K` |
-| **Embedded Shell** | PowerShell 7 / CMD (`pwsh.exe`) | zsh / bash (`/bin/zsh`) | bash / zsh (`$SHELL`) |
-| **Rendering Engine** | Microsoft Edge WebView2 | Apple WebKit | WebKit2GTK |
-| **Window State Memory** | `%APPDATA%/Gram` | `~/Library/Application Support/Gram` | `~/.config/Gram` |
+| **Embedded Shell** | PowerShell 7 / CMD (`pwsh.exe`) | zsh / bash (`/bin/zsh`) | Server host shell |
+| **Rendering Engine** | Microsoft Edge WebView2 (WinUI 3) | Apple WebKit (Mac Catalyst) | Host Browser |
+| **Window State Memory** | `%APPDATA%/Gram` | `~/Library/Application Support/Gram` | Browser LocalStorage |
 | **Logs Location** | `.logs\backend.log` | `.logs/backend.log` | `.logs/backend.log` |
 
 ---
@@ -284,56 +257,33 @@ dotnet publish Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj \
 
 ### Windows Issues
 
-1. **"The type initializer for 'PhotinoNET.PhotinoWindow' threw an exception"**:
-   - WebView2 runtime is missing or corrupted.
-   - Solution: Download and run the [Evergreen Bootstrapper](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
+1. **WebView2 Runtime**:
+   - WinUI 3 requires Microsoft Edge WebView2 Evergreen runtime.
+   - Pre-installed on Windows 11 and recent Windows 10. If missing: [Microsoft WebView2 Download](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
 
 2. **PowerShell execution policy error**:
    - `File ... cannot be loaded because running scripts is disabled on this system.`
    - Solution: Use `Launch Gram Desktop.bat`, or run `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`.
 
 3. **Firewall alert on first run**:
-   - Windows Defender Firewall may ask for permission for `dotnet.exe` or `Gram.Blazor.exe` to accept local socket connections on port `7337`.
+   - Windows Defender Firewall may ask for permission for `dotnet.exe` to accept local socket connections on port `7337`.
    - Solution: Click **Allow access** (Private networks).
 
 ---
 
 ### macOS Issues
 
-1. **Window closes immediately / Photino exits after one render**:
-   - Cause: Script was executed from an SSH session, daemon, or non-interactive agent subshell.
-   - Solution: Double-click `Launch Gram Desktop.command` in Finder or run `./scripts/launch-desktop.sh` inside an interactive `Terminal.app` window.
-
-2. **"Gram.app is damaged and cannot be opened" (Gatekeeper)**:
+1. **"Gram.app is damaged and cannot be opened" (Gatekeeper)**:
    - For locally bundled `.app` files that haven't been signed with an Apple Developer certificate:
      ```bash
      xattr -cr Gram.app
      ```
 
----
-
-### Linux Issues
-
-1. **"Unable to load shared library 'libwebkit2gtk-4.1.so.0'"**:
-   - Cause: WebKitGTK library is not installed.
-   - Solution:
+2. **Xcode preview / SDK warnings**:
+   - If running against newer macOS previews, ensure the full Xcode application is active:
      ```bash
-     # Ubuntu / Debian
-     sudo apt install -y libwebkit2gtk-4.1-0
-     # Fedora
-     sudo dnf install -y webkit2gtk4.1
-     # Arch
-     sudo pacman -S webkit2gtk-4.1
+     sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
      ```
-
-2. **Black or blank window under Wayland**:
-   - Force X11 backend fallback:
-     ```bash
-     GDK_BACKEND=x11 ./scripts/launch-desktop.sh
-     ```
-
-3. **Missing system tray or indicator library**:
-   - Install `libayatana-appindicator3-1` (Debian/Ubuntu) or `libappindicator-gtk3` (Fedora/Arch).
 
 ---
 

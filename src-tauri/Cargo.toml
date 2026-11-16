@@ -1,0 +1,20 @@
+[workspace]
+
+[package]
+name = "gram-desktop"
+version = "2.0.0"
+description = "Gram v2 Desktop Shell (Tauri v2 + Bun Sidecar)"
+authors = ["Gram"]
+edition = "2021"
+
+[lib]
+name = "gram_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
