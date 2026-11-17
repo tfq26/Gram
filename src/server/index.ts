@@ -35,6 +35,17 @@ const classicAssetsRoot = path.resolve(cwd, 'src/server/classic-assets');
 
 const PORT = parseInt(process.env.GRAM_PORT || (process.env.NODE_ENV === 'test' ? '0' : '7337'), 10);
 
+function extractRequestAuthToken(req: Request): string | undefined {
+  const cookieToken = extractCookieValue(req.headers.get('cookie'), 'gram_lyra_token');
+  if (cookieToken) return cookieToken;
+  const authHeader = req.headers.get('authorization');
+  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+    const bearer = authHeader.slice(7).trim();
+    if (bearer) return bearer;
+  }
+  return undefined;
+}
+
 connect.recordHeartbeat({
   deviceId: 'studio-local',
   deviceName: `Gram Desktop (${path.basename(cwd)})`,
@@ -206,6 +217,7 @@ async function handleRequest(req: Request): Promise<Response> {
         const ok = await runtime.resumeRun(sessionId, runId, {
           feedback,
           modelId: body.modelId,
+          authToken: extractRequestAuthToken(req),
         });
         const checkpoint = runtime.getCheckpoint(sessionId, runId);
         return jsonResponse({ ok, checkpoint }, ok ? 200 : 404);
@@ -291,8 +303,7 @@ async function handleRequest(req: Request): Promise<Response> {
       if (sysRes) return sysRes;
     }
 
-    if (url.pathname === '/api/bootstrap' && req.method === 'GET') {
-      const requestedSessionId = url.searchParams.get('sessionId') || '';
+    const buildSystemChecks = async () => {
       const rawCookie = req.headers.get('cookie') || '';
       const cookieMatch = rawCookie.match(/(?:^|;\s*)gram_session=([^;]+)/);
       const localToken = cookieMatch ? decodeURIComponent(cookieMatch[1]) : undefined;
@@ -329,7 +340,6 @@ async function handleRequest(req: Request): Promise<Response> {
               googleEnabled: providers.googleEnabled,
               hubUrl: lyraState.hubUrl,
             };
-
       const byokModels = runtime.byok.listPublicModels().map((m) => ({
         id: m.id,
         name: m.name,
@@ -343,22 +353,6 @@ async function handleRequest(req: Request): Promise<Response> {
         ...m,
         source: m.provider === 'openrouter' ? ('openrouter' as const) : ('builtin' as const),
       }));
-
-      const testSessions = new Set(['sess-1', 'sess-2', 'sess-3', 's-sync', 's-async', 's-resume', 'test-session']);
-      const tasks = runtime.listRecentTasks(30).filter((t) => !testSessions.has(t.sessionId));
-      const chats = runtime.listChatSessions(50);
-      const activeChat = requestedSessionId ? runtime.getChatSession(requestedSessionId) : null;
-      let activePlan = '';
-      if (requestedSessionId) {
-        const safePlanId = requestedSessionId.replace(/[^a-zA-Z0-9._-]+/g, '_');
-        const planPath = path.resolve(cwd, '.gram', 'plans', `${safePlanId}.md`);
-        if (fs.existsSync(planPath)) {
-          try {
-            activePlan = fs.readFileSync(planPath, 'utf8');
-          } catch {}
-        }
-      }
-
       const projects = runtime.listProjects();
       const workspaceExists = fs.existsSync(cwd);
       const hasProviderKey = Boolean(
@@ -429,6 +423,32 @@ async function handleRequest(req: Request): Promise<Response> {
           action: 'settings' as const,
         },
       ];
+      return { auth, byokModels, catalogModels, projects, systemChecks };
+    };
+
+    if (url.pathname === '/api/system/checks' && req.method === 'GET') {
+      const { systemChecks, auth } = await buildSystemChecks();
+      return jsonResponse({ systemChecks, auth });
+    }
+
+    if (url.pathname === '/api/bootstrap' && req.method === 'GET') {
+      const requestedSessionId = url.searchParams.get('sessionId') || '';
+      const { auth, byokModels, catalogModels, projects, systemChecks } = await buildSystemChecks();
+
+      const testSessions = new Set(['sess-1', 'sess-2', 'sess-3', 's-sync', 's-async', 's-resume', 'test-session']);
+      const tasks = runtime.listRecentTasks(30).filter((t) => !testSessions.has(t.sessionId));
+      const chats = runtime.listChatSessions(50);
+      const activeChat = requestedSessionId ? runtime.getChatSession(requestedSessionId) : null;
+      let activePlan = '';
+      if (requestedSessionId) {
+        const safePlanId = requestedSessionId.replace(/[^a-zA-Z0-9._-]+/g, '_');
+        const planPath = path.resolve(cwd, '.gram', 'plans', `${safePlanId}.md`);
+        if (fs.existsSync(planPath)) {
+          try {
+            activePlan = fs.readFileSync(planPath, 'utf8');
+          } catch {}
+        }
+      }
 
       return jsonResponse({
         auth,
@@ -665,6 +685,7 @@ async function handleRequest(req: Request): Promise<Response> {
             messages: [{ role: 'user', content: transcript }],
             tools: [],
             effort: 'low',
+            authToken: extractRequestAuthToken(req),
             signal: AbortSignal.timeout(10_000),
           });
           const summary = turn.text?.trim() || fallbackSummary;
@@ -713,6 +734,7 @@ async function handleRequest(req: Request): Promise<Response> {
               runId: body.runId,
               prompt: body.prompt || '',
               modelId: resolvedModel,
+              requestedModelId: requestedModel,
               mode,
               history: Array.isArray(body.history) ? body.history : undefined,
               systemPrompt: typeof body.systemPrompt === 'string' ? body.systemPrompt : undefined,
@@ -722,6 +744,7 @@ async function handleRequest(req: Request): Promise<Response> {
               kind: body.kind,
               requireApproval: body.requireApproval,
               isolateWorktree: Boolean(body.isolateWorktree),
+              authToken: extractRequestAuthToken(req),
               signal: req.signal,
               lyra: createLyraToolBridge(req),
               onEvent: (evt) => send(evt),
@@ -729,7 +752,7 @@ async function handleRequest(req: Request): Promise<Response> {
             void syncWithLyraHub(req);
             send({ type: 'done', result: { ...result, resolvedModelId: resolvedModel } });
           } catch (err: any) {
-            send({ type: 'error', error: err?.message || 'Execution failed' });
+            send({ type: 'error', error: err?.message || 'Execution failed', diagnostics: err?.diagnostics });
           } finally {
             try {
               controller.close();
@@ -761,6 +784,7 @@ async function handleRequest(req: Request): Promise<Response> {
         runId: body.runId,
         prompt: body.prompt || '',
         modelId: resolvedModel,
+        requestedModelId: requestedModel,
         history: Array.isArray(body.history) ? body.history : undefined,
         systemPrompt: typeof body.systemPrompt === 'string' ? body.systemPrompt : undefined,
         effort: body.effort,
@@ -768,11 +792,30 @@ async function handleRequest(req: Request): Promise<Response> {
         projectLabel: body.projectLabel,
         kind: body.kind,
         requireApproval: body.requireApproval,
+        authToken: extractRequestAuthToken(req),
         signal: req.signal,
         lyra: createLyraToolBridge(req),
       });
       void syncWithLyraHub(req);
       return jsonResponse({ ...result, resolvedModelId: resolvedModel });
+    }
+
+    if (url.pathname === '/api/diagnostics/errors' && req.method === 'GET') {
+      const diagFile = path.join(cwd, '.gram', 'diagnostics', 'errors.jsonl');
+      let entries: unknown[] = [];
+      try {
+        if (fs.existsSync(diagFile)) {
+          const lines = fs.readFileSync(diagFile, 'utf8').trim().split('\n').filter(Boolean);
+          entries = lines.slice(-50).reverse().map((line) => {
+            try {
+              return JSON.parse(line);
+            } catch {
+              return { raw: line };
+            }
+          });
+        }
+      } catch {}
+      return jsonResponse({ errors: entries, file: diagFile });
     }
 
     if (url.pathname === '/api/rpc' && req.method === 'POST') {

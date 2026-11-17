@@ -77,6 +77,7 @@ export interface ChatEntry {
   originalPrompt?: string;
   codingHandoffPrompt?: string;
   isError?: boolean;
+  diagnostics?: Record<string, unknown>;
 }
 
 export interface ManagedProcessItem {

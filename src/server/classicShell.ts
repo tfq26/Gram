@@ -16,7 +16,7 @@ export function getAppHtml(): string {
 
 </head>
 <body>
-<div class="app-shell" data-theme="carbon">
+<div class="app-shell" data-theme="obsidian">
   <header class="topbar">
     <div class="topbar-left">
       <a class="brand" href="/" aria-label="Gram home">

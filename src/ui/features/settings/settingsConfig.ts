@@ -74,6 +74,9 @@ export const CATEGORIES: Array<{
 ];
 
 export const THEMES = [
+  { id: 'obsidian', name: 'Obsidian', desc: 'Default dark obsidian palette', swatches: ['#0e0f10', '#34d399', '#ececec'] },
+  { id: 'bone', name: 'Bone', desc: 'Default warm light bone palette', swatches: ['#f7f5f0', '#0ea5e9', '#141311'] },
+  { id: 'prism', name: 'Prism', desc: 'Three-color trio gradient on obsidian', swatches: ['#34d399', '#a78bfa', '#fb7185'] },
   { id: 'carbon', name: 'Carbon', desc: 'Original dark neutral palette', swatches: ['#0a0a0c', '#7c3aed', '#f4f4f5'] },
   { id: 'light', name: 'Light', desc: 'Clean daylight alabaster palette', swatches: ['#fafafa', '#18181b', '#e4e4e7'] },
   { id: 'purple', name: 'Purple', desc: 'Deep violet slate palette', swatches: ['#07050a', '#9333ea', '#f3f0fa'] },

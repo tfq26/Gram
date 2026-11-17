@@ -18,159 +18,311 @@ export interface AuthPageProps {
   onBackToWorkspace: () => void;
 }
 
-const RIBBON_PALETTES = [
-  ['#34D399', '#0EA5E9'],
-  ['#A78BFA', '#38BDF8'],
-  ['#FBBF24', '#FB7185'],
-] as const;
+const CAPTIONS = [
+  'Ideas become clearer\nwhen you explore them.',
+  'Complexity dissolves\nwith the right questions.',
+  'Every breakthrough starts\nas a simple curiosity.',
+  'Precision is found\nin the spaces between thoughts.',
+  'Structure gives form\nto raw imagination.',
+  'Deep focus reveals\nwhat haste obscures.',
+  'The best tools disappear\ninto your flow of thought.',
+  'Great systems emerge\nfrom elegant iterations.',
+  'Intelligence thrives\nwhere clarity meets intent.',
+  'Code is poetry written\nto orchestrate reality.',
+];
 
-function ObsidianAuroraCanvas() {
+function GramPixelMatrixCanvas() {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [captionIndex, setCaptionIndex] = useState(() => Math.floor(Math.random() * CAPTIONS.length));
+  const [captionVisible, setCaptionVisible] = useState(true);
 
   useEffect(() => {
+    const root = rootRef.current;
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    if (!root || !canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    const reducedMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let frameId = 0;
+    let isVisible = true;
+    let isDocumentVisible = !document.hidden;
     let width = 0;
     let height = 0;
-    let rafId = 0;
+    let columns = 0;
+    let rows = 0;
+    let cellWidth = 0;
+    let cellHeight = 0;
+    const gap = 1.2;
+    let basePattern = new Float32Array(0);
+    const pointer = { x: -1000, y: -1000, active: false };
+    const trail: Array<{ x: number; y: number; time: number }> = [];
 
-    const nodes = Array.from({ length: 28 }, (_, i) => ({
-      x: ((i * 73) % 100) / 100,
-      y: ((i * 41 + 17) % 100) / 100,
-      vx: ((i % 5) - 2) * 0.00018,
-      vy: (((i * 3) % 5) - 2) * 0.00015,
-      r: 1.3 + (i % 3) * 0.65,
-      colorIdx: i % RIBBON_PALETTES.length,
-    }));
-
-    const resize = () => {
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      width = rect.width;
-      height = rect.height;
-      canvas.width = Math.floor(width * dpr);
-      canvas.height = Math.floor(height * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const initGridData = () => {
+      basePattern = new Float32Array(columns * rows);
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < columns; c++) {
+          const idx = r * columns + c;
+          const nxBg = c / columns;
+          const nyBg = r / rows;
+          const v1 = Math.sin(nxBg * 12 + nyBg * 8);
+          const v2 = Math.cos(nxBg * 6 - nyBg * 14);
+          const v3 = Math.sin((nxBg + nyBg) * 16);
+          const base = (v1 * 0.4 + v2 * 0.4 + v3 * 0.2 + 1) * 0.5;
+          basePattern[idx] = Math.max(0, Math.min(1, base * 0.42));
+        }
+      }
     };
 
-    const drawFrame = (timeMs: number) => {
+    const render = (timestamp: number) => {
       if (!width || !height) return;
-      const t = timeMs * 0.00055;
+      const time = timestamp * 0.001;
+      const drawW = Math.max(1, cellWidth - gap);
+      const drawH = Math.max(1, cellHeight - gap);
 
       ctx.fillStyle = '#090a0b';
       ctx.fillRect(0, 0, width, height);
 
-      // Soft ambient glow behind the ribbons
-      const glow = ctx.createRadialGradient(
-        width * (0.52 + Math.sin(t * 0.7) * 0.08),
-        height * (0.48 + Math.cos(t * 0.5) * 0.08),
-        10,
+      const now = performance.now();
+      for (let t = trail.length - 1; t >= 0; t--) {
+        if (now - trail[t]!.time > 650) {
+          trail.splice(t, 1);
+        }
+      }
+
+      const paletteStops: ReadonlyArray<readonly [number, number, number]> = [
+        [52, 211, 153],  // #34D399 Aurora Mint
+        [14, 165, 233],  // #0EA5E9 Cyan
+        [167, 139, 250], // #A78BFA Nebula Violet
+        [56, 189, 248],  // #38BDF8 Sky
+        [251, 191, 36],  // #FBBF24 Solar Amber
+        [251, 113, 133], // #FB7185 Rose
+      ];
+
+      for (let r = 0; r < rows; r++) {
+        const y = r * cellHeight;
+        const cellCenterY = y + cellHeight * 0.5;
+        const ny = r / rows;
+        for (let c = 0; c < columns; c++) {
+          const idx = r * columns + c;
+          const x = c * cellWidth;
+          const cellCenterX = x + cellWidth * 0.5;
+          const nx = c / columns;
+
+          const waveX = Math.sin(c * 0.18 + time * 1.6);
+          const waveY = Math.cos(r * 0.14 - time * 1.2);
+          const sweep = Math.sin((c + r) * 0.12 - time * 2.4);
+
+          let lum = (basePattern[idx] || 0) * 0.55 + (waveX * waveY * 0.15 + sweep * 0.12);
+
+          if (pointer.active && pointer.x >= 0) {
+            const dist = Math.hypot(cellCenterX - pointer.x, cellCenterY - pointer.y);
+            if (dist < 140) {
+              const factor = 1 - dist / 140;
+              lum += factor * factor * 0.85;
+            }
+          }
+
+          for (let t = 0; t < trail.length; t++) {
+            const tp = trail[t]!;
+            const age = (now - tp.time) / 650;
+            const tDist = Math.hypot(cellCenterX - tp.x, cellCenterY - tp.y);
+            if (tDist < 100) {
+              const tFactor = (1 - tDist / 100) * (1 - age);
+              lum += tFactor * 0.45;
+            }
+          }
+
+          lum = Math.max(0.04, Math.min(1, lum));
+
+          // Smooth spatial + temporal blend across the Per-Blade Trio stops
+          const colorPos = ((nx * 0.65 + ny * 0.55 + time * 0.06) % 1 + 1) % 1;
+          const scaled = colorPos * paletteStops.length;
+          const i0 = Math.floor(scaled) % paletteStops.length;
+          const i1 = (i0 + 1) % paletteStops.length;
+          const frac = scaled - Math.floor(scaled);
+          const c0 = paletteStops[i0]!;
+          const c1 = paletteStops[i1]!;
+          const cr = Math.round(c0[0] + (c1[0] - c0[0]) * frac);
+          const cg = Math.round(c0[1] + (c1[1] - c0[1]) * frac);
+          const cb = Math.round(c0[2] + (c1[2] - c0[2]) * frac);
+
+          let fill = '';
+          if (lum < 0.15) {
+            fill = `rgba(26, 30, 36, ${0.32 + lum * 2})`;
+          } else if (lum < 0.42) {
+            fill = `rgba(${cr}, ${cg}, ${cb}, ${(0.22 + lum * 0.75).toFixed(3)})`;
+          } else if (lum < 0.78) {
+            fill = `rgba(${cr}, ${cg}, ${cb}, ${(0.55 + lum * 0.45).toFixed(3)})`;
+          } else if (lum < 0.91) {
+            const br = Math.min(255, Math.round(cr + (255 - cr) * 0.45));
+            const bg = Math.min(255, Math.round(cg + (255 - cg) * 0.45));
+            const bb = Math.min(255, Math.round(cb + (255 - cb) * 0.45));
+            fill = `rgb(${br}, ${bg}, ${bb})`;
+          } else {
+            fill = '#f8fafc';
+          }
+
+          ctx.fillStyle = fill;
+          ctx.fillRect(x + gap * 0.5, y + gap * 0.5, drawW, drawH);
+        }
+      }
+
+      const vignette = ctx.createRadialGradient(
         width * 0.5,
         height * 0.5,
-        Math.max(width, height) * 0.65
+        Math.min(width, height) * 0.25,
+        width * 0.5,
+        height * 0.5,
+        Math.max(width, height) * 0.72
       );
-      glow.addColorStop(0, 'rgba(56, 189, 248, 0.14)');
-      glow.addColorStop(0.45, 'rgba(167, 139, 250, 0.08)');
-      glow.addColorStop(1, 'rgba(9, 10, 11, 0)');
-      ctx.fillStyle = glow;
+      vignette.addColorStop(0, 'rgba(9, 10, 11, 0)');
+      vignette.addColorStop(0.65, 'rgba(9, 10, 11, 0.3)');
+      vignette.addColorStop(1, 'rgba(9, 10, 11, 0.88)');
+      ctx.fillStyle = vignette;
       ctx.fillRect(0, 0, width, height);
+    };
 
-      // Three flowing gradient ribbons matching the Per-Blade Trio palette
-      RIBBON_PALETTES.forEach(([start, end], idx) => {
-        const phase = t * (0.9 + idx * 0.18) + idx * 2.1;
-        const grad = ctx.createLinearGradient(0, height * 0.2, width, height * 0.85);
-        grad.addColorStop(0, start);
-        grad.addColorStop(1, end);
-
-        ctx.save();
-        ctx.globalAlpha = 0.22;
-        ctx.strokeStyle = grad;
-        ctx.lineWidth = 42 - idx * 6;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        const steps = 28;
-        for (let s = 0; s <= steps; s++) {
-          const p = s / steps;
-          const px = p * (width + 80) - 40;
-          const wave =
-            Math.sin(p * 3.4 + phase) * (46 + idx * 14) +
-            Math.cos(p * 1.9 - phase * 0.7) * 26;
-          const py = height * (0.28 + idx * 0.21) + wave;
-          if (s === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-        }
-        ctx.stroke();
-
-        // Crisp luminous core line
-        ctx.globalAlpha = 0.65;
-        ctx.lineWidth = 1.6;
-        ctx.stroke();
-        ctx.restore();
-      });
-
-      // Drifting nodes and hairline connections
-      for (const n of nodes) {
-        if (!reducedMotion) {
-          n.x = (n.x + n.vx + 1) % 1;
-          n.y = (n.y + n.vy + 1) % 1;
-        }
-      }
-
-      ctx.lineWidth = 0.75;
-      for (let i = 0; i < nodes.length; i++) {
-        const a = nodes[i]!;
-        const ax = a.x * width;
-        const ay = a.y * height;
-        for (let j = i + 1; j < nodes.length; j++) {
-          const b = nodes[j]!;
-          const bx = b.x * width;
-          const by = b.y * height;
-          const dist = Math.hypot(ax - bx, ay - by);
-          if (dist < 115) {
-            ctx.strokeStyle = `rgba(236, 236, 236, ${(1 - dist / 115) * 0.14})`;
-            ctx.beginPath();
-            ctx.moveTo(ax, ay);
-            ctx.lineTo(bx, by);
-            ctx.stroke();
-          }
-        }
-      }
-
-      for (const n of nodes) {
-        const [c] = RIBBON_PALETTES[n.colorIdx]!;
-        ctx.fillStyle = c;
-        ctx.globalAlpha = 0.75;
-        ctx.beginPath();
-        ctx.arc(n.x * width, n.y * height, n.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-
-      if (!reducedMotion) {
-        rafId = window.requestAnimationFrame(drawFrame);
+    const loop = (timestamp: number) => {
+      render(timestamp);
+      if (isVisible && isDocumentVisible && !reduceMotion.matches) {
+        frameId = window.requestAnimationFrame(loop);
+      } else {
+        frameId = 0;
       }
     };
 
-    resize();
+    const updateAnimationState = () => {
+      const shouldAnimate = isVisible && isDocumentVisible && !reduceMotion.matches;
+      if (shouldAnimate && !frameId) {
+        frameId = window.requestAnimationFrame(loop);
+      } else if (!shouldAnimate && frameId) {
+        window.cancelAnimationFrame(frameId);
+        frameId = 0;
+      }
+    };
+
+    const resize = () => {
+      const rect = root.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) return;
+      width = rect.width;
+      height = rect.height;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const cellSize = width > 900 ? 11 : 9.5;
+      columns = Math.max(28, Math.floor(width / cellSize));
+      rows = Math.max(36, Math.floor(height / cellSize));
+      cellWidth = width / columns;
+      cellHeight = height / rows;
+
+      initGridData();
+      render(performance.now());
+      updateAnimationState();
+    };
+
+    const updatePointer = (e: PointerEvent) => {
+      const rect = root.getBoundingClientRect();
+      pointer.x = e.clientX - rect.left;
+      pointer.y = e.clientY - rect.top;
+    };
+
+    const onPointerEnter = (e: PointerEvent) => {
+      pointer.active = true;
+      updatePointer(e);
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      pointer.active = true;
+      updatePointer(e);
+      trail.push({ x: pointer.x, y: pointer.y, time: performance.now() });
+      if (trail.length > 14) trail.shift();
+    };
+
+    const onPointerLeave = () => {
+      pointer.active = false;
+    };
+
+    const onVisibilityChange = () => {
+      isDocumentVisible = !document.hidden;
+      updateAnimationState();
+    };
+
+    window.addEventListener('pointerenter', onPointerEnter, { passive: true });
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    document.addEventListener('pointerleave', onPointerLeave, { passive: true });
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
-    rafId = window.requestAnimationFrame(drawFrame);
+    ro.observe(root);
+    const io = new IntersectionObserver(
+      (entries) => {
+        isVisible = entries[0]?.isIntersecting ?? true;
+        updateAnimationState();
+      },
+      { threshold: 0.01 }
+    );
+    io.observe(root);
+
+    resize();
+
+    const captionTimer = window.setInterval(() => {
+      if (!isVisible || !isDocumentVisible) return;
+      setCaptionVisible(false);
+      window.setTimeout(() => {
+        setCaptionIndex((prev) => {
+          let next = Math.floor(Math.random() * (CAPTIONS.length - 1));
+          if (next >= prev) next += 1;
+          return next;
+        });
+        setCaptionVisible(true);
+      }, 380);
+    }, 6500);
 
     return () => {
-      window.cancelAnimationFrame(rafId);
+      if (frameId) window.cancelAnimationFrame(frameId);
+      window.clearInterval(captionTimer);
       ro.disconnect();
+      io.disconnect();
+      window.removeEventListener('pointerenter', onPointerEnter);
+      window.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerleave', onPointerLeave);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, []);
 
-  return <canvas ref={canvasRef} className="h-full w-full block" />;
+  const captionLines = (CAPTIONS[captionIndex] || CAPTIONS[0]!).split('\n');
+
+  return (
+    <div ref={rootRef} className="relative h-full w-full overflow-hidden bg-[#090a0b]">
+      <canvas
+        ref={canvasRef}
+        role="img"
+        aria-label="Interactive Gram gradient pixel matrix artwork"
+        className="block h-full w-full"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-[#090a0b]/85 via-[#090a0b]/35 to-transparent"
+      />
+      <div className="pointer-events-none fixed bottom-6 left-6 z-10 hidden sm:block max-w-xs">
+        <strong
+          className="block text-[15px] font-medium leading-snug tracking-tight text-[#ececec]/80 transition-all duration-400"
+          style={{
+            opacity: captionVisible ? 1 : 0,
+            transform: captionVisible ? 'translateY(0)' : 'translateY(4px)',
+          }}
+        >
+          {captionLines[0]}
+          <br />
+          {captionLines[1]}
+        </strong>
+      </div>
+    </div>
+  );
 }
 
 export function GramMark({
@@ -253,23 +405,28 @@ export function AuthPage({
 
   return (
     <div
-      className="min-h-screen w-full flex bg-[#0e0f10] text-[#ececec] overflow-hidden"
+      className="relative min-h-screen w-full flex items-center justify-center bg-[#090a0b] text-[#ececec] overflow-hidden px-4 py-12"
       style={{ fontFamily: 'var(--font-sans, Inter, system-ui, sans-serif)' }}
     >
-      {/* Left Auth Column */}
-      <div className="relative flex-1 flex flex-col justify-center items-center px-6 py-10 sm:px-12 bg-[#0e0f10]">
-        <button
-          type="button"
-          onClick={onBackToWorkspace}
-          className="absolute top-6 left-6 inline-flex items-center gap-1.5 text-[13px] font-medium text-[#8e9299] hover:text-[#ececec] transition-colors cursor-pointer"
-        >
-          <ArrowLeftIcon className="w-4 h-4" />
-          Back to workspace
-        </button>
+      {/* Full-bleed Animated Gradient Pixel Matrix Background */}
+      <div className="fixed inset-0 z-0">
+        <GramPixelMatrixCanvas />
+      </div>
 
+      <button
+        type="button"
+        onClick={onBackToWorkspace}
+        className="fixed top-5 left-5 z-20 inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#0e0f10]/75 px-3 py-1.5 text-[13px] font-medium text-[#9ca3af] backdrop-blur-md hover:border-white/20 hover:text-[#ececec] transition-colors cursor-pointer"
+      >
+        <ArrowLeftIcon className="w-4 h-4" />
+        Back to workspace
+      </button>
+
+      {/* Centered Obsidian Sign-In Card */}
+      <div className="relative z-10 w-full max-w-[420px] rounded-2xl border border-white/12 bg-[#0e0f10]/86 p-7 sm:p-9 shadow-[0_24px_80px_rgba(0,0,0,0.75)] backdrop-blur-xl">
         <div
           key={mode}
-          className="w-full max-w-[380px] flex flex-col items-center gram-fade-up"
+          className="w-full flex flex-col items-center gram-fade-up"
         >
           <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-5 bg-[#151719] border border-white/10 shadow-lg">
             <GramMark size={28} />
@@ -420,36 +577,39 @@ export function AuthPage({
           </div>
 
           {onGoogleSignIn && (
-            <button
-              type="button"
-              disabled={googleSubmitting || submitting}
-              onClick={onGoogleSignIn}
-              className="w-full h-11 mb-4 px-4 rounded-xl border border-white/10 bg-[#151719] hover:bg-[#1c1f22] text-[#ececec] text-[14px] font-medium inline-flex items-center justify-center gap-2.5 transition-colors cursor-pointer disabled:opacity-60"
-            >
-              {googleSubmitting ? (
-                <LoaderCircleIcon className="w-4 h-4 animate-spin text-[#8e9299]" />
-              ) : (
-                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    fill="#4285F4"
-                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
-                  />
-                </svg>
-              )}
-              Continue with Google
-            </button>
+            <div className="mb-4 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                disabled={googleSubmitting || submitting}
+                onClick={onGoogleSignIn}
+                aria-label="Continue with Google"
+                title="Continue with Google"
+                className="h-11 w-11 rounded-full border border-white/10 bg-[#151719] hover:bg-[#1c1f22] hover:border-white/20 inline-flex items-center justify-center transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {googleSubmitting ? (
+                  <LoaderCircleIcon className="w-4 h-4 animate-spin text-[#8e9299]" />
+                ) : (
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="#4285F4"
+                      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
           )}
 
           <button
@@ -460,14 +620,6 @@ export function AuthPage({
             Continue with local workspace
           </button>
         </div>
-      </div>
-
-      {/* Right Animated Canvas 2D Panel */}
-      <div
-        className="hidden lg:block w-[36%] min-w-[340px] max-w-[520px] relative overflow-hidden border-l border-white/10 bg-[#090a0b]"
-        aria-hidden="true"
-      >
-        <ObsidianAuroraCanvas />
       </div>
     </div>
   );

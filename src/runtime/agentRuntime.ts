@@ -29,6 +29,7 @@ import {
   type LlmContentBlock,
   type LlmMessage,
 } from '../providers/llmClient';
+import { redactSecretText } from '../providers/secretGuard';
 import { MODEL_REGISTRY, selectOptimalModel } from '../providers/router';
 import {
   AGENT_TOOLS,
@@ -51,6 +52,7 @@ import type {
   AgentRunOptions,
   PendingApproval,
   RunCheckpoint,
+  RunErrorDiagnostics,
   RunVerificationRecord,
   RuntimeStreamEvent,
 } from './types';
@@ -60,6 +62,7 @@ export type {
   AgentRunOptions,
   PendingApproval,
   RunCheckpoint,
+  RunErrorDiagnostics,
   RunVerificationRecord,
   RuntimeStreamEvent,
 };
@@ -505,6 +508,7 @@ export class GramAgentRuntime extends EventEmitter {
     thinking?: string;
     toolCalls?: Array<{ id: string; name: string; command: string; result?: string; error?: string }>;
     tasks?: Array<{ id: string; title: string; steps: Array<{ title: string; status: 'done' | 'running' | 'error' }> }>;
+    diagnostics?: RunErrorDiagnostics;
   }> {
     const runId = options.runId || `run-${Date.now()}`;
     const controller = new AbortController();
@@ -875,6 +879,7 @@ export class GramAgentRuntime extends EventEmitter {
     thinking?: string;
     toolCalls?: Array<{ id: string; name: string; command: string; result?: string; error?: string }>;
     tasks?: Array<{ id: string; title: string; steps: Array<{ title: string; status: 'done' | 'running' | 'error' }> }>;
+    diagnostics?: RunErrorDiagnostics;
   }> {
     const {
       runId,
@@ -1033,9 +1038,13 @@ export class GramAgentRuntime extends EventEmitter {
     let nudgedCapabilityRefusal = false;
     let nudgedVerification = false;
     const MAX_TOOL_TURNS = 20;
+    const runStartedAt = Date.now();
+    let currentTurn = 0;
+    let currentPhase: RunErrorDiagnostics['phase'] = 'setup';
 
     try {
       for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+        currentTurn = turn;
         if (controller.signal.aborted) {
           checkpoint.stage = 'paused';
           checkpoint.output = finalOutput || 'Run cancelled.';
@@ -1056,12 +1065,14 @@ export class GramAgentRuntime extends EventEmitter {
           messages.splice(0, messages.length, ...turnMessages);
         }
 
+        currentPhase = 'llm_turn';
         const turnResult = await streamLlmTurn({
           model: profile,
           systemPrompt: baseSystemPrompt,
           messages,
           tools: activeTools,
           effort: options.effort || 'medium',
+          authToken: options.authToken,
           signal: controller.signal,
           callbacks: {
             onThinkingDelta: (delta) => {
@@ -1325,6 +1336,7 @@ export class GramAgentRuntime extends EventEmitter {
       }
 
       if (endedWithToolCalls && !controller.signal.aborted) {
+        currentPhase = 'wrap_up';
         messages.push({
           role: 'user',
           content: 'Tool budget reached. Please provide a concise, grounded final summary based on the files and tool outputs you have already observed.',
@@ -1335,6 +1347,7 @@ export class GramAgentRuntime extends EventEmitter {
           messages,
           tools: [],
           effort: options.effort || 'medium',
+          authToken: options.authToken,
           signal: controller.signal,
           callbacks: {
             onThinkingDelta: (delta) => {
@@ -1376,18 +1389,53 @@ export class GramAgentRuntime extends EventEmitter {
         toolCalls: executedTools,
       };
     } catch (err: any) {
+      const errorMessage = err?.message || String(err);
       const message =
         err instanceof LlmAuthError
           ? err.message
-          : `Model execution error (${profile.id}): ${err?.message || String(err)}`;
+          : `Model execution error (${profile.id}): ${errorMessage}`;
+      const diagnostics: RunErrorDiagnostics = {
+        timestamp: new Date().toISOString(),
+        runId,
+        sessionId: options.sessionId,
+        mode: runMode,
+        effort: options.effort || 'medium',
+        layerId,
+        requestedModelId: options.requestedModelId || options.modelId || 'auto',
+        resolvedModelId: profile.id,
+        provider: profile.provider,
+        turn: currentTurn,
+        phase: currentPhase,
+        elapsedMs: Date.now() - runStartedAt,
+        toolCallsCount: executedTools.length,
+        hasAuthToken: Boolean(options.authToken),
+        hasGatewayApiKey: Boolean(process.env.LYRA_GATEWAY_API_KEY),
+        directLlm: process.env.GRAM_DIRECT_LLM === 'true',
+        runtimeControllerAborted: controller.signal.aborted,
+        runtimeAbortReason:
+          controller.signal.reason !== undefined ? String(controller.signal.reason) : undefined,
+        requestSignalAborted: Boolean(options.signal?.aborted),
+        requestSignalReason:
+          options.signal?.reason !== undefined ? String(options.signal.reason) : undefined,
+        errorName: err?.name,
+        errorMessage,
+        errorCode: err?.code,
+        errorCause: err?.cause ? String(err.cause) : undefined,
+        llm: err?.diagnostics,
+        stack: typeof err?.stack === 'string' ? redactSecretText(err.stack).slice(0, 1500) : undefined,
+      };
+      this.persistErrorDiagnostics(activeWorkspaceRoot, diagnostics);
+      console.error('[GramRuntime][ErrorDiagnostics]', JSON.stringify(diagnostics));
+
       checkpoint.stage = 'failed';
       checkpoint.output = message;
+      checkpoint.diagnostics = diagnostics;
       checkpoint.sequence += 1;
       checkpoint.timestamp = new Date().toISOString();
       if (isTask) {
         this.saveCheckpoint(checkpoint);
       }
-      options.onEvent?.({ type: 'error', error: message });
+      options.onEvent?.({ type: 'error', error: message, diagnostics });
       return {
         runId,
         completed: false,
@@ -1395,10 +1443,21 @@ export class GramAgentRuntime extends EventEmitter {
         checkpoint,
         thinking: thinkingChunks.join('\n\n') || undefined,
         toolCalls: executedTools,
+        diagnostics,
       };
     } finally {
       this.activeControllers.delete(runId);
     }
+  }
+
+  private persistErrorDiagnostics(workspaceRoot: string, diagnostics: RunErrorDiagnostics): void {
+    if (process.env.NODE_ENV === 'test') return;
+    try {
+      const diagDir = path.join(workspaceRoot, '.gram', 'diagnostics');
+      fs.mkdirSync(diagDir, { recursive: true });
+      const filePath = path.join(diagDir, 'errors.jsonl');
+      fs.appendFileSync(filePath, `${redactSecretText(JSON.stringify(diagnostics))}\n`, 'utf8');
+    } catch {}
   }
 
   /**
@@ -1413,6 +1472,7 @@ export class GramAgentRuntime extends EventEmitter {
       feedback?: string;
       modelId?: string;
       forceModelResume?: boolean;
+      authToken?: string;
       onEvent?: (event: RuntimeStreamEvent) => void;
     }
   ): Promise<boolean> {
@@ -1455,6 +1515,7 @@ export class GramAgentRuntime extends EventEmitter {
         projectId: checkpoint.projectId,
         projectLabel: checkpoint.projectLabel,
         workspaceRoot: checkpoint.worktreePath || checkpoint.workspaceRoot || this.workspaceRoot,
+        authToken: options?.authToken,
         onEvent: options?.onEvent,
       });
       return result.completed;

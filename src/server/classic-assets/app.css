@@ -1,4 +1,100 @@
 :root,
+[data-theme="obsidian"],
+.app-shell[data-theme="obsidian"] {
+  --bg-body: #0e0f10;
+  --bg-panel: #151719;
+  --bg-panel-subtle: #1b1e21;
+  --bg-hover: #22262a;
+  --bg-active: #2b3036;
+  --border-color: rgba(255, 255, 255, 0.09);
+  --border-focus: #34d399;
+
+  --text-primary: #ececec;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+
+  --btn-primary-bg: #ececec;
+  --btn-primary-text: #0e0f10;
+
+  --accent: #34d399;
+  --accent-hover: #10b981;
+  --accent-light: rgba(52, 211, 153, 0.12);
+  --accent-badge: rgba(52, 211, 153, 0.16);
+  --accent-text: #6ee7b7;
+  --accent-grad: linear-gradient(135deg, #34d399 0%, #38bdf8 52%, #fb7185 100%);
+
+  --success: #10b981;
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+
+  --font-sans: "Geist Variable", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.65);
+}
+
+[data-theme="bone"],
+.app-shell[data-theme="bone"] {
+  --bg-body: #f7f5f0;
+  --bg-panel: #fcfbf8;
+  --bg-panel-subtle: #efece4;
+  --bg-hover: #e6e2d8;
+  --bg-active: #dcd7cb;
+  --border-color: #e2ddd2;
+  --border-focus: #059669;
+
+  --text-primary: #141311;
+  --text-secondary: #57534e;
+  --text-muted: #78716c;
+
+  --btn-primary-bg: #141311;
+  --btn-primary-text: #fcfbf8;
+
+  --accent: #059669;
+  --accent-hover: #047857;
+  --accent-light: rgba(5, 150, 105, 0.08);
+  --accent-badge: rgba(5, 150, 105, 0.14);
+  --accent-text: #047857;
+  --accent-grad: linear-gradient(135deg, #10b981 0%, #0ea5e9 52%, #f43f5e 100%);
+
+  --shadow-sm: 0 1px 2px 0 rgba(20, 19, 17, 0.06);
+  --shadow-md: 0 4px 12px 0 rgba(20, 19, 17, 0.1);
+}
+
+[data-theme="prism"],
+.app-shell[data-theme="prism"] {
+  --bg-body: #090a0b;
+  --bg-panel: #111317;
+  --bg-panel-subtle: #171a20;
+  --bg-hover: #1f242c;
+  --bg-active: #29303b;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --border-focus: #38bdf8;
+
+  --text-primary: #f3f4f6;
+  --text-secondary: #a1a8b5;
+  --text-muted: #6b7280;
+
+  --btn-primary-bg: linear-gradient(135deg, #34d399 0%, #a78bfa 50%, #fb7185 100%);
+  --btn-primary-text: #090a0b;
+
+  --accent: #38bdf8;
+  --accent-hover: #0ea5e9;
+  --accent-light: rgba(56, 189, 248, 0.13);
+  --accent-badge: rgba(167, 139, 250, 0.18);
+  --accent-text: #7dd3fc;
+  --accent-grad: linear-gradient(135deg, #34d399 0%, #a78bfa 50%, #fb7185 100%);
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 14px 0 rgba(0, 0, 0, 0.72);
+}
+
 .app-shell[data-theme="carbon"] {
   --bg-body: #050505;
   --bg-panel: #0d0d0d;
@@ -67,11 +163,13 @@
 }
 
 .app-shell[data-theme="light"] img[src*="openai-light.svg"],
-.app-shell[data-theme="light"] img[src*="bedrock.png"] {
+.app-shell[data-theme="light"] img[src*="bedrock.png"],
+.app-shell[data-theme="bone"] img[src*="openai-light.svg"],
+.app-shell[data-theme="bone"] img[src*="bedrock.png"] {
   filter: invert(1);
 }
 
-.app-shell:not([data-theme="light"]) img[src*="anthropic.svg"] {
+.app-shell:not([data-theme="light"]):not([data-theme="bone"]) img[src*="anthropic.svg"] {
   filter: invert(1);
 }
 
@@ -112,6 +210,9 @@
   --text-secondary: #c2b69d;
   --text-muted: #80755f;
   
+  --btn-primary-bg: #d97706;
+  --btn-primary-text: #ffffff;
+
   --accent: #d97706;
   --accent-hover: #b45309;
   --accent-light: rgba(217, 119, 6, 0.16);
@@ -133,6 +234,9 @@
   --text-secondary: #a7cfb9;
   --text-muted: #648a74;
   
+  --btn-primary-bg: #059669;
+  --btn-primary-text: #ffffff;
+
   --accent: #059669;
   --accent-hover: #047857;
   --accent-light: rgba(5, 150, 105, 0.16);
@@ -154,6 +258,9 @@
   --text-secondary: #9bb2d1;
   --text-muted: #5e779b;
   
+  --btn-primary-bg: #2563eb;
+  --btn-primary-text: #ffffff;
+
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --accent-light: rgba(37, 99, 235, 0.16);
@@ -175,6 +282,9 @@
   --text-secondary: #cca0a8;
   --text-muted: #8c6069;
   
+  --btn-primary-bg: #e11d48;
+  --btn-primary-text: #ffffff;
+
   --accent: #e11d48;
   --accent-hover: #be123c;
   --accent-light: rgba(225, 29, 72, 0.16);

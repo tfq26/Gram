@@ -3,7 +3,37 @@
  */
 
 import type { PlanNode } from '../core/contextEnvelope';
+import type { LlmErrorDiagnostics } from '../providers/llmClient';
 import type { ToolApprovalAction } from './agentTools';
+
+export interface RunErrorDiagnostics {
+  timestamp: string;
+  runId: string;
+  sessionId: string;
+  mode: 'chat' | 'plan' | 'code';
+  effort: string;
+  layerId: string;
+  requestedModelId: string;
+  resolvedModelId: string;
+  provider: string;
+  turn: number;
+  phase: 'setup' | 'llm_turn' | 'tool_execution' | 'wrap_up';
+  elapsedMs: number;
+  toolCallsCount: number;
+  hasAuthToken: boolean;
+  hasGatewayApiKey: boolean;
+  directLlm: boolean;
+  runtimeControllerAborted: boolean;
+  runtimeAbortReason?: string;
+  requestSignalAborted: boolean;
+  requestSignalReason?: string;
+  errorName?: string;
+  errorMessage: string;
+  errorCode?: string;
+  errorCause?: string;
+  llm?: LlmErrorDiagnostics;
+  stack?: string;
+}
 
 export interface PendingApproval {
   id: string;
@@ -49,6 +79,7 @@ export interface RunCheckpoint {
   activeLayerId: string;
   timestamp: string;
   toolCalls?: Array<{ id: string; name: string; command: string; result?: string; error?: string }>;
+  diagnostics?: RunErrorDiagnostics;
 }
 
 export type RuntimeStreamEvent =
@@ -60,13 +91,14 @@ export type RuntimeStreamEvent =
   | { type: 'tool_result'; id: string; name: string; command: string; result?: string; error?: string }
   | { type: 'approval_required'; approval: PendingApproval; runId: string; sessionId: string }
   | { type: 'done'; result: any }
-  | { type: 'error'; error: string };
+  | { type: 'error'; error: string; diagnostics?: RunErrorDiagnostics };
 
 export interface AgentRunOptions {
   sessionId: string;
   runId?: string;
   prompt: string;
   modelId?: string;
+  requestedModelId?: string;
   plan?: PlanNode[];
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   systemPrompt?: string;
@@ -79,6 +111,7 @@ export interface AgentRunOptions {
   kind?: 'agent' | 'swarm';
   requireApproval?: boolean;
   isolateWorktree?: boolean;
+  authToken?: string;
   signal?: AbortSignal;
   lyra?: {
     escalate: (payload: Record<string, unknown>) => Promise<unknown>;

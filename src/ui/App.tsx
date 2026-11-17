@@ -279,7 +279,7 @@ export function App() {
   const [renameDraft, setRenameDraft] = useState('');
   const [theme, setTheme] = useState<string>(() => {
     try {
-      return localStorage.getItem('gram.settings.theme') || 'carbon';
+      return localStorage.getItem('gram.settings.theme') || 'obsidian';
     } catch {
       return 'carbon';
     }
@@ -628,21 +628,7 @@ export function App() {
             setPlanBySession((prev) => ({ ...prev, [lastSessionId]: data.activePlan }));
           }
           if (Array.isArray(data.systemChecks)) {
-            const checks = data.systemChecks.map((c: any) =>
-              c.id === 'internet_connection' && typeof navigator !== 'undefined' && navigator.onLine === false
-                ? { ...c, ok: false, message: 'Browser reports no internet connection. Cloud models and sync may not work.' }
-                : c
-            );
-            const criticalFailures = checks.filter((c: any) => c.severity === 'critical' && !c.ok);
-            const warningFailures = checks.filter((c: any) => c.severity === 'warning' && !c.ok);
-            if (criticalFailures.length > 0) {
-              setBootError({
-                title: criticalFailures[0].label || 'System check failed',
-                message: criticalFailures.map((c: any) => c.message).join(' '),
-                details: criticalFailures.map((c: any) => `[${c.id}] ${c.message}`).join('\n'),
-              });
-            }
-            setSystemWarnings(warningFailures);
+            applySystemChecks(data.systemChecks);
           } else if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             setSystemWarnings([
               {
@@ -721,7 +707,7 @@ export function App() {
     }, 3000);
     const syncTheme = () => {
       try {
-        setTheme(localStorage.getItem('gram.settings.theme') || 'carbon');
+        setTheme(localStorage.getItem('gram.settings.theme') || 'obsidian');
       } catch {}
     };
     window.addEventListener('storage', syncTheme);
@@ -853,15 +839,16 @@ export function App() {
     };
 
     const doc = typeof document !== 'undefined' ? (document as Document & {
-      startViewTransition?: (opts: { update: () => void; types?: string[] } | (() => void)) => void;
+      startViewTransition?: (opts: { update: () => void; types?: string[] } | (() => void)) => { finished?: Promise<unknown> };
     }) : null;
 
-    if (doc?.startViewTransition) {
+    if (doc?.startViewTransition && doc.visibilityState === 'visible') {
       try {
-        doc.startViewTransition({
+        const transition = doc.startViewTransition({
           update: applyUpdate,
           types: [opts?.direction ?? 'forward'],
         });
+        transition?.finished?.catch(() => {});
         return;
       } catch {
         // Fall through if browser only supports callback form
@@ -897,9 +884,86 @@ export function App() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  function applySystemChecks(rawChecks: any[]) {
+    const checks = rawChecks.map((c: any) =>
+      c.id === 'internet_connection' && typeof navigator !== 'undefined' && navigator.onLine === false
+        ? { ...c, ok: false, message: 'Browser reports no internet connection. Cloud models and sync may not work.' }
+        : c
+    );
+    const criticalFailures = checks.filter((c: any) => c.severity === 'critical' && !c.ok);
+    const warningFailures = checks.filter((c: any) => c.severity === 'warning' && !c.ok);
+    if (criticalFailures.length > 0) {
+      setBootError({
+        title: criticalFailures[0].label || 'System check failed',
+        message: criticalFailures.map((c: any) => c.message).join(' '),
+        details: criticalFailures.map((c: any) => `[${c.id}] ${c.message}`).join('\n'),
+      });
+    } else {
+      setBootError(null);
+    }
+    setSystemWarnings((prev) => {
+      const prevIds = new Set(prev.map((w) => w.id));
+      const hasNewWarning = warningFailures.some((w: any) => !prevIds.has(w.id));
+      if (hasNewWarning) setSystemWarningsDismissed(false);
+      return warningFailures;
+    });
+  }
+
+  async function refreshSystemChecks() {
+    try {
+      const res = await fetch('/api/system/checks');
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data?.auth) setAuthState(data.auth as AuthState);
+      if (Array.isArray(data?.systemChecks)) {
+        applySystemChecks(data.systemChecks);
+      }
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (authState.authenticated) {
+      setSystemWarnings((prev) => prev.filter((w) => w.id !== 'auth_required'));
+    }
+  }, [authState.authenticated]);
+
+  useEffect(() => {
+    if (models.length > 0) {
+      setSystemWarnings((prev) => prev.filter((w) => w.id !== 'ai_providers'));
+    }
+  }, [models.length]);
+
+  useEffect(() => {
+    if (!actionError) return;
+    const timer = window.setTimeout(() => setActionError(null), 12000);
+    return () => window.clearTimeout(timer);
+  }, [actionError]);
+
+  useEffect(() => {
+    if (systemWarnings.length === 0 && !bootError) return;
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void refreshSystemChecks();
+      }
+    }, 15000);
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshSystemChecks();
+      }
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [systemWarnings.length, bootError]);
+
   useEffect(() => {
     const onWindowError = (event: ErrorEvent) => {
       if (!event?.message) return;
+      if (/ResizeObserver loop/i.test(event.message)) return;
       setActionError({
         message: event.message,
         details: event.error?.stack || `${event.filename || 'unknown'}:${event.lineno || 0}`,
@@ -909,6 +973,7 @@ export function App() {
       const reason = event.reason;
       if (reason?.name === 'AbortError') return;
       const msg = reason instanceof Error ? reason.message : String(reason || 'An unexpected error occurred.');
+      if (/View transition was skipped/i.test(msg)) return;
       setActionError({
         message: msg,
         details: reason instanceof Error ? reason.stack : undefined,
@@ -935,6 +1000,10 @@ export function App() {
     };
     const onOnline = () => {
       setSystemWarnings((prev) => prev.filter((w) => w.id !== 'internet_connection'));
+      setActionError((prev) =>
+        prev && /offline|network|internet|fetch|connect/i.test(prev.message) ? null : prev
+      );
+      void refreshSystemChecks();
     };
     window.addEventListener('offline', onOffline);
     window.addEventListener('online', onOnline);
@@ -1860,6 +1929,7 @@ export function App() {
     speakFinalResponse: boolean;
   }) {
     const { tabId, trimmedPrompt: trimmed, effectivePrompt, nextWithUser, nextTitle, speakFinalResponse } = params;
+    setActionError(null);
     const targetTab = tabs.find((tab) => tab.id === tabId) || activeTab;
     const baseMode = targetTab.mode || appMode;
     const runMode = baseMode === 'code' && activeDockSurface === 'plan' ? 'plan' : baseMode;
@@ -2053,6 +2123,7 @@ export function App() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let liveDiagnostics: Record<string, unknown> | undefined;
 
         while (true) {
           const { value, done } = await reader.read();
@@ -2129,6 +2200,9 @@ export function App() {
               flushSmoothRender(false);
             } else if (evt.type === 'error') {
               liveText = evt.error || 'Execution failed.';
+              if (evt.diagnostics && typeof evt.diagnostics === 'object') {
+                liveDiagnostics = evt.diagnostics as Record<string, unknown>;
+              }
               flushSmoothRender(true);
             } else if (evt.type === 'done') {
               finalResult = evt.result;
@@ -2198,6 +2272,7 @@ export function App() {
         originalPrompt: trimmed,
         codingHandoffPrompt: runMode === 'chat' && isCodingWorkPrompt(trimmed) ? trimmed : undefined,
         isError: result.completed === false || result.checkpoint?.stage === 'failed' || undefined,
+        diagnostics: result.diagnostics || result.checkpoint?.diagnostics || liveDiagnostics,
       };
       const fullMessages = [...nextWithUser, assistantMsg];
       setMessagesByTab((prev) => ({ ...prev, [tabId]: fullMessages }));
@@ -2537,14 +2612,53 @@ export function App() {
     setLoginError('');
     setGoogleSubmitting(true);
     try {
+      const isDesktopShell = Boolean(
+        typeof window !== 'undefined' && ((window as any).__TAURI__ || (window as any).__TAURI_INTERNALS__)
+      );
       const res = await fetch('/api/auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ returnTo: window.location.origin + '/' }),
+        body: JSON.stringify({
+          returnTo: window.location.origin + '/',
+          desktop: isDesktopShell,
+        }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.url) {
+      if (!res.ok || (!data?.url && !data?.handoffId)) {
         setLoginError(data?.error || 'Google sign-in is not configured yet.');
+        return;
+      }
+      if (isDesktopShell && data?.handoffId) {
+        const hid = String(data.handoffId);
+        const deadline = Date.now() + 2 * 60 * 1000;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 1200));
+          const poll = await fetch(`/api/auth/handoff-status?hid=${encodeURIComponent(hid)}`).catch(() => null);
+          const statusData = poll && poll.ok ? await poll.json().catch(() => null) : null;
+          if (statusData?.status === 'completed' && statusData?.token) {
+            const verify = await fetch('/api/auth/session-token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: statusData.token }),
+            });
+            if (!verify.ok) {
+              setLoginError('Could not complete Google session handoff.');
+              return;
+            }
+            await refreshAuth();
+            let onboardingDone = false;
+            try {
+              onboardingDone = localStorage.getItem('gram.onboarding.completed') === 'true';
+            } catch {}
+            navigateToPage(onboardingDone ? 'chat' : 'onboarding', { direction: 'forward' });
+            return;
+          }
+          if (statusData?.status === 'unknown') {
+            setLoginError('Google sign-in session expired. Please try again.');
+            return;
+          }
+        }
+        setLoginError('Google sign-in timed out. Please try again.');
         return;
       }
       window.location.href = data.url;
@@ -2868,7 +2982,7 @@ export function App() {
                           key={c.sessionId}
                           className={`group/conv relative flex items-center rounded-md transition-colors ${
                             isActive
-                              ? 'bg-white/10 font-medium text-white'
+                              ? 'bg-[var(--bg-active)] font-medium text-[var(--text-primary)]'
                               : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                           }`}
                         >
@@ -2982,7 +3096,7 @@ export function App() {
                                   <div
                                     className={`group/proj flex items-center justify-between rounded-md px-2 py-1.5 text-[13.5px] transition-colors ${
                                       isSelectedProj
-                                        ? 'bg-white/8 font-semibold text-white'
+                                        ? 'bg-[var(--bg-active)] font-semibold text-[var(--text-primary)]'
                                         : 'font-medium text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                                     }`}
                                   >
@@ -2994,7 +3108,7 @@ export function App() {
                                       <FolderIcon
                                         size={14}
                                         className={`shrink-0 ${
-                                          isSelectedProj ? 'text-white' : 'text-[var(--text-muted)]'
+                                          isSelectedProj ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'
                                         }`}
                                       />
                                       <span className="truncate">{proj.label}</span>
@@ -3380,6 +3494,37 @@ export function App() {
                                                      <MessageResponse isStreaming={false}>
                                                        {msg.content || 'Execution failed.'}
                                                      </MessageResponse>
+                                                     {msg.diagnostics && (
+                                                       <details className="mt-2 rounded-lg border border-red-500/20 bg-black/20 px-2.5 py-1.5 text-[11px]">
+                                                         <summary className="flex cursor-pointer select-none items-center justify-between gap-2 font-medium text-red-300/90">
+                                                           <span>
+                                                             Diagnostics ({String((msg.diagnostics as any).requestedModelId || 'auto')} →{' '}
+                                                             {String((msg.diagnostics as any).resolvedModelId || 'unknown')}
+                                                             {(msg.diagnostics as any).phase ? ` · ${String((msg.diagnostics as any).phase)}` : ''}
+                                                             {(msg.diagnostics as any).elapsedMs !== undefined
+                                                               ? ` · ${String((msg.diagnostics as any).elapsedMs)}ms`
+                                                               : ''}
+                                                             )
+                                                           </span>
+                                                           <button
+                                                             type="button"
+                                                             onClick={(e) => {
+                                                               e.preventDefault();
+                                                               e.stopPropagation();
+                                                               void navigator.clipboard?.writeText(
+                                                                 JSON.stringify(msg.diagnostics, null, 2)
+                                                               );
+                                                             }}
+                                                             className="rounded border border-red-400/25 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-200 hover:bg-red-500/20 cursor-pointer"
+                                                           >
+                                                             Copy JSON
+                                                           </button>
+                                                         </summary>
+                                                         <pre className="mt-1.5 max-h-60 overflow-auto whitespace-pre-wrap break-all font-mono text-[10.5px] leading-relaxed text-[var(--text-secondary)]">
+                                                           {JSON.stringify(msg.diagnostics, null, 2)}
+                                                         </pre>
+                                                       </details>
+                                                     )}
                                                    </div>
                                                  ) : (
                                                    msg.content && (

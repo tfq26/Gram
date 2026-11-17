@@ -56,10 +56,45 @@ export interface LlmTurnResult {
   };
 }
 
+export interface LlmErrorDiagnostics {
+  source: 'gram-llm-client' | 'lyra-gateway';
+  transport: 'lyra-gateway' | 'direct-bedrock' | 'direct-openrouter';
+  lyraUrl?: string;
+  modelId: string;
+  provider: string;
+  privacyMode: PrivacyMode;
+  effort?: string;
+  authMethod: 'session-cookie-or-bearer' | 'gateway-api-key' | 'none';
+  hasByokConfig: boolean;
+  byokProvider?: string;
+  byokBaseUrl?: string;
+  httpStatus?: number;
+  phase: 'connect' | 'stream' | 'direct';
+  elapsedMs: number;
+  ttfbMs?: number;
+  eventsReceived: number;
+  textCharsReceived: number;
+  thinkingCharsReceived: number;
+  signalAborted: boolean;
+  signalReason?: string;
+  errorName?: string;
+  errorCode?: string;
+  errorCause?: string;
+  gatewayDiagnostics?: Record<string, unknown>;
+}
+
+export function attachLlmDiagnostics(err: unknown, diagnostics: LlmErrorDiagnostics): Error {
+  const errorObj = err instanceof Error ? err : new Error(String(err));
+  (errorObj as Error & { diagnostics?: LlmErrorDiagnostics }).diagnostics = diagnostics;
+  return errorObj;
+}
+
 export class LlmAuthError extends Error {
-  constructor(message: string) {
+  diagnostics?: LlmErrorDiagnostics;
+  constructor(message: string, diagnostics?: LlmErrorDiagnostics) {
     super(message);
     this.name = 'LlmAuthError';
+    if (diagnostics) this.diagnostics = diagnostics;
   }
 }
 
@@ -536,10 +571,11 @@ async function streamLyraGatewayTurn(params: {
   tools: LlmToolDef[];
   effort?: 'low' | 'medium' | 'high';
   privacyMode?: PrivacyMode;
+  authToken?: string;
   signal?: AbortSignal;
   callbacks?: LlmStreamCallbacks;
 }): Promise<LlmTurnResult> {
-  const lyraUrl = (process.env.LYRA_HUB_URL || 'http://127.0.0.1:3001').replace(/\/+$/, '');
+  const lyraUrl = (process.env.LYRA_HUB_URL || 'https://lyra.2helix.org').replace(/\/+$/, '');
   const privacyMode = params.privacyMode || getActivePrivacyMode();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const apiKey = process.env.LYRA_GATEWAY_API_KEY;
@@ -547,70 +583,140 @@ async function streamLyraGatewayTurn(params: {
     headers['x-lyra-api-key'] = apiKey;
     headers.Authorization = `Bearer ${apiKey}`;
   }
+  if (params.authToken) {
+    headers.Authorization = `Bearer ${params.authToken}`;
+  }
 
   const provider =
     params.model.byokConfig?.provider === 'ollama'
       ? 'openai-compat'
       : params.model.provider;
 
-  const res = await fetch(`${lyraUrl}/api/gateway/llm/stream`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: params.model.id,
-      provider,
-      privacyMode,
-      effort: params.effort,
-      supportsPromptCaching: params.model.supportsPromptCaching,
-      systemPrompt: redactSecretText(params.systemPrompt),
-      messages: params.messages,
-      tools: params.tools,
-      byokConfig: params.model.byokConfig,
-    }),
-    signal: params.signal,
+  const startedAt = Date.now();
+  const authMethod: LlmErrorDiagnostics['authMethod'] = params.authToken
+    ? 'session-cookie-or-bearer'
+    : apiKey
+      ? 'gateway-api-key'
+      : 'none';
+  let phase: 'connect' | 'stream' = 'connect';
+  let httpStatus: number | undefined;
+  let ttfbMs: number | undefined;
+  let eventsReceived = 0;
+  let textCharsReceived = 0;
+  let thinkingCharsReceived = 0;
+  let gatewayDiagnostics: Record<string, unknown> | undefined;
+
+  const buildDiagnostics = (err?: any): LlmErrorDiagnostics => ({
+    source: gatewayDiagnostics ? 'lyra-gateway' : 'gram-llm-client',
+    transport: 'lyra-gateway',
+    lyraUrl,
+    modelId: params.model.id,
+    provider,
+    privacyMode,
+    effort: params.effort || 'medium',
+    authMethod,
+    hasByokConfig: Boolean(params.model.byokConfig),
+    byokProvider: params.model.byokConfig?.provider,
+    byokBaseUrl: params.model.byokConfig?.baseUrl,
+    httpStatus,
+    phase,
+    elapsedMs: Date.now() - startedAt,
+    ttfbMs,
+    eventsReceived,
+    textCharsReceived,
+    thinkingCharsReceived,
+    signalAborted: Boolean(params.signal?.aborted),
+    signalReason: params.signal?.reason !== undefined ? String(params.signal.reason) : undefined,
+    errorName: err?.name,
+    errorCode: err?.code,
+    errorCause: err?.cause ? String(err.cause) : undefined,
+    gatewayDiagnostics,
   });
 
-  if (!res.ok || !res.body) {
-    const errText = await res.text().catch(() => '');
-    if (res.status === 401 || res.status === 403) {
-      throw new LlmAuthError(`Lyra Gateway authentication failed (${res.status}): ${errText.slice(0, 200)}`);
+  try {
+    const res = await fetch(`${lyraUrl}/api/gateway/llm/stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: params.model.id,
+        provider,
+        privacyMode,
+        effort: params.effort,
+        supportsPromptCaching: params.model.supportsPromptCaching,
+        systemPrompt: redactSecretText(params.systemPrompt),
+        messages: params.messages,
+        tools: params.tools,
+        byokConfig: params.model.byokConfig,
+      }),
+      signal: params.signal,
+    });
+    httpStatus = res.status;
+
+    if (!res.ok || !res.body) {
+      const errText = await res.text().catch(() => '');
+      if (res.status === 401 || res.status === 403) {
+        if (!params.authToken && !apiKey) {
+          throw new LlmAuthError(
+            `Lyra authentication required (${res.status}). Please sign in to Gram or configure a BYOK key in Settings.`,
+            buildDiagnostics()
+          );
+        }
+        throw new LlmAuthError(
+          `Lyra Gateway authentication failed (${res.status}): ${errText.slice(0, 200)}`,
+          buildDiagnostics()
+        );
+      }
+      throw new Error(`Lyra Gateway error (${res.status}): ${errText.slice(0, 300)}`);
     }
-    throw new Error(`Lyra Gateway error (${res.status}): ${errText.slice(0, 300)}`);
-  }
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let finalResult: LlmTurnResult | null = null;
+    phase = 'stream';
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalResult: LlmTurnResult | null = null;
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line.startsWith('data:')) continue;
-      const payload = line.slice(5).trim();
-      if (!payload) continue;
-      const event = JSON.parse(payload);
-      if (event.type === 'text_delta' && typeof event.delta === 'string') {
-        params.callbacks?.onTextDelta?.(event.delta);
-      } else if (event.type === 'thinking_delta' && typeof event.delta === 'string') {
-        params.callbacks?.onThinkingDelta?.(event.delta);
-      } else if (event.type === 'done' && event.result) {
-        finalResult = event.result as LlmTurnResult;
-      } else if (event.type === 'error') {
-        throw new Error(event.message || 'Lyra Gateway stream error');
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (ttfbMs === undefined) ttfbMs = Date.now() - startedAt;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+        const event = JSON.parse(payload);
+        eventsReceived += 1;
+        if (event.type === 'text_delta' && typeof event.delta === 'string') {
+          textCharsReceived += event.delta.length;
+          params.callbacks?.onTextDelta?.(event.delta);
+        } else if (event.type === 'thinking_delta' && typeof event.delta === 'string') {
+          thinkingCharsReceived += event.delta.length;
+          params.callbacks?.onThinkingDelta?.(event.delta);
+        } else if (event.type === 'done' && event.result) {
+          finalResult = event.result as LlmTurnResult;
+        } else if (event.type === 'error') {
+          if (event.diagnostics && typeof event.diagnostics === 'object') {
+            gatewayDiagnostics = event.diagnostics as Record<string, unknown>;
+          }
+          throw new Error(event.message || 'Lyra Gateway stream error');
+        }
       }
     }
-  }
 
-  if (!finalResult) {
-    throw new Error('Lyra Gateway stream ended without a completion event.');
+    if (!finalResult) {
+      throw new Error('Lyra Gateway stream ended without a completion event.');
+    }
+    return finalResult;
+  } catch (err: any) {
+    if (err instanceof LlmAuthError) {
+      if (!err.diagnostics) err.diagnostics = buildDiagnostics(err);
+      throw err;
+    }
+    throw attachLlmDiagnostics(err, buildDiagnostics(err));
   }
-  return finalResult;
 }
 
 export async function streamLlmTurn(params: {
@@ -622,6 +728,7 @@ export async function streamLlmTurn(params: {
   tools: LlmToolDef[];
   effort?: 'low' | 'medium' | 'high';
   privacyMode?: PrivacyMode;
+  authToken?: string;
   signal?: AbortSignal;
   callbacks?: LlmStreamCallbacks;
 }): Promise<LlmTurnResult> {

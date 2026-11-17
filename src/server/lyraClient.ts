@@ -20,7 +20,7 @@ export interface LyraAuthState {
 }
 
 export function getLyraHubUrl(): string {
-  return (process.env.LYRA_HUB_URL || 'http://127.0.0.1:3001').replace(/\/+$/, '');
+  return (process.env.LYRA_HUB_URL || 'https://lyra.2helix.org').replace(/\/+$/, '');
 }
 
 export function extractCookieValue(cookieHeader: string | null, name: string): string | undefined {
