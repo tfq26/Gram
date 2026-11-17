@@ -1,304 +1,118 @@
-# Gram Desktop & Web Client — Multi-Platform Launch Guide
+# Gram Desktop & Web Launch Guide
 
-Gram provides multiple native and web presentation surfaces built with **.NET 10**:
-1. **Gram.Maui** (Desktop): High-performance native desktop shell for **Windows** (WinUI 3 / Edge WebView2) and **macOS** (Mac Catalyst / WKWebView) using .NET MAUI Blazor Hybrid.
-2. **Gram.Blazor** (Web): Full-featured web application hosting both the **Classic Web UI** (at `/` and `/classic`) and the modern **Carbon 3-Pane Workspace UI** (at `/workspace`) for side-by-side comparison.
+Gram runs as a local Bun HTTP/SSE daemon (`src/server/index.ts`, default port `7337`) paired with a React 19 + Vite frontend (`src/ui/`) and an optional Tauri 2 native desktop shell (`src-tauri/`).
 
----
+## Runtime Architecture
 
-## 1. Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│             Gram Presentation Tier (Clients)                │
-│                                                             │
-│  • Gram.Maui (Windows WinUI 3 & macOS Mac Catalyst)         │
-│  • Gram.Blazor Web (Modern Workspace at /workspace)         │
-│  • Gram.Blazor Web (Classic Web UI at /classic & /)         │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ HTTP / SSE / WebSockets (Port 7337)
-┌──────────────────────────────▼──────────────────────────────┐
-│                    Gram Core Backend                        │
-│                   (Gram.Blazor/Gram.Blazor)                 │
-│                                                             │
-│  Models · Streaming · Git Tooling · Workspace FS · Sandbox  │
-└─────────────────────────────────────────────────────────────┘
+```text
++-------------------------------------------------------+
+| Tauri 2 Desktop Window (or any browser)               |
+| - Dev: http://127.0.0.1:5174 (Vite HMR)               |
+| - Prod: http://127.0.0.1:7337 (dist/studio)           |
++---------------------------+---------------------------+
+                            | HTTP / SSE
++---------------------------v---------------------------+
+| Bun Daemon (src/server/index.ts, port 7337)           |
+| - Agents, tools, SQLite DB, GramFS, process manager   |
++---------------------------+---------------------------+
+                            | HTTPS (Bearer token)
++---------------------------v---------------------------+
+| Lyra Hub (https://lyra.2helix.org)                    |
+| - Better Auth + Google OAuth + /api/gateway/llm/stream|
++-------------------------------------------------------+
 ```
 
-- **Backend API**: ASP.NET Core server listening by default on `http://localhost:7337`.
-- **Desktop Host (`Gram.Maui`)**: Native window container powered by .NET MAUI Blazor Hybrid.
-- **Web Host (`Gram.Blazor`)**: Interactive server-rendered Blazor application serving both modern and classic workspace interfaces.
-- **PTY Terminal**: Cross-platform pseudoterminal integration (ConPTY on Windows, POSIX PTY on macOS).
-- **Automation Scripts**: Automatically verify prerequisites, spawn the backend in the background if not running, wait for healthiness, and launch the GUI.
+## Prerequisites
 
----
+- **All platforms**: [Bun](https://bun.sh) 1.2+ and Git.
+- **Desktop (Tauri 2) builds**: [Rust](https://rust-lang.org) (`rustc` and `cargo`) plus platform webview/toolchain requirements:
+  - **macOS**: Xcode Command Line Tools (`xcode-select --install`). WKWebView is built into macOS.
+  - **Windows 10/11**: Microsoft Edge WebView2 runtime (built into Windows 11) and MSVC C++ Build Tools.
+  - **Linux (Ubuntu/Debian)**: `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `build-essential`, `curl`, `pkg-config`.
 
-## 2. Platform Prerequisites
-
-### Common Prerequisites (All Platforms)
-- **.NET 10 SDK**: Ensure `dotnet --version` outputs `10.0.x` or higher.
-  Download: [https://dotnet.microsoft.com/download/dotnet/10.0](https://dotnet.microsoft.com/download/dotnet/10.0)
-- **Git**: Installed and accessible in your system `PATH`.
-- **MAUI workload**: Install with `dotnet workload install maui-maccatalyst` on macOS or `dotnet workload install maui-windows` on Windows.
-
----
-
-### Windows (10 / 11)
-- **Microsoft Edge WebView2 Evergreen Runtime**:
-  - Pre-installed by default on Windows 11 and up-to-date Windows 10 installations.
-  - If missing on older Windows machines, install via: [Microsoft WebView2 Download](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
-- **Terminal Shell (Optional but Recommended)**:
-  - Gram's embedded terminal defaults to **PowerShell 7** (`pwsh.exe`) if detected in `Program Files`, otherwise falling back to standard `cmd.exe`.
-  - Install PowerShell 7 via `winget install Microsoft.PowerShell`.
-
----
-
-### macOS (Apple Silicon & Intel)
-- **macOS 12.0+** (Monterey, Ventura, Sonoma, Sequoia).
-- Apple WebKit is built into macOS — no additional runtime download required.
-- Requires Xcode command line tools or full Xcode for compilation.
-
----
-
-### Linux (Ubuntu, Debian, Fedora, Arch)
-- **Display Server**: X11 or Wayland (via XWayland).
-- **WebKit2GTK and AppIndicator Libraries**:
-  - **Ubuntu 22.04+ / Debian 12+**:
-    ```bash
-    sudo apt update
-    sudo apt install -y libwebkit2gtk-4.1-0 libayatana-appindicator3-1 curl
-    ```
-    *(For older Ubuntu 20.04 distributions, install `libwebkit2gtk-4.0-37 libappindicator3-1`)*
-  - **Fedora 38+ / RHEL 9+**:
-    ```bash
-    sudo dnf install -y webkit2gtk4.1 libappindicator-gtk3 curl
-    ```
-  - **Arch Linux / Manjaro**:
-    ```bash
-    sudo pacman -S --noconfirm webkit2gtk-4.1 libappindicator-gtk3 curl
-    ```
-
----
-
-## 3. How to Launch on Windows
-
-Choose a mode with the PowerShell launcher:
-
-```powershell
-.\scripts\launch-desktop.ps1 -Desktop
-.\scripts\launch-desktop.ps1 -Web
-```
-
-The desktop mode is the default when no switch is provided.
-
-### Method 1: Double-Click Launcher (Easiest)
-In Windows File Explorer, navigate to the `Gram` folder and double-click:
-
-**`Launch Gram Desktop.bat`**
-
-This starts a background backend server (if needed) and opens the native Windows window.
-
-### Method 2: PowerShell Script
-Open Windows Terminal or PowerShell in the `Gram` folder:
-
-```powershell
-.\scripts\launch-desktop.ps1 -Desktop
-```
-
-If script execution is disabled on your system, bypass it with:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\launch-desktop.ps1
-```
-
-### Method 3: Manual Two-Terminal Launch
-If you prefer running the backend and desktop separately to see live backend logs:
-
-**Terminal 1 (Backend):**
-```powershell
-dotnet run --project Gram.Blazor\Gram.Blazor.csproj
-```
-*(Wait until `Now listening on: http://0.0.0.0:7337` appears)*
-
-**Terminal 2 (Desktop Client - Windows MAUI):**
-```powershell
-dotnet run --project Gram.Blazor\clients\Gram.Maui\Gram.Maui.csproj -f net10.0-windows10.0.19041.0
-```
-
----
-
-## 4. How to Launch on macOS
-
-Choose either app from the unified launcher:
+Install dependencies before first launch:
 
 ```bash
-./launch.sh --desktop
+bun install
+```
+
+## Launching in Development
+
+### Desktop + Live HMR (Recommended for UI/Desktop Work)
+
+Runs `bun run dev` (Bun daemon on `:7337` + Vite HMR on `:5174`) and opens the Tauri 2 window via `src-tauri/tauri.dev.conf.json`:
+
+```bash
+bun run tauri:dev
+```
+
+### Web UI + Daemon
+
+Run both the daemon (`--watch`) and Vite HMR server without opening a Tauri window:
+
+```bash
+bun run dev
+```
+
+Then open `http://127.0.0.1:5174`.
+
+### Production Studio Mode (Single Process)
+
+Build the frontend and start the daemon directly on `http://localhost:7337`:
+
+```bash
+bun run build:studio
 ./launch.sh --web
 ```
 
-With no mode flag, macOS starts the desktop app.
-
-### Method 1: Double-Click from Finder
-In Finder, open the `Gram` folder and double-click:
-
-**`Launch Gram Desktop.command`**
-
-### Method 2: Terminal Interactive Shell
-Open Terminal, iTerm2, or VS Code terminal:
+Or start headless without opening a browser tab:
 
 ```bash
-./launch.sh --desktop
+./launch.sh --server
 ```
 
-To spawn a dedicated fresh Terminal window programmatically:
-```bash
-./scripts/open-in-terminal.sh
-```
+### Terminal CLI Mode
 
-### Method 3: Native macOS Application Bundle (`Gram.app`)
-To build and run an `.app` bundle with custom app icon:
-```bash
-./scripts/bundle-macos-app.sh
-open Gram.app
-```
-
-### Method 4: Manual Two-Terminal Launch
-**Terminal 1 (Backend):**
-```bash
-dotnet run --project Gram.Blazor/Gram.Blazor.csproj
-```
-
-**Terminal 2 (Desktop Client - MacCatalyst MAUI):**
-```bash
-dotnet run --project Gram.Blazor/clients/Gram.Maui/Gram.Maui.csproj -f net10.0-maccatalyst27.0
-```
-
----
-
-## 5. Web Interface Access (Dual UI)
-
-Gram.Blazor provides both modern Carbon Workspace and Classic web UIs simultaneously:
-- **Modern Carbon Workspace UI**: `http://localhost:7337/workspace`
-- **Classic Web UI**: `http://localhost:7337/classic` (or `http://localhost:7337/`)
-- A switcher bar at the top of each web page allows one-click switching between views.
-
-### Method 1: Automated Script Launcher
-Open your terminal in the `Gram` folder:
+Run agent goals or diagnostics straight from the terminal:
 
 ```bash
-./launch.sh --web
+./launch.sh --cli "inspect failing tests"
+./launch.sh --doctor
+./launch.sh --graph
+bun run cli skills
 ```
 
-On Linux, the script automatically checks your `.NET 10 SDK`, starts the background backend if necessary, and opens the Web UI in your default browser.
+## Building Release Artifacts
 
-### Method 2: Manual Backend Launch
 ```bash
-dotnet run --project Gram.Blazor/Gram.Server/Gram.Server.csproj
-```
-Then navigate to `http://localhost:7337/workspace` in any modern web browser.
+# Typecheck + production Vite bundle (outputs to dist/studio/)
+bun run build
 
----
+# Native Rust workspace crate (crates/gram-core-rs)
+bun run build:rust
 
-## 6. Headless CLI Mode (Automation & CI Verification)
-
-You can run prompts and test backend connectivity directly from the command line without opening a GUI window on any platform.
-
-### macOS & Linux:
-```bash
-./scripts/launch-desktop.sh --cli "What models are configured?"
+# Standalone Tauri desktop installer/app bundle (reads src-tauri/tauri.conf.json)
+bun run tauri:build
 ```
 
-### Windows (PowerShell):
-```powershell
-.\scripts\launch-desktop.ps1 -Cli -Message "What models are configured?"
-```
+## Configuration
 
-### Direct `dotnet run` (All Platforms):
-```bash
-dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj -- --backend http://localhost:7337 --message "Ping"
-```
+Copy `.env.example` to `.env` if you need custom ports or overrides:
 
----
+- `GRAM_PORT`: Change the daemon port (default `7337`).
+- `LYRA_HUB_URL`: Point to a local or staging Lyra Hub instead of `https://lyra.2helix.org`.
+- `GRAM_DIRECT_LLM=true`: Skip Lyra Hub and talk directly to AWS Bedrock / OpenRouter / local Ollama using local environment credentials.
 
-## 7. Building Standalone Release Executables
+## Troubleshooting
 
-To build production binaries for the native MAUI desktop application:
-
-### macOS Application Bundle (`Gram.app`):
-```bash
-./scripts/bundle-macos-app.sh Release
-```
-*Output: `Gram.app` in the repository root. Launch via `open Gram.app`.*
-
-### Windows x64 (WinUI 3):
-```powershell
-dotnet publish Gram.Blazor\clients\Gram.Maui\Gram.Maui.csproj `
-  -f net10.0-windows10.0.19041.0 `
-  -c Release `
-  -p:WindowsPackageType=None
-```
-*Output: `Gram.Blazor\clients\Gram.Maui\bin\Release\net10.0-windows10.0.19041.0\win10-x64\publish\Gram.Maui.exe`*
-
----
-
-## 8. Platform Behavior & Shortcuts Matrix
-
-| Feature / Shortcut | Windows | macOS | Web / Linux |
-| :--- | :--- | :--- | :--- |
-| **Submit Message** | `Ctrl + Enter` | `⌘ + Enter` | `Ctrl + Enter` |
-| **Command Palette** | `Ctrl + K` | `⌘ + K` | `Ctrl + K` |
-| **Embedded Shell** | PowerShell 7 / CMD (`pwsh.exe`) | zsh / bash (`/bin/zsh`) | Server host shell |
-| **Rendering Engine** | Microsoft Edge WebView2 (WinUI 3) | Apple WebKit (Mac Catalyst) | Host Browser |
-| **Window State Memory** | `%APPDATA%/Gram` | `~/Library/Application Support/Gram` | Browser LocalStorage |
-| **Logs Location** | `.logs\backend.log` | `.logs/backend.log` | `.logs/backend.log` |
-
----
-
-## 9. Troubleshooting
-
-### Windows Issues
-
-1. **WebView2 Runtime**:
-   - WinUI 3 requires Microsoft Edge WebView2 Evergreen runtime.
-   - Pre-installed on Windows 11 and recent Windows 10. If missing: [Microsoft WebView2 Download](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
-
-2. **PowerShell execution policy error**:
-   - `File ... cannot be loaded because running scripts is disabled on this system.`
-   - Solution: Use `Launch Gram Desktop.bat`, or run `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`.
-
-3. **Firewall alert on first run**:
-   - Windows Defender Firewall may ask for permission for `dotnet.exe` to accept local socket connections on port `7337`.
-   - Solution: Click **Allow access** (Private networks).
-
----
-
-### macOS Issues
-
-1. **"Gram.app is damaged and cannot be opened" (Gatekeeper)**:
-   - For locally bundled `.app` files that haven't been signed with an Apple Developer certificate:
-     ```bash
-     xattr -cr Gram.app
-     ```
-
-2. **Xcode preview / SDK warnings**:
-   - If running against newer macOS previews, ensure the full Xcode application is active:
-     ```bash
-     sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-     ```
-
----
-
-### General Backend Connectivity Issues
-
-If the desktop client loads but says `Backend Offline`:
-1. Check if the backend is listening:
+1. **Port `7337` or `5174` already in use**:
+   `vite.config.ts` sets `strictPort: true` on `5174`. Stop lingering processes before restarting:
    ```bash
-   curl http://localhost:7337/api/v1/models
+   lsof -i :7337 -i :5174
    ```
-2. Inspect log files:
-   - Backend log: `.logs/backend.log`
-   - Desktop log: `.logs/desktop.log`
-   - Local Agent log: `.logs/local-agent.log`
-3. Specify a custom backend URL if running on a non-standard port:
-   ```bash
-   dotnet run --project Gram.Blazor/clients/Gram.Desktop/Gram.Desktop.csproj -- --backend http://localhost:8080
-   ```
+2. **Code changes did not take effect**:
+   `./launch.sh --web` and `bun run dev:server` run the compiled `dist/studio/` bundle unless you access `:5174` via Vite or re-run `bun run build:studio`. Restart the Bun daemon after modifying backend files under `src/server/`, `src/runtime/`, or `src/providers/`.
+3. **Google OAuth on Desktop**:
+   Clicking Google sign-in in Tauri opens your system browser (`https://lyra.2helix.org/api/auth/gram-start`) and hands the session token back via `/api/auth/handoff`. Make sure the local daemon on port `7337` (or `:5174` in dev) matches the origin you opened so `GET /api/auth/handoff-status` receives the completed token.
+4. **Debugging model or gateway failures**:
+   Check the **Diagnostics** panel on the failed message in the UI, inspect `<workspace>/.gram/diagnostics/errors.jsonl`, or query `http://localhost:7337/api/diagnostics/errors`.

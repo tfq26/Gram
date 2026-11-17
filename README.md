@@ -1,107 +1,146 @@
-# Gram v2 — Unified Agent-Native Autonomous Coding Studio
+# Gram
 
-> **Gram v2** is a high-performance, agent-native coding platform built from scratch in **Bun/TypeScript + Rust** to rival and exceed Codex and Claude Code. Context belongs to **Projects**, never trapped inside a single device or model provider.
+Gram is a local-first coding workspace and agent runtime built with Bun, TypeScript, React 19, Vite, and Tauri 2 (with a Rust core crate at `crates/gram-core-rs`).
 
----
+You run the daemon and workspace UI on your own machine (`http://localhost:7337`), keep your source files on local disk with SQLite-backed overlays and checkpoints, and route model inference through either Lyra Hub (`https://lyra.2helix.org`) or your own BYOK endpoints.
 
-## 1. Why Gram v2? Beyond Legacy Human Tools
+## Prerequisites
 
-Most AI coding agents are forced to use tools designed 30–50 years ago for humans typing at a terminal (`git worktree`, text `grep`, line-number `diff/patch`, and one-at-a-time JSON tool calls). Gram v2 replaces these with **four agent-native primitives**:
+- [Bun](https://bun.sh) 1.2+
+- [Rust](https://rust-lang.org) (`cargo`) if building the Tauri desktop app or `crates/gram-core-rs`
+- Xcode Command Line Tools on macOS (for Tauri native builds)
 
-1. **`GramFS` (SQLite-Backed Copy-on-Write Virtual Filesystem)**:
-   - Zero-copy instant workspace branching for parallel/async subagents (`forkOverlay` in `<1ms`).
-   - Immutable operation log (`opLog`) with instant time-travel and rollback (`undo`).
-   - Isolated staging overlays prevent dirty uncommitted host file clobbering.
-   - Colocated with Jujutsu (`jj`) and Git.
-2. **`Gram Semantic Graph` (Semantic URI Addressing & AST Reflexes)**:
-   - Line-independent symbol addressing: `gram://<filePath>#<kind>:<symbolName>`.
-   - Immune to line-shifting bugs when multiple agents or human edits occur simultaneously.
-   - Built-in zero-turn **Harness Reflexes**: `blast_radius_simulate` and `semantic_blame_why`.
-3. **`Gram Code Mode` (Single-Turn Programmatic Execution)**:
-   - Replaces 10–15 slow, multi-turn JSON tool-use HTTP roundtrips with a single typed script executed against the in-memory `gram.*` SDK.
-   - Slashes token consumption by ~90% and cuts multi-step tasks from 60 seconds to 40 milliseconds.
-4. **Stateless Context Envelope & Gram Connect**:
-   - Provider-neutral Intermediate Representation (IR) supporting AWS Bedrock (Claude Sonnet 5, Nova Pro), OpenAI GPT-4o, Google Gemini, and local Ollama.
-   - **Gram Connect**: Spotify Connect-style active device tracking and 1-click session casting (`session_cast`).
-   - **Privacy-First On-Device Hibernation**: 0 bytes of source code uploaded to servers by default; resumes in `<50ms` on unlock/lid open.
+Install dependencies:
 
----
+```bash
+bun install
+```
 
-## 2. The 8 Novel Agent-First Power Tools
+## Running Gram
 
-| Tool | Purpose | How It Helps Agents First |
+### Web + Daemon (Development)
+
+Runs the Bun HTTP/SSE daemon on `http://127.0.0.1:7337` and the Vite dev server on `http://127.0.0.1:5174` (with `/api` proxied to `:7337`):
+
+```bash
+bun run dev
+```
+
+Or launch only the Bun daemon serving the built frontend (`dist/studio`) on `http://localhost:7337`:
+
+```bash
+./launch.sh --web
+```
+
+Other launcher modes:
+
+```bash
+./launch.sh --server          # Start the HTTP daemon without opening a browser
+./launch.sh --cli "prompt"    # Run a single prompt in the terminal
+./launch.sh --doctor          # Check local ports, runtime, and environment
+./launch.sh --graph           # Index and print sample Semantic AST URIs
+```
+
+### Tauri Desktop App
+
+Starts the dev servers (`bun run dev`) and opens the native desktop window pointing at `http://127.0.0.1:5174`:
+
+```bash
+bun run tauri:dev
+```
+
+Build the production frontend (`dist/studio`) and desktop bundle:
+
+```bash
+bun run build
+bun run tauri:build
+```
+
+For platform prerequisites and troubleshooting, see [docs/desktop-launch-guide.md](docs/desktop-launch-guide.md).
+
+### Checks and Tests
+
+```bash
+bun run typecheck   # tsc --noEmit
+bun run build:studio # vite build -> dist/studio
+bun test            # Bun test suite across tests/ and src/
+```
+
+## Workspace Modes
+
+- **Chat**: Read-only answers and web search (`search_web`, `fetch_web_content`). When a project is selected, it can also inspect workspace files without modifying them.
+- **Plan**: Read-only repository inspection (`read_file`, `list_files`, `search_code`, `find_symbol_definition`, git read tools) to clarify requirements and produce EARS-style specifications saved under `.gram/plans/`.
+- **Code**: Full read/write file editing, `apply_changeset` multi-file edits, shell execution (`run_command`, background processes), headless browser inspection, and verification runs.
+
+Each project stores a lightweight `.gram/` directory containing `gram.md` (project instructions, detected commands, and gotchas) and `context.json`. Persistent session state, checkpoints, projects, and cached sync deltas live in SQLite (`src/db/schema.ts`).
+
+## Core Primitives
+
+- **GramFS (`src/core/gramfs.ts`)**: SQLite-backed copy-on-write staging overlay and operation log (`opLog`) for isolated edits and rollback checkpoints, paired with Git/Jujutsu detection and worktree isolation (`src/core/worktreeManager.ts`) for async or swarm runs.
+- **Semantic Graph (`src/core/semanticGraph.ts`)**: Line-independent symbol URIs (`gram://<filePath>#<kind>:<symbolName>`) and topological impact checks (`blast_radius_simulate`, `semantic_blame_why`).
+- **Code Mode (`src/core/codeMode.ts`)**: Executes batched workspace reads and transforms in a single TypeScript evaluation rather than chaining sequential single-tool roundtrips.
+- **Context Envelope & Gram Connect (`src/core/contextEnvelope.ts`, `src/sync/`)**: Model-neutral conversation history projection, AHP v2 delta sync (`sinceSeq`), and multi-device presence.
+
+## Authentication, Model Routing, and Privacy
+
+### Signing In via Lyra Hub
+
+Gram connects to Lyra Hub (`LYRA_HUB_URL`, defaulting to `https://lyra.2helix.org`) for user authentication and hosted model access:
+
+- **Web browser**: Signing in with Google or email/password sets the `gram_lyra_token` cookie on the local Gram origin.
+- **Tauri desktop app**: Clicking **Continue with Google** triggers `POST /api/auth/google` with `{ desktop: true }`, opens your system browser at `${LYRA_HUB_URL}/api/auth/gram-start`, and redirects back through `/api/auth/gram-handoff` to local `/api/auth/handoff?hid=...`. The local handoff page posts the Bearer token to `/api/auth/session-token`, while the desktop app polls `GET /api/auth/handoff-status` and applies the session without requiring a manual restart.
+
+When running an agent turn, Gram extracts `gram_lyra_token` (or the `Authorization: Bearer` header) and forwards it to `${LYRA_HUB_URL}/api/gateway/llm/stream`.
+
+### Model Routing and BYOK
+
+Model selection in `src/providers/router.ts` supports `auto` (selecting cost-optimized models for `chat`, planning-capable models for `plan`, and balanced models for `code`) or explicit pinning from the curated Bedrock and OpenRouter allowlists.
+
+Custom OpenAI-compatible or local Ollama endpoints can be added under **Settings > Models** (`src/providers/byokStore.ts`). BYOK API keys are encrypted at rest in SQLite. Privacy modes (`standard`, `zdr`, `local-only`) filter models and enforce zero-data-retention or local-only routing.
+
+## Diagnostics and Troubleshooting
+
+- **Self-healing system checks**: `GET /api/system/checks` checks Lyra Hub connectivity, authentication state, configured providers, and runtime readiness. The UI re-polls checks and automatically clears resolved warnings (for example, once network connectivity returns or sign-in completes).
+- **Run error diagnostics**: When a run fails, `GramAgentRuntime` captures a `RunErrorDiagnostics` record containing the requested model (`auto` vs explicit), resolved model ID, provider, loop turn and phase, elapsed time, TTFB, HTTP status, abort signal state on both the HTTP request and runtime controller, upstream Lyra Gateway diagnostics, and a secret-redacted stack trace.
+  - Logged to stderr with prefix `[GramRuntime][ErrorDiagnostics]`
+  - Appended to `<workspace>/.gram/diagnostics/errors.jsonl`
+  - Queryable via `GET /api/diagnostics/errors`
+  - Inspectable directly in the UI inside the **Diagnostics** drawer on failed messages (with a **Copy JSON** button)
+
+## Environment Variables
+
+See [.env.example](.env.example) for the full template.
+
+| Variable | Default | Purpose |
 | :--- | :--- | :--- |
-| **`blast_radius_simulate`** | Pre-edit topological impact simulator | Prevents cascading compiler breakages by showing all broken callers before an edit occurs. |
-| **`runtime_probe`** | Zero-mutation micro-execution inspector | Evaluates isolated functions and regexes with synthetic inputs without polluting host files with debug logs. |
-| **`hypothesis_race`** | Parallel speculative CoW branch racing | Tests competing bug fixes simultaneously in isolated GramFS layers and prunes dead ends. |
-| **`semantic_blame_why`** | Architectural intent & "Chesterton's fence" guard | Prevents agents from deleting load-bearing edge-case checks by retrieving historical invariants. |
-| **`cross_project_bridge`** | Multi-repo constellation query engine | Reads contracts, types, and schemas from sibling repositories in full-stack setups. |
-| **`ui_geometry_assert`** | Deterministic DOM layout & occlusion verifier | Checks bounding box overlaps and z-index clipping without relying solely on vision screenshots. |
-| **`context_fold`** | Agent-driven context compression | Replaces thousands of tokens of exploratory tool noise with verified, pinned facts. |
-| **`env_sandbox_doctor`** | Port, process, and .env drift custodian | Diagnoses port conflicts, zombie processes, and environment health automatically. |
+| `GRAM_PORT` | `7337` | Port for the local Bun HTTP/SSE server |
+| `LYRA_HUB_URL` | `https://lyra.2helix.org` | Lyra Hub origin for auth and `/api/gateway/llm/stream` |
+| `LYRA_GATEWAY_API_KEY` | unset | Optional headless API key for gateway calls without a user session |
+| `GRAM_DIRECT_LLM` | unset (`false`) | Set to `true` to bypass Lyra Gateway and call Bedrock/OpenRouter directly |
+| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Local Ollama endpoint for `local-only` or BYOK models |
+| `OPENROUTER_API_KEY` | unset | Optional OpenRouter key when calling OpenRouter directly |
+| `PARALLEL_API_KEY` / `TAVILY_API_KEY` | unset | Optional web search providers (falls back to DuckDuckGo HTML search) |
+| `ASSEMBLYAI_API_KEY` / `ELEVENLABS_API_KEY` | unset | Optional server-side speech-to-text and text-to-speech |
 
----
-
-## 3. Quick Start
-
-### Installation & Prerequisites
-- [Bun](https://bun.sh) (`v1.2+`)
-- [Rust](https://rust-lang.org) (for native AST parsing & diffing)
-
-### Autonomous Agent Interaction
-Developers provide high-level goals. Gram's agent autonomously selects and triggers its cognitive skills:
-
-```bash
-# Give Gram a goal — the agent autonomously triggers env_doctor, AST graph, or Code Mode:
-./gram "verify my project setup"
-
-# Launch the Web Developer Environment (Linear design system with Monaco & FileTree):
-bun run src/server/index.ts
-# -> Open http://localhost:7337
-
-# View all autonomous agent skills and trigger heuristics:
-./gram skills
-```
-
-### Direct Skill Execution (Optional Debugging)
-While designed for autonomous agent invocation, skills can be directly triggered for inspection:
-```bash
-./gram doctor            # Directly triggers agent skill 'env_doctor'
-./gram graph             # Directly triggers agent skill 'semantic_graph'
-./gram connect           # Directly triggers agent skill 'device_mesh_connect'
-./gram code-mode <file>  # Directly triggers agent skill 'code_mode'
-```
-
-### Running Test Suite
-```bash
-bun test
-# 39 pass across 10 suites in ~160ms
-```
-
----
-
-## 4. Architecture
+## Repository Structure
 
 ```text
-gram/
+Gram/
 ├── src/
-│   ├── core/
-│   │   ├── gramfs.ts           # SQLite CoW virtual filesystem & opLog
-│   │   ├── semanticGraph.ts    # Semantic URIs, blast radius & blame why
-│   │   ├── codeMode.ts         # Programmatic TypeScript isolate engine
-│   │   └── contextEnvelope.ts  # Provider-neutral IR & model-adaptive projections
-│   ├── tools/
-│   │   └── novelTools.ts       # The 8 novel agent-first power tools
-│   ├── runtime/
-│   │   └── agentRuntime.ts     # Sync + async stateless agent runner & checkpoints
-│   ├── sync/
-│   │   ├── ahpProtocol.ts      # AHP v2 JSON-RPC & sequence-delta (sinceSeq) sync
-│   │   └── connectPresence.ts  # Gram Connect multi-device presence & casting
-│   ├── providers/
-│   │   └── router.ts           # Pareto multi-model router (Bedrock, OpenAI, Gemini, Ollama)
-│   └── cli/
-│       └── index.ts            # Fast terminal CLI/TUI entrypoint
+│   ├── cli/                 # CLI commands (`skills`, `doctor`, `graph`, `connect`, `code-mode`)
+│   ├── core/                # GramFS, SemanticGraph, CodeMode, ContextEnvelope, KnowledgeGraph, WorktreeManager
+│   ├── db/                  # SQLite schema & stores (auth, chat, projects)
+│   ├── providers/           # Router, streaming LLM client, secret redaction, BYOK store
+│   ├── runtime/             # GramAgentRuntime, tools, process manager, browser tools, unified patch
+│   ├── server/              # Bun HTTP server (`index.ts`), routes (`routes/*.ts`), Lyra client bridge
+│   ├── sync/                # AHP v2 RPC & Gram Connect presence
+│   ├── tools/               # Autonomous skills and specialized workspace tools
+│   └── ui/                  # React 19 + Tailwind v4 UI (`App.tsx`, `features/*`, `components/*`)
 ├── crates/
-│   └── gram-core-rs/           # Native Rust core (hasher, diff engine)
-└── tests/                      # Comprehensive Bun test suites
+│   └── gram-core-rs/        # Native Rust crate
+├── src-tauri/               # Tauri 2 desktop shell configuration and Rust host
+├── docs/                    # Architecture, launch guide, and design specs
+└── tests/                   # Bun test suite
 ```
+
+More detail on internal data flow and conventions is in [ARCHITECTURE.md](ARCHITECTURE.md).
