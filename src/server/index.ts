@@ -17,15 +17,17 @@ import { handleAuthRoutes } from './routes/auth';
 import { handleLyraRoutes } from './routes/lyra';
 import { handleFileRoutes } from './routes/files';
 import { handleModelRoutes } from './routes/models';
+import { handleUserContextRoutes } from './routes/userContext';
 import { errorResponse, jsonResponse } from './http';
 import { AHPServer } from '../sync/ahpProtocol';
 import { GramConnectManager } from '../sync/connectPresence';
 import { AUTO_MODEL_ID, isAllowedModel, listAllowedModels, selectOptimalModel } from '../providers/router';
 import { streamLlmTurn } from '../providers/llmClient';
 import { extractCookieValue, fetchLyraAuthProviders, fetchLyraAuthState, proxyLyraJson } from './lyraClient';
-import { readAudioBody, synthesizeSpeech, transcribeAudio } from './voice';
+import { listElevenLabsVoices, readAudioBody, synthesizeSpeech, transcribeAudio } from './voice';
 import { sharedProcessManager } from '../runtime/processManager';
 import { getAppHtml } from './classicShell';
+import { generateContextAwarePlanIdeas, type PlanIdeaMessage } from './planIdeas';
 
 const cwd = process.cwd();
 const runtime = new GramAgentRuntime(cwd);
@@ -114,6 +116,9 @@ function createLyraToolBridge(req: Request) {
 
 async function handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
+
+    const userContextResponse = await handleUserContextRoutes(req, url, runtime);
+    if (userContextResponse) return userContextResponse;
 
     if (req.method === 'GET' && (url.pathname === '/manifest.webmanifest' || url.pathname === '/sw.js' || url.pathname.startsWith('/icons/'))) {
       for (const rootDir of [path.resolve(cwd, 'dist/studio'), path.resolve(cwd, 'public')]) {
@@ -223,6 +228,28 @@ async function handleRequest(req: Request): Promise<Response> {
         return jsonResponse({ ok, checkpoint }, ok ? 200 : 404);
       } catch (err: any) {
         return errorResponse(err?.message || 'Failed to continue task.', 500);
+      }
+    }
+
+    if (url.pathname === '/api/plan/ideas' && req.method === 'POST') {
+      try {
+        const body = (await req.json().catch(() => ({}))) as {
+          projectId?: string;
+          recentMessages?: PlanIdeaMessage[];
+        };
+        const projectId = String(body.projectId || 'local');
+        const targetRoot =
+          projectId !== 'local'
+            ? runtime.listProjects().find((p) => p.id === projectId)?.workspacePath || cwd
+            : cwd;
+        const result = await generateContextAwarePlanIdeas({
+          workspaceRoot: targetRoot,
+          recentMessages: Array.isArray(body.recentMessages) ? body.recentMessages : [],
+          authToken: extractRequestAuthToken(req),
+        });
+        return jsonResponse(result);
+      } catch (err: any) {
+        return errorResponse(err?.message || 'Failed to generate plan ideas.', 500);
       }
     }
 
@@ -437,7 +464,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
       const testSessions = new Set(['sess-1', 'sess-2', 'sess-3', 's-sync', 's-async', 's-resume', 'test-session']);
       const tasks = runtime.listRecentTasks(30).filter((t) => !testSessions.has(t.sessionId));
-      const chats = runtime.listChatSessions(50);
+      const chats = runtime.listChatSessions(200);
       const activeChat = requestedSessionId ? runtime.getChatSession(requestedSessionId) : null;
       let activePlan = '';
       if (requestedSessionId) {
@@ -471,8 +498,12 @@ async function handleRequest(req: Request): Promise<Response> {
     if (url.pathname === '/api/chats' && req.method === 'GET') {
       const modeParam = url.searchParams.get('mode');
       const mode = modeParam === 'chat' || modeParam === 'code' ? modeParam : undefined;
-      const chats = runtime.listChatSessions(50, mode);
+      const chats = runtime.listChatSessions(200, mode);
       return jsonResponse(chats);
+    }
+
+    if (url.pathname === '/api/chats/archived' && req.method === 'GET') {
+      return jsonResponse(runtime.listArchivedChatSessions(50));
     }
 
     if (url.pathname === '/api/chat' && req.method === 'GET') {
@@ -495,11 +526,39 @@ async function handleRequest(req: Request): Promise<Response> {
         projectId: body.projectId,
         projectLabel: body.projectLabel,
         modelId: body.modelId,
-        mode: body.mode === 'code' ? 'code' : 'chat',
+        mode: body.mode === 'code' || body.mode === 'plan' ? 'code' : 'chat',
         messages: Array.isArray(body.messages) ? body.messages : [],
       });
       void syncWithLyraHub(req);
       return jsonResponse({ ok: true });
+    }
+
+    if (url.pathname === '/api/chat/title' && req.method === 'POST') {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body.prompt !== 'string' || !body.prompt.trim()) {
+        return errorResponse('A prompt is required to generate a chat title.', 400);
+      }
+      try {
+        const title = await runtime.generateChatTitle({
+          prompt: body.prompt,
+          modelId: typeof body.modelId === 'string' ? body.modelId : 'auto',
+          authToken: extractRequestAuthToken(req),
+        });
+        return jsonResponse({ title });
+      } catch (error: any) {
+        return errorResponse(error?.message || 'Could not generate a chat title.', 502);
+      }
+    }
+
+    if (url.pathname === '/api/chat/archive' && req.method === 'POST') {
+      const body = await req.json();
+      if (!body.sessionId) {
+        return errorResponse('Missing sessionId', 400);
+      }
+      const archived = body.archived !== false;
+      runtime.archiveChatSession(body.sessionId, archived);
+      void syncWithLyraHub(req);
+      return jsonResponse({ ok: true, archived, sessionId: body.sessionId });
     }
 
     if (url.pathname === '/api/chat/delete' && req.method === 'POST') {
@@ -507,9 +566,10 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!body.sessionId) {
         return errorResponse('Missing sessionId', 400);
       }
-      runtime.deleteChatSession(body.sessionId);
+      // Default to soft-archive (30-day restore window) instead of hard deletion
+      runtime.archiveChatSession(body.sessionId, true);
       void syncWithLyraHub(req);
-      return jsonResponse({ deleted: true, sessionId: body.sessionId });
+      return jsonResponse({ archived: true, sessionId: body.sessionId });
     }
 
     if (url.pathname === '/api/sync' && req.method === 'POST') {
@@ -517,10 +577,26 @@ async function handleRequest(req: Request): Promise<Response> {
       return jsonResponse({
         ok: true,
         ...syncResult,
-        chats: runtime.listChatSessions(50),
+        chats: runtime.listChatSessions(200),
         tasks: runtime.listRecentTasks(50),
         projects: runtime.listProjects(),
+        conflicts: runtime.listUnresolvedSyncConflicts(),
       });
+    }
+
+    if (url.pathname === '/api/sync/conflicts' && req.method === 'GET') {
+      return jsonResponse(runtime.listUnresolvedSyncConflicts());
+    }
+
+    if (url.pathname === '/api/sync/conflicts/resolve' && req.method === 'POST') {
+      const body = await req.json().catch(() => null);
+      if (!body?.conflictId || (body.choice !== 'local' && body.choice !== 'remote')) {
+        return errorResponse('conflictId and a local/remote choice are required.', 400);
+      }
+      const resolved = runtime.resolveSyncConflict(String(body.conflictId), body.choice);
+      return resolved
+        ? jsonResponse({ ok: true, conflicts: runtime.listUnresolvedSyncConflicts() })
+        : errorResponse('Sync conflict not found.', 404);
     }
 
     if (url.pathname === '/api/history/clear' && req.method === 'POST') {
@@ -637,10 +713,32 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
+    if (url.pathname === '/api/voice/voices' && req.method === 'GET') {
+      try {
+        const result = await listElevenLabsVoices(req.signal);
+        return jsonResponse(result);
+      } catch (error: any) {
+        return errorResponse(error?.message || 'Could not load ElevenLabs voices.', 502);
+      }
+    }
+
     if (url.pathname === '/api/voice/speak' && req.method === 'POST') {
       try {
-        const body = await req.json() as { text?: string };
-        const response = await synthesizeSpeech(String(body.text || ''), req.signal);
+        const body = (await req.json()) as {
+          text?: string;
+          voiceId?: string;
+          modelId?: string;
+          stability?: number;
+          similarityBoost?: number;
+          speed?: number;
+        };
+        const response = await synthesizeSpeech(String(body.text || ''), req.signal, {
+          voiceId: body.voiceId,
+          modelId: body.modelId,
+          stability: body.stability,
+          similarityBoost: body.similarityBoost,
+          speed: body.speed,
+        });
         return new Response(response.body, {
           headers: { 'Content-Type': response.headers.get('content-type') || 'audio/mpeg', 'Cache-Control': 'no-store' },
         });
@@ -711,13 +809,16 @@ async function handleRequest(req: Request): Promise<Response> {
         void runtime.summarizeProjectInBackground(String(body.projectId), promptText);
       }
       const requestedModel = body.modelId || AUTO_MODEL_ID;
+      const useDirectLlm = process.env.GRAM_DIRECT_LLM === 'true';
       const resolvedModel =
         requestedModel !== AUTO_MODEL_ID && isAuthorizedModelId(requestedModel)
           ? requestedModel
-          : selectOptimalModel({
-              taskComplexity: mode === 'chat' ? 'simple' : 'moderate',
-              priority: mode === 'chat' ? 'cost' : mode === 'plan' ? 'planning' : 'balanced',
-            }).id;
+          : !useDirectLlm
+            ? AUTO_MODEL_ID
+            : selectOptimalModel({
+                taskComplexity: mode === 'chat' ? 'simple' : 'moderate',
+                priority: mode === 'chat' ? 'cost' : mode === 'plan' ? 'planning' : 'balanced',
+              }).id;
 
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
@@ -776,9 +877,10 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!isAuthorizedModelId(requestedModel)) {
         return errorResponse(`Model ${requestedModel} is not in the verified coding allowlist.`, 400);
       }
-      const resolvedModel = requestedModel === AUTO_MODEL_ID
-        ? selectOptimalModel({ taskComplexity: 'moderate', priority: 'balanced' }).id
-        : requestedModel;
+      const resolvedModel =
+        requestedModel === AUTO_MODEL_ID && process.env.GRAM_DIRECT_LLM === 'true'
+          ? selectOptimalModel({ taskComplexity: 'moderate', priority: 'balanced' }).id
+          : requestedModel;
       const result = await runtime.executeRun({
         sessionId: body.sessionId || `session-${Date.now()}`,
         runId: body.runId,

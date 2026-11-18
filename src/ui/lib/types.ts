@@ -77,6 +77,8 @@ export interface ChatEntry {
   originalPrompt?: string;
   codingHandoffPrompt?: string;
   isError?: boolean;
+  syncConflictOf?: string;
+  syncConflictSource?: 'local' | 'remote';
   diagnostics?: Record<string, unknown>;
 }
 

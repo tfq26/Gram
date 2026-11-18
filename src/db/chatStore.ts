@@ -3,11 +3,149 @@
  */
 
 import type { Database } from 'bun:sqlite';
+import crypto from 'node:crypto';
 import type { PlanNode } from '../core/contextEnvelope';
 import type { PendingApproval, RunCheckpoint, RunVerificationRecord } from '../runtime/types';
 
+function stableMessageId(message: unknown, index: number): string {
+  if (message && typeof message === 'object' && typeof (message as any).id === 'string' && (message as any).id.trim()) {
+    return String((message as any).id);
+  }
+  return `legacy-${crypto.createHash('sha256').update((JSON.stringify(message) || 'null') + `:${index}`).digest('hex').slice(0, 16)}`;
+}
+
+function messageTimestamp(message: any, fallbackOrder: number): number {
+  if (message && typeof message.createdAt === 'string') {
+    const parsed = Date.parse(message.createdAt);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const match = String(message?.id || '').match(/(?:^|-)\d{13}(?:-|$)/);
+  if (match) return Number(match[0].replace(/-/g, ''));
+  return Number.MAX_SAFE_INTEGER - 1_000_000 + fallbackOrder;
+}
+
+/** Merge append-only chat messages from two device snapshots without dropping either side. */
+function mergeChatMessages(localMessages: unknown[], remoteMessages: unknown[]): unknown[] {
+  const merged = new Map<string, { message: any; order: number }>();
+  const add = (raw: unknown, order: number, source: 'local' | 'remote') => {
+    const message = raw && typeof raw === 'object' ? { ...(raw as Record<string, unknown>) } : { role: 'assistant', content: String(raw ?? '') };
+    const id = stableMessageId(message, order);
+    message.id = id;
+    const existing = merged.get(id);
+    if (!existing) {
+      const conflictBase = typeof message.syncConflictOf === 'string' ? message.syncConflictOf : null;
+      const baseMessage = conflictBase ? merged.get(conflictBase)?.message : undefined;
+      if (baseMessage && JSON.stringify({ ...baseMessage, id: undefined, syncConflictOf: undefined, syncConflictSource: undefined }) ===
+        JSON.stringify({ ...message, id: undefined, syncConflictOf: undefined, syncConflictSource: undefined })) return;
+      merged.set(id, { message, order });
+      return;
+    }
+    if (JSON.stringify(existing.message) === JSON.stringify(message)) return;
+
+    // Preserve a divergent edit as a visible second variant instead of choosing a writer silently.
+    const variantHash = crypto.createHash('sha256').update(JSON.stringify(message)).digest('hex').slice(0, 12);
+    const variantId = `${id}~sync-${variantHash}`;
+    if (!merged.has(variantId)) {
+      message.id = variantId;
+      message.syncConflictOf = id;
+      message.syncConflictSource = source;
+      merged.set(variantId, { message, order: order + 0.25 });
+    }
+  };
+
+  localMessages.forEach((message, index) => add(message, index, 'local'));
+  remoteMessages.forEach((message, index) => add(message, localMessages.length + index, 'remote'));
+  return Array.from(merged.values())
+    .sort((a, b) => messageTimestamp(a.message, a.order) - messageTimestamp(b.message, b.order) || a.order - b.order)
+    .map((entry) => entry.message);
+}
+
 export class ChatStore {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: Database) {
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS chat_sync_conflicts (
+        conflict_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        field TEXT NOT NULL,
+        local_value TEXT NOT NULL,
+        remote_value TEXT NOT NULL,
+        detected_at TEXT NOT NULL,
+        resolved_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_chat_sync_conflicts_open
+      ON chat_sync_conflicts(resolved_at, detected_at);
+    `);
+  }
+
+  private recordSyncConflict(sessionId: string, field: string, localValue: string, remoteValue: string): void {
+    const id = crypto.createHash('sha256').update(`${sessionId}\0${field}\0${localValue}\0${remoteValue}`).digest('hex').slice(0, 24);
+    this.db.run(
+      `INSERT INTO chat_sync_conflicts
+       (conflict_id, session_id, field, local_value, remote_value, detected_at, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(conflict_id) DO UPDATE SET detected_at = excluded.detected_at, resolved_at = NULL`,
+      [id, sessionId, field, localValue, remoteValue, new Date().toISOString()]
+    );
+  }
+
+  public listUnresolvedSyncConflicts(): Array<{
+    conflictId: string;
+    sessionId: string;
+    field: string;
+    localValue: string;
+    remoteValue: string;
+    detectedAt: string;
+  }> {
+    return this.db.query<any, []>(
+      `SELECT conflict_id, session_id, field, local_value, remote_value, detected_at
+       FROM chat_sync_conflicts WHERE resolved_at IS NULL ORDER BY detected_at DESC LIMIT 100`
+    ).all().map((row) => ({
+      conflictId: String(row.conflict_id),
+      sessionId: String(row.session_id),
+      field: String(row.field),
+      localValue: String(row.local_value),
+      remoteValue: String(row.remote_value),
+      detectedAt: String(row.detected_at),
+    }));
+  }
+
+  public resolveSyncConflict(conflictId: string, choice: 'local' | 'remote'): boolean {
+    const conflict = this.db.query<any, [string]>(
+      `SELECT * FROM chat_sync_conflicts WHERE conflict_id = ? AND resolved_at IS NULL LIMIT 1`
+    ).get(conflictId);
+    if (!conflict) return false;
+    const value = choice === 'remote' ? conflict.remote_value : conflict.local_value;
+    const allowedFields: Record<string, string> = {
+      title: 'title',
+      project_id: 'project_id',
+      project_label: 'project_label',
+      model_id: 'model_id',
+      mode: 'mode',
+    };
+    if (String(conflict.field) === 'deleted') {
+      const now = new Date().toISOString();
+      if (choice === 'remote') {
+        this.db.run(`DELETE FROM chat_sessions WHERE session_id = ?`, [conflict.session_id]);
+        this.db.run(`DELETE FROM run_checkpoints WHERE session_id = ?`, [conflict.session_id]);
+      } else {
+        this.db.run(
+          `UPDATE chat_sessions SET dirty = 1, revision = revision + 1, updated_at = ? WHERE session_id = ?`,
+          [now, conflict.session_id]
+        );
+      }
+      this.db.run(`UPDATE chat_sync_conflicts SET resolved_at = ? WHERE conflict_id = ?`, [now, conflictId]);
+      return true;
+    }
+    const column = allowedFields[String(conflict.field)];
+    if (!column) return false;
+    const now = new Date().toISOString();
+    this.db.run(
+      `UPDATE chat_sessions SET ${column} = ?, updated_at = ?, dirty = 1, revision = revision + 1 WHERE session_id = ?`,
+      [value, now, conflict.session_id]
+    );
+    this.db.run(`UPDATE chat_sync_conflicts SET resolved_at = ? WHERE conflict_id = ?`, [now, conflictId]);
+    return true;
+  }
 
   public getLatestPinnedFacts(sessionId?: string): Record<string, string> {
     const row = sessionId
@@ -31,14 +169,14 @@ export class ChatStore {
     mode?: 'chat' | 'code';
     messages: unknown[];
   }): void {
-    const mode = session.mode === 'code' ? 'code' : 'chat';
+    const mode = session.mode === 'code' || (session.projectId && session.projectId !== 'local') ? 'code' : 'chat';
     this.db.run(
       `INSERT INTO chat_sessions (session_id, title, project_id, project_label, model_id, mode, messages_json, updated_at, dirty)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
        ON CONFLICT(session_id) DO UPDATE SET
          title = excluded.title,
-         project_id = excluded.project_id,
-         project_label = excluded.project_label,
+         project_id = CASE WHEN ? = 1 THEN chat_sessions.project_id ELSE excluded.project_id END,
+         project_label = CASE WHEN ? = 1 THEN chat_sessions.project_label ELSE excluded.project_label END,
          model_id = excluded.model_id,
          mode = excluded.mode,
          messages_json = excluded.messages_json,
@@ -54,6 +192,8 @@ export class ChatStore {
         mode,
         JSON.stringify(session.messages || []),
         new Date().toISOString(),
+        session.projectId === undefined ? 1 : 0,
+        session.projectLabel === undefined ? 1 : 0,
       ]
     );
   }
@@ -83,10 +223,66 @@ export class ChatStore {
       projectId: row.project_id,
       projectLabel: row.project_label,
       modelId: row.model_id,
-      mode: row.mode === 'code' ? 'code' : 'chat',
+      mode: row.mode === 'code' || row.project_id !== 'local' ? 'code' : 'chat',
       messages,
       updatedAt: row.updated_at,
     };
+  }
+
+  public purgeExpiredArchivedChats(retentionDays = 30): number {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const res = this.db.run(
+      `DELETE FROM chat_sessions WHERE archived_at IS NOT NULL AND archived_at < ?`,
+      [cutoff]
+    );
+    return Number(res.changes || 0);
+  }
+
+  public archiveChatSession(sessionId: string, archived: boolean): void {
+    const archivedAt = archived ? new Date().toISOString() : null;
+    this.db.run(
+      `UPDATE chat_sessions
+       SET archived_at = ?, dirty = 1, revision = revision + 1
+       WHERE session_id = ?`,
+      [archivedAt, sessionId]
+    );
+  }
+
+  public listArchivedChatSessions(limit = 50, retentionDays = 30): Array<{
+    sessionId: string;
+    title: string;
+    projectId: string;
+    projectLabel: string;
+    modelId: string;
+    mode: 'chat' | 'code';
+    updatedAt: string;
+    archivedAt: string;
+    daysRemaining: number;
+  }> {
+    this.purgeExpiredArchivedChats(retentionDays);
+    const rows = this.db.query<any, [number]>(
+      `SELECT session_id, title, project_id, project_label, model_id, mode, updated_at, archived_at
+       FROM chat_sessions
+       WHERE archived_at IS NOT NULL
+       ORDER BY archived_at DESC LIMIT ?`
+    ).all(limit);
+    const now = Date.now();
+    const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
+    return rows.map((r) => {
+      const archivedMs = Date.parse(r.archived_at) || now;
+      const daysRemaining = Math.max(1, Math.ceil((archivedMs + retentionMs - now) / (24 * 60 * 60 * 1000)));
+      return {
+        sessionId: r.session_id,
+        title: r.title,
+        projectId: r.project_id,
+        projectLabel: r.project_label,
+        modelId: r.model_id,
+        mode: r.mode === 'code' || r.project_id !== 'local' ? 'code' : 'chat',
+        updatedAt: r.updated_at,
+        archivedAt: r.archived_at,
+        daysRemaining,
+      };
+    });
   }
 
   public listChatSessions(limit = 50, mode?: 'chat' | 'code'): Array<{
@@ -98,16 +294,25 @@ export class ChatStore {
     mode: 'chat' | 'code';
     updatedAt: string;
   }> {
-    const rows = mode
-      ? this.db.query<any, [string, number]>(
+    this.purgeExpiredArchivedChats(30);
+    const rows = mode === 'code'
+      ? this.db.query<any, [number]>(
           `SELECT session_id, title, project_id, project_label, model_id, mode, updated_at
            FROM chat_sessions
-           WHERE mode = ?
+           WHERE (mode = 'code' OR project_id != 'local') AND archived_at IS NULL
            ORDER BY updated_at DESC LIMIT ?`
-        ).all(mode, limit)
+        ).all(limit)
+      : mode === 'chat'
+      ? this.db.query<any, [number]>(
+          `SELECT session_id, title, project_id, project_label, model_id, mode, updated_at
+           FROM chat_sessions
+           WHERE mode = 'chat' AND project_id = 'local' AND archived_at IS NULL
+           ORDER BY updated_at DESC LIMIT ?`
+        ).all(limit)
       : this.db.query<any, [number]>(
           `SELECT session_id, title, project_id, project_label, model_id, mode, updated_at
            FROM chat_sessions
+           WHERE archived_at IS NULL
            ORDER BY updated_at DESC LIMIT ?`
         ).all(limit);
     return rows.map((r) => ({
@@ -116,7 +321,7 @@ export class ChatStore {
       projectId: r.project_id,
       projectLabel: r.project_label,
       modelId: r.model_id,
-      mode: r.mode === 'code' ? 'code' : 'chat',
+      mode: r.mode === 'code' || r.project_id !== 'local' ? 'code' : 'chat',
       updatedAt: r.updated_at,
     }));
   }
@@ -124,6 +329,7 @@ export class ChatStore {
   public deleteChatSession(sessionId: string): void {
     this.db.run(`DELETE FROM chat_sessions WHERE session_id = ?`, [sessionId]);
     this.db.run(`DELETE FROM run_checkpoints WHERE session_id = ?`, [sessionId]);
+    this.db.run(`DELETE FROM chat_sync_conflicts WHERE session_id = ?`, [sessionId]);
     const row = this.db.query<any, [string]>(`SELECT value FROM sync_state WHERE key = ?`).get('deleted_chat_ids');
     let existing: string[] = [];
     if (row) {
@@ -144,6 +350,7 @@ export class ChatStore {
   public clearAllHistory(): void {
     this.db.run(`DELETE FROM chat_sessions`);
     this.db.run(`DELETE FROM run_checkpoints`);
+    this.db.run(`DELETE FROM chat_sync_conflicts`);
     this.db.run(`DELETE FROM sync_state`);
   }
 
@@ -254,20 +461,61 @@ export class ChatStore {
     }
     if (Array.isArray(delta.deletedChatIds)) {
       for (const id of delta.deletedChatIds) {
+        const existing = this.db.query<any, [string]>(`SELECT dirty FROM chat_sessions WHERE session_id = ?`).get(id);
+        if (existing?.dirty) {
+          this.recordSyncConflict(id, 'deleted', 'local changes', 'deleted on another device');
+          continue;
+        }
         this.db.run(`DELETE FROM chat_sessions WHERE session_id = ?`, [id]);
         this.db.run(`DELETE FROM run_checkpoints WHERE session_id = ?`, [id]);
+        this.db.run(`DELETE FROM chat_sync_conflicts WHERE session_id = ?`, [id]);
       }
     }
     if (Array.isArray(delta.chats)) {
       for (const chat of delta.chats) {
         const existing = this.db.query<any, [string]>(
-          `SELECT updated_at, revision, dirty FROM chat_sessions WHERE session_id = ?`
+          `SELECT title, project_id, project_label, model_id, mode, messages_json, updated_at, revision, dirty
+           FROM chat_sessions WHERE session_id = ?`
         ).get(chat.sessionId);
         const incomingTime = chat.updatedAt || new Date().toISOString();
-        if ((!existing || incomingTime >= existing.updated_at) && !existing?.dirty) {
+        let localMessages: unknown[] = [];
+        try {
+          if (existing?.messages_json) localMessages = JSON.parse(existing.messages_json);
+        } catch {}
+        const remoteMessages = Array.isArray(chat.messages) ? chat.messages : [];
+        const mergedMessages = mergeChatMessages(localMessages, remoteMessages);
+        const mergedJson = JSON.stringify(mergedMessages);
+        const hasLocalOnlyMessages = mergedMessages.length > remoteMessages.length;
+
+        if (existing?.dirty) {
+          const remoteMetadata: Record<string, string> = {
+            title: chat.title || 'Untitled chat',
+            project_id: chat.projectId || 'local',
+            project_label: chat.projectLabel || 'Local workspace',
+            model_id: chat.modelId || 'auto',
+            mode: chat.mode === 'code' ? 'code' : 'chat',
+          };
+          for (const [field, remoteValue] of Object.entries(remoteMetadata)) {
+            const localValue = String(existing[field] ?? '');
+            if (localValue !== remoteValue) this.recordSyncConflict(chat.sessionId, field, localValue, remoteValue);
+          }
+          if (mergedJson !== JSON.stringify(localMessages)) {
+            this.db.run(
+              `UPDATE chat_sessions
+               SET messages_json = ?, revision = revision + 1, updated_at = ?, dirty = 1
+               WHERE session_id = ?`,
+              [mergedJson, new Date().toISOString(), chat.sessionId]
+            );
+          }
+          continue;
+        }
+
+        const incomingIsNewer = !existing || incomingTime >= existing.updated_at || (chat.revision ?? 1) > Number(existing.revision || 1);
+        if (incomingIsNewer || mergedJson !== JSON.stringify(localMessages)) {
+          const nextRevision = Math.max(Number(existing?.revision || 0), Number(chat.revision || 1)) + (hasLocalOnlyMessages ? 1 : 0);
           this.db.run(
             `INSERT INTO chat_sessions (session_id, title, project_id, project_label, model_id, mode, revision, messages_json, updated_at, dirty, sync_seq)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(session_id) DO UPDATE SET
                title = excluded.title,
                project_id = excluded.project_id,
@@ -277,18 +525,19 @@ export class ChatStore {
                revision = excluded.revision,
                messages_json = excluded.messages_json,
                updated_at = excluded.updated_at,
-               dirty = 0,
+               dirty = excluded.dirty,
                sync_seq = excluded.sync_seq`,
             [
               chat.sessionId,
-              chat.title || 'Untitled chat',
-              chat.projectId || 'local',
-              chat.projectLabel || 'Local workspace',
-              chat.modelId || 'auto',
-              chat.mode === 'code' ? 'code' : 'chat',
-              chat.revision ?? 1,
-              JSON.stringify(chat.messages || []),
-              incomingTime,
+              incomingIsNewer ? (chat.title || 'Untitled chat') : existing?.title || 'Untitled chat',
+              incomingIsNewer ? (chat.projectId || 'local') : existing?.project_id || 'local',
+              incomingIsNewer ? (chat.projectLabel || 'Local workspace') : existing?.project_label || 'Local workspace',
+              incomingIsNewer ? (chat.modelId || 'auto') : existing?.model_id || 'auto',
+              incomingIsNewer ? (chat.mode === 'code' ? 'code' : 'chat') : existing?.mode || 'chat',
+              nextRevision,
+              mergedJson,
+              incomingIsNewer ? incomingTime : new Date().toISOString(),
+              Number(hasLocalOnlyMessages),
               chat.syncSeq ?? delta.latestSeq,
             ]
           );

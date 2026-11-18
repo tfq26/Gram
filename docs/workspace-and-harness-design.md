@@ -88,6 +88,17 @@ Use stable turn IDs and monotonically increasing session revisions. An upload se
 
 Use authenticated account identity for cloud sync. Keep local-only records local when the user has not connected an account. Define merge behavior for concurrent edits explicitly, using per-turn identity or an append-only event log where merging whole transcript snapshots would lose updates.
 
+#### Concurrent chat and workspace updates
+
+- Give each message a globally unique ID. Treat normal chat messages as append-only events and merge by ID when two devices have unsynced turns. Preserve divergent edits to the same ID as visible variants; never silently replace one device's text.
+- Treat session metadata as mutable fields with revision checks. If both devices change the project binding, title, or mode, keep both values in a conflict record and let the user choose which value to publish.
+- Sync deletions as tombstones. If a remote deletion meets a dirty local session, preserve the local version and ask whether to restore it or accept the deletion.
+- Give every work checkpoint a `projectId`, `workSessionId`, `baseCommitSha`, branch, revision, file-delta manifest, and related chat/session ID. Store large patch payloads as content-addressed blobs; upload a manifest only after its blobs are durable.
+- Make the Cloud DB apply the same message-ID merge rule before storing snapshots. A Gram-side merge cannot recover a device's messages if the Cloud DB has already overwritten that version before returning a delta.
+- Restore a checkpoint into a device-local isolated worktree at its base commit. If the remote branch has advanced, attempt a three-way merge there and present conflicts before changing the user's checkout.
+- Keep project identity and repository remote portable. Store local checkout paths in a per-device binding table; never sync an absolute path as project identity.
+- Keep FTS and embedding indexes derived on each execution host. Store the source revision and embedding model version so a device can report indexing lag and rebuild safely after sync.
+
 ### 6. Treat the desktop server as a privileged boundary
 
 Bind the desktop Bun server to loopback by default. Add an origin-checked, per-install local credential for privileged API routes, including file writes, process control, run control, approvals, and project changes. Do not assume that a desktop app's API is safe merely because its normal UI uses localhost. Keep hosted Lyra authentication and authorization at Lyra, where it already owns identity.
@@ -155,6 +166,6 @@ This phase has priority because the local harness can read files, run processes,
 
 ## Implementation status
 
-The first Gram-side changes now make unattached Chat omit repository context and project tools, bind run mode and project ID to the selected tab when sending and saving a turn, preserve mode and revision in local sync records, and only acknowledge the exact chat revision sent. The desktop Bun listener now binds to loopback by default. Gram no longer forwards its local startup path as Lyra's workspace path, and includes the session mode and project ID in the cloud request.
+The first Gram-side changes now make unattached Chat omit repository context and project tools, bind run mode and project ID to the selected tab when sending and saving a turn, preserve mode and revision in local sync records, and only acknowledge the exact chat revision sent. The local client now merges independent chat messages by stable ID and records metadata/deletion conflicts for review. The desktop Bun listener now binds to loopback by default. Gram no longer forwards its local startup path as Lyra's workspace path, and includes the session mode and project ID in the cloud request.
 
 Remaining work includes an explicit project-attachment control for read-only Chat, consistent checkout/GramFS binding for symbol indexing, diff/apply and approvals, authenticated authorization for privileged local API routes, device binding on queued turns, and Lyra-side persistence/validation of mode and revision. TypeScript type checking passed after the Gram changes. Lyra end-to-end behavior and test suites have not been rerun as part of this implementation.

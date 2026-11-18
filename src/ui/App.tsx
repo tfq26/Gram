@@ -6,6 +6,8 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ChevronsLeftIcon,
+  ChevronsRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   Columns2Icon,
@@ -39,6 +41,7 @@ import { MessageResponse } from './components/ai-elements/Message';
 import { AppErrorScreen } from './components/ui/ErrorBoundary';
 import { SettingsView, type LayoutPreset } from './features/settings/SettingsView';
 import { WorkspaceDock, type DockSurface } from './features/workspace/WorkspaceDock';
+import { PlanArtifactCard } from './features/workspace/PlanArtifactCard';
 import { AuthPage, GramMark } from './features/auth/AuthPage';
 import { OnboardingWizard } from './features/auth/OnboardingWizard';
 import { getModelLogoPath } from './lib/modelLogos';
@@ -57,6 +60,7 @@ import { Field, FieldGroup } from './components/ui/field';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { DynamicIslandBar, type IslandActivity } from './components/ui/dynamic-island';
+import { SystemToastViewport, emitSystemToast } from './components/ui/toast';
 import {
   Item,
   ItemActions,
@@ -113,6 +117,10 @@ import { isCodingWorkPrompt } from './features/chat/chatHelpers';
 import { ShortcutsDialog } from './features/chat/ShortcutsDialog';
 import { ChatContextMenu } from './features/chat/ChatContextMenu';
 
+function createChatMessageId(prefix: string): string {
+  const unique = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 12);
+  return `${prefix}-${Date.now()}-${unique}`;
+}
 
 export function App() {
   const [layoutPreset, setLayoutPreset] = useState<LayoutPreset>(() => {
@@ -131,6 +139,55 @@ export function App() {
     }
   });
   const [sidebarOpen, setSidebarOpen] = useState(() => layoutPreset === 'beginner');
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('gram.sidebarWidth'));
+      if (Number.isFinite(saved) && saved >= 220 && saved <= 520) return saved;
+    } catch {}
+    return 260;
+  });
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+
+  const startSidebarResize = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!sidebarOpen) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    setIsResizingSidebar(true);
+    let latestWidth = startWidth;
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const next = Math.min(520, Math.max(220, Math.round(startWidth + (moveEvent.clientX - startX))));
+      latestWidth = next;
+      setSidebarWidth(next);
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+      setIsResizingSidebar(false);
+      try {
+        localStorage.setItem('gram.sidebarWidth', String(latestWidth));
+      } catch {}
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const toggleSidebarExpanded = () => {
+    const next = sidebarWidth >= 340 ? 260 : 380;
+    setSidebarWidth(next);
+    try {
+      localStorage.setItem('gram.sidebarWidth', String(next));
+    } catch {}
+  };
   const [activePage, setActivePage] = useState<'chat' | 'settings' | 'auth' | 'onboarding'>(() => {
     if (typeof window === 'undefined') return 'chat';
     const p = window.location.pathname;
@@ -207,6 +264,10 @@ export function App() {
   }>({ loading: false, isGitRepo: false, remotes: [] });
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
+  const [archivedChats, setArchivedChats] = useState<
+    Array<{ sessionId: string; title: string; mode: 'chat' | 'code'; daysRemaining: number }>
+  >([]);
+  const [showArchivedChats, setShowArchivedChats] = useState(false);
   const [projectDraft, setProjectDraft] = useState<{ id?: string; label: string; workspacePath: string; instructions: string }>({
     label: '',
     workspacePath: '',
@@ -229,6 +290,22 @@ export function App() {
   });
   const [composerModelOpen, setComposerModelOpen] = useState(false);
   const [effortMenuOpen, setEffortMenuOpen] = useState(false);
+  const [contextUsageBySession, setContextUsageBySession] = useState<
+    Record<
+      string,
+      {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
+        estimatedContextTokens: number;
+        contextWindow: number;
+        usagePercent: number;
+        estimatedCostUsd: number;
+        compactedCount: number;
+      }
+    >
+  >({});
   const [appMode, setAppMode] = useState<'chat' | 'code'>(() => {
     try {
       const saved = localStorage.getItem('gram.appMode');
@@ -238,6 +315,8 @@ export function App() {
   });
   const [activeDockSurface, setActiveDockSurface] = useState<DockSurface | null>(null);
   const [planBySession, setPlanBySession] = useState<Record<string, string>>({});
+  const [planIdeasByKey, setPlanIdeasByKey] = useState<Record<string, string[]>>({});
+  const fetchedPlanIdeasRef = useRef<Set<string>>(new Set());
   const [showInlinePlan, setShowInlinePlan] = useState(true);
   const [dockPreviewUrl, setDockPreviewUrl] = useState('http://localhost:5173');
   const planSectionRef = useRef<HTMLDivElement>(null);
@@ -247,7 +326,9 @@ export function App() {
   useEffect(() => {
     if (isPlanMode && !wasPlanModeRef.current) {
       requestAnimationFrame(() => {
-        planSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        requestAnimationFrame(() => {
+          planSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
       });
     }
     wasPlanModeRef.current = isPlanMode;
@@ -334,10 +415,16 @@ export function App() {
   const speechAudioRef = useRef<HTMLAudioElement | null>(null);
   const speechUrlRef = useRef<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const speechRecognitionRef = useRef<any>(null);
+  const voiceDraftBaseRef = useRef<string>('');
+  const voiceSilenceTimerRef = useRef<number | null>(null);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const messagesByTabRef = useRef(messagesByTab);
   messagesByTabRef.current = messagesByTab;
+  const chatSaveQueuesRef = useRef(new Map<string, Promise<void>>());
+  const manualTitleOverridesRef = useRef(new Set<string>());
   const steeringQueueItemRef = useRef<{
     id: string;
     tabId: string;
@@ -370,6 +457,12 @@ export function App() {
       URL.revokeObjectURL(speechUrlRef.current);
       speechUrlRef.current = null;
     }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+    setSpeakingMessageId(null);
   }
 
   function cancelActiveTurnForBargeIn() {
@@ -404,20 +497,56 @@ export function App() {
     return summary;
   }
 
-  async function speakSummary(text: string) {
+  function playVoiceChime() {
+    try {
+      if (localStorage.getItem('gram.settings.playVoiceChime') !== 'true') return;
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const context = new AudioCtx();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.frequency.value = 660;
+      gain.gain.value = 0.035;
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.07);
+      oscillator.onended = () => {
+        void context.close().catch(() => {});
+      };
+    } catch {}
+  }
+
+  async function speakSummary(text: string, messageId?: string) {
     const summary = speechSummary(text);
     if (!summary) return;
     stopSpeechPlayback();
+    setSpeakingMessageId(messageId || '__auto__');
     const controller = new AbortController();
     speechRequestRef.current = controller;
+    let voiceId: string | undefined;
+    let speed: number | undefined;
+    try {
+      voiceId = localStorage.getItem('gram.settings.elevenLabsVoiceId') || undefined;
+      const rawSpeed = Number(localStorage.getItem('gram.settings.elevenLabsSpeed'));
+      if (Number.isFinite(rawSpeed) && rawSpeed > 0) speed = rawSpeed;
+    } catch {}
     try {
       const response = await fetch('/api/voice/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: summary }),
+        body: JSON.stringify({ text: summary, voiceId, speed }),
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || `Speech request failed (${response.status}).`);
+      if (!response.ok) {
+        if (response.status === 503 && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(summary);
+          utterance.onend = () => setSpeakingMessageId(null);
+          utterance.onerror = () => setSpeakingMessageId(null);
+          window.speechSynthesis.speak(utterance);
+          return;
+        }
+        throw new Error((await response.json().catch(() => null))?.error || `Speech request failed (${response.status}).`);
+      }
       const audioBlob = await response.blob();
       if (controller.signal.aborted) return;
       const url = URL.createObjectURL(audioBlob);
@@ -427,62 +556,276 @@ export function App() {
       audio.onended = () => stopSpeechPlayback();
       await audio.play();
     } catch (error: any) {
-      if (error?.name !== 'AbortError') setVoiceError(error?.message || 'Could not play voice response.');
+      if (error?.name !== 'AbortError') {
+        setSpeakingMessageId(null);
+        const msg = error?.message || 'Could not play voice response.';
+        setVoiceError(msg);
+        emitSystemToast({ title: 'Voice playback failed', description: msg, variant: 'error' });
+      }
     }
+  }
+
+  function stopLiveDictation() {
+    if (voiceSilenceTimerRef.current) {
+      window.clearTimeout(voiceSilenceTimerRef.current);
+      voiceSilenceTimerRef.current = null;
+    }
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.onend = null;
+        speechRecognitionRef.current.stop();
+      } catch {}
+      speechRecognitionRef.current = null;
+    }
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.stop();
+    }
+    setVoiceRecording(false);
   }
 
   async function toggleVoiceRecording() {
     setVoiceError(null);
-    if (recorderRef.current?.state === 'recording') {
-      recorderRef.current.stop();
+    if (voiceRecording || speechRecognitionRef.current || recorderRef.current?.state === 'recording') {
+      stopLiveDictation();
+      playVoiceChime();
       return;
     }
     cancelActiveTurnForBargeIn();
-    setVoiceMode(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      voiceStreamRef.current = stream;
-      voiceChunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => { if (event.data.size) voiceChunksRef.current.push(event.data); };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        voiceStreamRef.current = null;
-        recorderRef.current = null;
-        setVoiceRecording(false);
-        const audio = new Blob(voiceChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+    voiceDraftBaseRef.current = prompt.trim();
+
+    const startMediaRecorderFallback = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        voiceStreamRef.current = stream;
         voiceChunksRef.current = [];
-        if (!audio.size) return;
-        const controller = new AbortController();
-        try {
-          const response = await fetch('/api/voice/transcribe', { method: 'POST', headers: { 'Content-Type': audio.type }, body: audio, signal: controller.signal });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || `Transcription failed (${response.status}).`);
-          setPrompt(String(data.text || '').trim());
-          textareaRef.current?.focus();
-        } catch (error: any) {
-          if (error?.name !== 'AbortError') setVoiceError(error?.message || 'Transcription failed.');
-        }
-      };
-      recorder.start();
-      setVoiceRecording(true);
-    } catch (error: any) {
-      setVoiceMode(false);
-      setVoiceError(error?.message || 'Microphone access is unavailable.');
+        const recorder = new MediaRecorder(stream);
+        recorderRef.current = recorder;
+        recorder.ondataavailable = (event) => { if (event.data.size) voiceChunksRef.current.push(event.data); };
+        recorder.onstop = async () => {
+          stream.getTracks().forEach((track) => track.stop());
+          voiceStreamRef.current = null;
+          recorderRef.current = null;
+          setVoiceRecording(false);
+          const audio = new Blob(voiceChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+          voiceChunksRef.current = [];
+          if (!audio.size) return;
+          const controller = new AbortController();
+          try {
+            const response = await fetch('/api/voice/transcribe', { method: 'POST', headers: { 'Content-Type': audio.type }, body: audio, signal: controller.signal });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || `Transcription failed (${response.status}).`);
+            const transcript = String(data.text || '').trim();
+            if (transcript) {
+              setPrompt([voiceDraftBaseRef.current, transcript].filter(Boolean).join(' '));
+            }
+            textareaRef.current?.focus();
+          } catch (error: any) {
+            if (error?.name !== 'AbortError') {
+              const msg = error?.message || 'Transcription failed.';
+              setVoiceError(msg);
+              emitSystemToast({ title: 'Transcription failed', description: msg, variant: 'error' });
+            }
+          }
+        };
+        recorder.start();
+        setVoiceRecording(true);
+        playVoiceChime();
+      } catch (error: any) {
+        setVoiceRecording(false);
+        const msg = error?.message || 'Microphone access is unavailable.';
+        setVoiceError(msg);
+        emitSystemToast({ title: 'Microphone unavailable', description: msg, variant: 'error' });
+      }
+    };
+
+    const SpeechRec =
+      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
+      (window as unknown as { webkitSpeechRecognition?: any }).webkitSpeechRecognition;
+
+    if (SpeechRec) {
+      try {
+        const recognition = new SpeechRec();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = navigator.language || 'en-US';
+        speechRecognitionRef.current = recognition;
+        setVoiceRecording(true);
+        playVoiceChime();
+        textareaRef.current?.focus();
+
+        recognition.onresult = (event: any) => {
+          let finalPart = '';
+          let interimPart = '';
+          for (let i = 0; i < event.results.length; i++) {
+            const segment = String(event.results[i]?.[0]?.transcript || '');
+            if (event.results[i]?.isFinal) finalPart += segment;
+            else interimPart += segment;
+          }
+          const spoken = `${finalPart}${interimPart}`.trim();
+          setPrompt([voiceDraftBaseRef.current, spoken].filter(Boolean).join(' '));
+
+          let autoSend = false;
+          try {
+            autoSend = localStorage.getItem('gram.settings.autoSendVoice') === 'true';
+          } catch {}
+          if (autoSend && finalPart.trim()) {
+            if (voiceSilenceTimerRef.current) window.clearTimeout(voiceSilenceTimerRef.current);
+            voiceSilenceTimerRef.current = window.setTimeout(() => {
+              stopLiveDictation();
+              formRef.current?.requestSubmit();
+            }, 1300);
+          }
+        };
+
+        recognition.onerror = (event: any) => {
+          const code = String(event?.error || '');
+          if (code === 'network' || code === 'service-not-allowed' || code === 'audio-capture') {
+            stopLiveDictation();
+            void startMediaRecorderFallback();
+          } else if (code !== 'aborted' && code !== 'no-speech') {
+            stopLiveDictation();
+            setVoiceError(`Speech recognition error: ${code}`);
+          }
+        };
+
+        recognition.onend = () => {
+          if (speechRecognitionRef.current === recognition) {
+            try {
+              recognition.start();
+            } catch {
+              stopLiveDictation();
+            }
+          }
+        };
+
+        recognition.start();
+        return;
+      } catch {
+        speechRecognitionRef.current = null;
+      }
     }
+
+    await startMediaRecorderFallback();
   }
 
   useEffect(() => () => {
     activeRequestRef.current?.abort();
-    speechRequestRef.current?.abort();
-    recorderRef.current?.stop();
+    stopSpeechPlayback();
+    stopLiveDictation();
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
-    if (speechUrlRef.current) URL.revokeObjectURL(speechUrlRef.current);
   }, []);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0]!;
   const activeMessages = messagesByTab[activeTab.id] || [];
+
+  const composerPlaceholder = React.useMemo(() => {
+    const codePrompts = [
+      'Whisper a wild idea to the agent...',
+      'Summon the agent for a little coding magic...',
+      'What are we building or untangling today?',
+      'Drop a thought, a bug, or a daydream...',
+      'Poke the agent with your next quest...',
+      'Tell the agent what’s brewing...',
+      'Hand the agent a puzzle to solve...',
+      'Toss an idea into the workshop...',
+      'Ask the agent to chase a hunch...',
+      'What shall we conjure up next?',
+      'Pitch the next move to the agent...',
+      'Ask the agent anything, big or tiny...',
+    ];
+    const chatPrompts = [
+      'Share a thought, a story, or a random question...',
+      'What’s on your mind today?',
+      'Ask anything, brainstorm, or just say hi...',
+      'Toss a curiosity into the chat...',
+      'What rabbit hole are we exploring today?',
+      'Drop a daydream, a debate, or a quick question...',
+      'Tell me what’s on your mind...',
+      'Start a thread about anything at all...',
+    ];
+    const pool = appMode === 'chat' ? chatPrompts : codePrompts;
+    const seed = `${activeTab.id}:${appMode}:${isPlanMode ? 'plan' : 'main'}`;
+    let hash = Math.floor(Math.random() * pool.length);
+    for (let i = 0; i < seed.length; i++) {
+      hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    }
+    return pool[hash % pool.length]!;
+  }, [activeTab.id, appMode, isPlanMode]);
+
+  const chatEmptyCopy = React.useMemo(() => {
+    const options = [
+      {
+        title: 'What’s on your mind?',
+        description: 'Start a conversation, brainstorm an idea, or ask anything at all.',
+      },
+      {
+        title: 'Ready for a good chat',
+        description: 'Share a thought, a story, or a question you’ve been mulling over.',
+      },
+      {
+        title: 'Where shall we wander today?',
+        description: 'No codebase needed — bring a curiosity, a plan, or just say hello.',
+      },
+      {
+        title: 'Penny for your thoughts?',
+        description: 'Ask a quick question, bounce around ideas, or talk something through.',
+      },
+      {
+        title: 'What are we thinking through?',
+        description: 'Drop a topic, a debate, or a spark of inspiration to get started.',
+      },
+      {
+        title: 'Pull up a chair',
+        description: 'Whether it’s big plans or random musings, I’m all ears.',
+      },
+    ];
+    const seed = `${activeTab.id}:chat-empty`;
+    let hash = Math.floor(Math.random() * options.length);
+    for (let i = 0; i < seed.length; i++) {
+      hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    }
+    return options[hash % options.length]!;
+  }, [activeTab.id]);
+
+  const planIdeaSessionKey = `${activeProjectId}:${activeTab.sessionId}`;
+  const lastActiveMessageId = activeMessages[activeMessages.length - 1]?.id || '';
+  const planIdeaFetchKey = `${planIdeaSessionKey}:${activeMessages.length}:${lastActiveMessageId}`;
+
+  useEffect(() => {
+    if (!isPlanMode || planBySession[activeTab.sessionId]) return;
+    if (fetchedPlanIdeasRef.current.has(planIdeaFetchKey)) return;
+    fetchedPlanIdeasRef.current.add(planIdeaFetchKey);
+    const controller = new AbortController();
+    void fetch('/api/plan/ideas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        projectId: activeProjectId,
+        recentMessages: activeMessages.slice(-4).map((m) => ({
+          role: m.role,
+          content: (m.content || '').slice(0, 260),
+          isError: Boolean(m.isError),
+        })),
+      }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { ideas?: string[] } | null) => {
+        if (data?.ideas && Array.isArray(data.ideas) && data.ideas.length > 0) {
+          setPlanIdeasByKey((prev) => ({ ...prev, [planIdeaSessionKey]: data.ideas! }));
+        }
+      })
+      .catch(() => {
+        fetchedPlanIdeasRef.current.delete(planIdeaFetchKey);
+      });
+    return () => controller.abort();
+  }, [isPlanMode, planIdeaFetchKey, planIdeaSessionKey, activeProjectId, activeTab.sessionId, planBySession, activeMessages]);
+
+  const currentPlanIdeas = planIdeasByKey[planIdeaSessionKey] || [
+    `Design new ${activeProjectId !== 'local' ? (projects.find((p) => p.id === activeProjectId)?.label || 'workspace') : 'workspace'} feature spec`,
+    'Plan a safe architecture refactor',
+    'Trace a bug and map the fix',
+  ];
 
   const visibleCatalogModels = hideBuiltinModels
     ? models.filter((m) => m.source === 'byok' || m.source === 'openrouter')
@@ -882,6 +1225,10 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    const tauriInvoke = (window as any)?.__TAURI_INTERNALS__?.invoke;
+    if (typeof tauriInvoke === 'function') {
+      void Promise.resolve(tauriInvoke('set_window_theme', { theme })).catch(() => {});
+    }
   }, [theme]);
 
   function applySystemChecks(rawChecks: any[]) {
@@ -1058,30 +1405,72 @@ export function App() {
     setOpenChatMenu(null);
   }
 
-  function handleArchiveTask(runId: string) {
+  async function handleArchiveTask(sessionId: string) {
+    setOpenChatMenu(null);
     updateChatMeta((prev) => ({
       ...prev,
-      archived: { ...prev.archived, [runId]: true },
+      archived: { ...prev.archived, [sessionId]: true },
     }));
-    setOpenChatMenu(null);
-  }
+    setChatSessions((prev) => prev.filter((item) => item.sessionId !== sessionId));
 
-  async function handleDeleteChat(chat: ChatSessionSummary) {
-    setOpenChatMenu(null);
+    // Close any open tab showing this chat so it disappears from the screen immediately
+    const closingTabs = tabs.filter((t) => t.sessionId === sessionId);
+    if (closingTabs.length > 0) {
+      const remainingTabs = tabs.filter((t) => t.sessionId !== sessionId);
+      const closingActive = closingTabs.some((t) => t.id === activeTabId);
+      if (remainingTabs.length > 0) {
+        setTabs(remainingTabs);
+        if (closingActive) {
+          setActiveTabId(remainingTabs[0]!.id);
+        }
+      } else {
+        const freshId = `${appMode}-${Date.now()}`;
+        const freshTab: ChatTab = {
+          id: freshId,
+          title: appMode === 'code' ? 'New code' : 'New chat',
+          sessionId: `session-${Date.now()}`,
+          modelId: activeTab?.modelId || 'auto',
+          mode: appMode,
+          projectId: appMode === 'code' ? activeProjectId : undefined,
+        };
+        setTabs([freshTab]);
+        setActiveTabId(freshId);
+      }
+      setMessagesByTab((prev) => {
+        const next = { ...prev };
+        for (const t of closingTabs) delete next[t.id];
+        return next;
+      });
+    }
+
     try {
-      const res = await fetch('/api/chat/delete', {
+      await fetch('/api/chat/archive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: chat.sessionId }),
+        body: JSON.stringify({ sessionId, archived: true }),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || `Could not delete chat (${res.status}).`);
-      }
-      setChatSessions((prev) => prev.filter((item) => item.sessionId !== chat.sessionId));
+      await loadChatSessions();
       loadRecentTasks();
     } catch (err: any) {
-      setActionError({ message: err?.message || 'Could not delete chat.' });
+      setActionError({ message: err?.message || 'Could not archive chat.' });
+    }
+  }
+
+  async function handleRestoreChat(sessionId: string) {
+    updateChatMeta((prev) => {
+      const nextArchived = { ...prev.archived };
+      delete nextArchived[sessionId];
+      return { ...prev, archived: nextArchived };
+    });
+    try {
+      await fetch('/api/chat/archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, archived: false }),
+      });
+      await loadChatSessions();
+    } catch (err: any) {
+      setActionError({ message: err?.message || 'Could not restore chat.' });
     }
   }
 
@@ -1132,6 +1521,7 @@ export function App() {
   async function commitRename(sessionId: string) {
     const trimmed = renameDraft.trim();
     if (trimmed) {
+      manualTitleOverridesRef.current.add(sessionId);
       const previousSessionTitle = chatSessions.find((c) => c.sessionId === sessionId)?.title;
       const previousMetaTitle = chatMeta.titles[sessionId];
       updateChatMeta((prev) => ({
@@ -1159,6 +1549,7 @@ export function App() {
           });
         }
       } catch (err: any) {
+        manualTitleOverridesRef.current.delete(sessionId);
         updateChatMeta((prev) => {
           const nextTitles = { ...prev.titles };
           if (previousMetaTitle !== undefined) nextTitles[sessionId] = previousMetaTitle;
@@ -1203,7 +1594,13 @@ export function App() {
           localStorage.setItem('gram.cache.projects', JSON.stringify(data));
         } catch {}
       }
-    } catch {}
+    } catch {
+      emitSystemToast({
+        title: 'Connection issue',
+        description: 'Could not load projects from Gram server.',
+        variant: 'error',
+      });
+    }
   }
 
   async function loadManagedProcesses() {
@@ -1267,8 +1664,16 @@ export function App() {
 
   async function loadChatSessions(): Promise<ChatSessionSummary[]> {
     try {
-      const res = await fetch('/api/chats');
+      const [res, archRes] = await Promise.all([
+        fetch('/api/chats'),
+        fetch('/api/chats/archived').catch(() => null),
+      ]);
+      if (!res.ok) throw new Error(`Could not load chats (${res.status}).`);
       const data = await res.json();
+      if (archRes?.ok) {
+        const archData = await archRes.json().catch(() => null);
+        if (Array.isArray(archData)) setArchivedChats(archData);
+      }
       if (Array.isArray(data)) {
         setChatSessions(data);
         try {
@@ -1289,14 +1694,71 @@ export function App() {
     mode?: 'chat' | 'plan' | 'code';
     messages: ChatEntry[];
   }) {
-    try {
-      await fetch('/api/chat/save', {
+    const previousSave = chatSaveQueuesRef.current.get(payload.sessionId) || Promise.resolve();
+    const queuedSave = previousSave.catch(() => {}).then(async () => {
+      const res = await fetch('/api/chat/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, mode: payload.mode || appMode }),
       });
-      loadChatSessions();
-    } catch {}
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || `Could not save chat (${res.status}).`);
+      }
+
+      setChatSessions((prev) => {
+        const existing = prev.find((chat) => chat.sessionId === payload.sessionId);
+        const summary: ChatSessionSummary = {
+          sessionId: payload.sessionId,
+          title: payload.title || payload.sessionId,
+          projectId: payload.projectId ?? existing?.projectId ?? 'local',
+          projectLabel: payload.projectLabel ?? existing?.projectLabel ?? 'Local workspace',
+          modelId: payload.modelId || existing?.modelId || 'auto',
+          mode:
+            payload.mode === 'code' ||
+            payload.mode === 'plan' ||
+            (payload.projectId ?? existing?.projectId ?? 'local') !== 'local'
+              ? 'code'
+              : 'chat',
+          updatedAt: new Date().toISOString(),
+        };
+        const next = [summary, ...prev.filter((chat) => chat.sessionId !== payload.sessionId)].slice(0, 200);
+        try {
+          localStorage.setItem('gram.cache.chatSessions', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    });
+    chatSaveQueuesRef.current.set(payload.sessionId, queuedSave);
+    try {
+      await queuedSave;
+    } catch (error: any) {
+      setActionError({ message: error?.message || 'Could not save chat.' });
+    } finally {
+      if (chatSaveQueuesRef.current.get(payload.sessionId) === queuedSave) {
+        chatSaveQueuesRef.current.delete(payload.sessionId);
+      }
+    }
+  }
+
+  async function requestChatTitle(promptText: string, modelId: string): Promise<string> {
+    const response = await fetch('/api/chat/title', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: promptText, modelId }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || typeof data?.title !== 'string' || !data.title.trim()) {
+      throw new Error(data?.error || `Could not generate a chat title (${response.status}).`);
+    }
+    return data.title.trim();
+  }
+
+  function fallbackChatTitle(promptText: string): string {
+    const words = promptText.trim().replace(/\s+/g, ' ').split(' ').filter(Boolean).slice(0, 7);
+    let title = words.join(' ').replace(/[.!?;:,]+$/, '').trim();
+    if (title.length > 52) title = title.slice(0, 52).replace(/\s+\S*$/, '').trim();
+    return title || 'New chat';
   }
 
   function switchAppMode(nextMode: 'chat' | 'code') {
@@ -1316,10 +1778,14 @@ export function App() {
       sessionId: `session-${Date.now()}`,
       modelId: activeTab.modelId || 'auto',
       mode: nextMode,
-      projectId: nextMode === 'code' ? activeProjectId : undefined,
+      projectId: nextMode === 'code' && activeProjectId !== 'local' ? activeProjectId : undefined,
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(id);
+    emitSystemToast({
+      title: appMode === 'code' ? 'New code session started' : 'New chat started',
+      variant: 'info',
+    });
   }
 
   async function handleSelectChat(sessionId: string) {
@@ -1354,6 +1820,16 @@ export function App() {
         }
         setActiveTabId(tabId);
         setAppMode(saved.mode === 'code' ? 'code' : 'chat');
+        if (!planBySession[sessionId]) {
+          fetch(`/api/plans/${encodeURIComponent(sessionId)}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((planData) => {
+              if (planData?.content) {
+                setPlanBySession((prev) => ({ ...prev, [sessionId]: planData.content }));
+              }
+            })
+            .catch(() => {});
+        }
         return;
       }
     } catch {}
@@ -1374,11 +1850,21 @@ export function App() {
 
   async function saveSessionPlan(sessionId: string, markdown: string) {
     setPlanBySession((prev) => ({ ...prev, [sessionId]: markdown }));
-    await fetch(`/api/plans/${encodeURIComponent(sessionId)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: markdown }),
-    }).catch(() => {});
+    try {
+      const res = await fetch(`/api/plans/${encodeURIComponent(sessionId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: markdown }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      emitSystemToast({ title: 'Plan saved', variant: 'success' });
+    } catch {
+      emitSystemToast({
+        title: 'Could not save plan',
+        description: 'Check connection to the Gram server.',
+        variant: 'error',
+      });
+    }
   }
 
   function handleApprovePlanAndBuild(opts: { markdown: string; isolateWorktree: boolean }) {
@@ -1388,7 +1874,7 @@ export function App() {
     const updatedTab: ChatTab = { ...activeTab, mode: 'code', projectId: activeProjectId };
     setTabs((prev) => prev.map((t) => (t.id === activeTab.id ? updatedTab : t)));
     const buildPrompt = `Execute the approved plan below in Code mode${opts.isolateWorktree ? ' (isolated worktree)' : ''}:\n\n${opts.markdown}`;
-    const userMsg: ChatEntry = { id: `u-${Date.now()}`, role: 'user', content: buildPrompt };
+    const userMsg: ChatEntry = { id: createChatMessageId('u'), role: 'user', content: buildPrompt };
     const nextWithUser = [...activeMessages, userMsg];
     setMessagesByTab((prev) => ({ ...prev, [activeTab.id]: nextWithUser }));
     void executePromptRun({
@@ -1402,7 +1888,9 @@ export function App() {
   }
 
   function openNewChatTab(overrideProjectId?: string) {
-    const targetProjectId = appMode === 'code' ? (overrideProjectId || activeProjectId) : undefined;
+    const targetProjectId = appMode === 'code'
+      ? (overrideProjectId || (activeProjectId !== 'local' ? activeProjectId : undefined))
+      : undefined;
     const id = `${appMode}-${Date.now()}`;
     const newTab: ChatTab = {
       id,
@@ -1414,6 +1902,10 @@ export function App() {
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(id);
+    emitSystemToast({
+      title: appMode === 'code' ? 'New code session started' : 'New chat started',
+      variant: 'info',
+    });
   }
 
   async function loadProjectGitInfo(projectId: string) {
@@ -1447,8 +1939,14 @@ export function App() {
       if (archived && activeProjectId === projectId) {
         setActiveProjectId('local');
       }
+      emitSystemToast({
+        title: archived ? 'Project archived' : 'Project restored',
+        variant: 'info',
+      });
     } catch (err: any) {
-      setActionError({ message: err?.message || 'Could not archive project.' });
+      const msg = err?.message || 'Could not archive project.';
+      setActionError({ message: msg });
+      emitSystemToast({ title: 'Project update failed', description: msg, variant: 'error' });
     }
   }
 
@@ -1467,8 +1965,11 @@ export function App() {
       }
       setConfirmDeleteProject(false);
       setProjectHubId(null);
+      emitSystemToast({ title: 'Project deleted', variant: 'info' });
     } catch (err: any) {
-      setActionError({ message: err?.message || 'Could not delete project.' });
+      const msg = err?.message || 'Could not delete project.';
+      setActionError({ message: msg });
+      emitSystemToast({ title: 'Could not delete project', description: msg, variant: 'error' });
     }
   }
 
@@ -1511,8 +2012,15 @@ export function App() {
         setActiveProjectId(data.project.id);
         setProjectHubId(isCreating ? null : data.project.id);
       }
+      emitSystemToast({
+        title: isCreating ? 'Project created' : 'Project settings saved',
+        description: data?.project?.label || projectDraft.label.trim(),
+        variant: 'success',
+      });
     } catch (err: any) {
-      setActionError({ message: err?.message || 'Could not save project.' });
+      const msg = err?.message || 'Could not save project.';
+      setActionError({ message: msg });
+      emitSystemToast({ title: 'Could not save project', description: msg, variant: 'error' });
     }
   }
 
@@ -1535,8 +2043,14 @@ export function App() {
         if (!res.ok) throw new Error(data?.error || `Could not upload ${file.name} (${res.status}).`);
         if (data?.projects) setProjects(data.projects);
       }
+      emitSystemToast({
+        title: `Uploaded ${fileList.length} project file${fileList.length === 1 ? '' : 's'}`,
+        variant: 'success',
+      });
     } catch (err: any) {
-      setActionError({ message: err?.message || 'Could not upload project file.' });
+      const msg = err?.message || 'Could not upload project file.';
+      setActionError({ message: msg });
+      emitSystemToast({ title: 'Upload failed', description: msg, variant: 'error' });
     }
   }
 
@@ -1550,8 +2064,11 @@ export function App() {
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || `Could not delete project file (${res.status}).`);
       if (data?.projects) setProjects(data.projects);
+      emitSystemToast({ title: 'Project file removed', variant: 'info' });
     } catch (err: any) {
-      setActionError({ message: err?.message || 'Could not delete project file.' });
+      const msg = err?.message || 'Could not delete project file.';
+      setActionError({ message: msg });
+      emitSystemToast({ title: 'Could not remove file', description: msg, variant: 'error' });
     }
   }
 
@@ -1708,17 +2225,18 @@ export function App() {
                 };
               } else {
                 updatedList.push({
-                  id: `apr-res-${Date.now()}`,
+                  id: createChatMessageId('apr-res'),
                   role: 'assistant',
                   content: updatedOutput,
                 });
               }
               next[tab.id] = updatedList;
+              const projectId = tab.projectId || (tab.mode === 'code' ? activeProjectId : undefined);
               saveChatSession({
                 sessionId: tab.sessionId,
                 title: tab.title,
-                projectId: activeProjectId,
-                projectLabel: projects.find((p) => p.id === activeProjectId)?.label || 'Local workspace',
+                projectId,
+                projectLabel: projects.find((p) => p.id === projectId)?.label || 'Local workspace',
                 modelId: tab.modelId,
                 messages: updatedList,
               });
@@ -1767,14 +2285,16 @@ export function App() {
       ? `Replying to ${item.replyTo.role === 'user' ? 'previous message' : 'assistant'} ("${item.replyTo.content.slice(0, 240)}"):\n\n${trimmed}`
       : trimmed;
     const userMsg: ChatEntry = {
-      id: `u-${Date.now()}`,
+      id: createChatMessageId('u'),
       role: 'user',
       content: trimmed,
       replyTo: item.replyTo,
     };
     const existing = messagesByTabRef.current[item.tabId] || [];
     const targetTab = tabs.find((t) => t.id === item.tabId) || activeTab;
-    const nextTitle = existing.length === 0 ? trimmed.slice(0, 32) : targetTab.title;
+    const nextTitle = existing.some((message) => message.role === 'user')
+      ? targetTab.title
+      : (targetTab.mode || appMode) === 'code' ? 'New code' : 'New chat';
     const nextWithUser = [...existing, userMsg];
 
     await executePromptRun({
@@ -1874,13 +2394,15 @@ export function App() {
       ? `Replying to ${replyContext.role === 'user' ? 'previous message' : 'assistant'} ("${replyContext.content.slice(0, 240)}"):\n\n${trimmed}`
       : trimmed;
     const userMsg: ChatEntry = {
-      id: `u-${Date.now()}`,
+      id: createChatMessageId('u'),
       role: 'user',
       content: trimmed,
       replyTo: replyContext || undefined,
     };
-    const nextTitle = activeMessages.length === 0 ? trimmed.slice(0, 32) : activeTab.title;
     const nextWithUser = [...(messagesByTab[tabId] || []), userMsg];
+    const nextTitle = nextWithUser.filter((message) => message.role === 'user').length === 1
+      ? (activeTab.mode || appMode) === 'code' ? 'New code' : 'New chat'
+      : activeTab.title;
 
     setPrompt('');
     setAttachments([]);
@@ -1933,10 +2455,10 @@ export function App() {
     const targetTab = tabs.find((tab) => tab.id === tabId) || activeTab;
     const baseMode = targetTab.mode || appMode;
     const runMode = baseMode === 'code' && activeDockSurface === 'plan' ? 'plan' : baseMode;
-    const projectId = targetTab.projectId;
+    const projectId = targetTab.projectId || (baseMode === 'code' ? activeProjectId : undefined);
     const projectLabel = projectId ? projects.find((p) => p.id === projectId)?.label || 'Project' : '';
 
-    const pendingAssistantId = `a-${Date.now()}`;
+    const pendingAssistantId = createChatMessageId('a');
     const streamingAssistantMsg: ChatEntry = {
       id: pendingAssistantId,
       role: 'assistant',
@@ -1948,6 +2470,13 @@ export function App() {
     setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, title: nextTitle } : t)));
     setMessagesByTab((prev) => ({ ...prev, [tabId]: [...nextWithUser, streamingAssistantMsg] }));
     setIsExecuting(true);
+    let resolvedTitle = nextTitle;
+    let latestMessagesForTitle: ChatEntry[] | null = null;
+    const shouldGenerateChatTitle =
+      nextWithUser.filter((message) => message.role === 'user').length === 1 &&
+      /^New (?:chat|code)$/i.test(targetTab.title || nextTitle) &&
+      !chatMeta.titles[targetTab.sessionId] &&
+      !manualTitleOverridesRef.current.has(targetTab.sessionId);
     void saveChatSession({
       sessionId: targetTab.sessionId,
       title: nextTitle,
@@ -1957,6 +2486,29 @@ export function App() {
       mode: runMode,
       messages: nextWithUser,
     });
+    if (shouldGenerateChatTitle) {
+      void requestChatTitle(trimmed, targetTab.modelId)
+        .catch(() => fallbackChatTitle(trimmed))
+        .then((generatedTitle) => {
+          if (!generatedTitle || manualTitleOverridesRef.current.has(targetTab.sessionId)) return;
+          resolvedTitle = generatedTitle;
+          setTabs((prev) => prev.map((tab) =>
+            tab.id === tabId && !manualTitleOverridesRef.current.has(targetTab.sessionId)
+              ? { ...tab, title: generatedTitle }
+              : tab
+          ));
+          const messagesToSave = latestMessagesForTitle || messagesByTabRef.current[tabId] || nextWithUser;
+          void saveChatSession({
+            sessionId: targetTab.sessionId,
+            title: generatedTitle,
+            projectId,
+            projectLabel,
+            modelId: targetTab.modelId,
+            mode: runMode,
+            messages: messagesToSave,
+          });
+        });
+    }
 
     try {
       let permissionMode = 'autonomous';
@@ -2093,25 +2645,9 @@ export function App() {
 
         const stepSmoothRender = () => {
           rafId = null;
-          let changed = false;
-          if (shownThinking.length < liveThinking.length) {
-            const backlog = liveThinking.length - shownThinking.length;
-            const step = Math.max(2, Math.ceil(backlog / 5));
-            shownThinking = liveThinking.slice(0, shownThinking.length + step);
-            changed = true;
-          }
-          if (shownText.length < liveText.length) {
-            const backlog = liveText.length - shownText.length;
-            const step = Math.max(2, Math.ceil(backlog / 5));
-            shownText = liveText.slice(0, shownText.length + step);
-            changed = true;
-          }
-          if (changed) {
-            updateLiveMsg(false);
-            if (shownThinking.length < liveThinking.length || shownText.length < liveText.length) {
-              rafId = requestAnimationFrame(stepSmoothRender);
-            }
-          }
+          shownThinking = liveThinking;
+          shownText = liveText;
+          updateLiveMsg(false);
         };
 
         const scheduleSmoothRender = () => {
@@ -2198,6 +2734,27 @@ export function App() {
                 state: 'approval-requested',
               };
               flushSmoothRender(false);
+            } else if (evt.type === 'plan_updated' && typeof evt.markdown === 'string') {
+              setPlanBySession((prev) => ({
+                ...prev,
+                [targetTab.sessionId]: evt.markdown,
+              }));
+            } else if (evt.type === 'context_update' && evt.usage) {
+              setContextUsageBySession((prev) => ({
+                ...prev,
+                [targetTab.sessionId]: evt.usage,
+              }));
+            } else if (evt.type === 'context_compacted') {
+              const fmtTok = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+              liveTools = [
+                ...liveTools,
+                {
+                  type: 'tool-runCommand',
+                  command: `Compact context (${fmtTok(evt.beforeTokens || 0)} -> ${fmtTok(evt.afterTokens || 0)} tokens, ${evt.summarizedTurns || 0} turns)`,
+                  state: 'output-available',
+                },
+              ];
+              flushSmoothRender(false);
             } else if (evt.type === 'error') {
               liveText = evt.error || 'Execution failed.';
               if (evt.diagnostics && typeof evt.diagnostics === 'object') {
@@ -2206,6 +2763,12 @@ export function App() {
               flushSmoothRender(true);
             } else if (evt.type === 'done') {
               finalResult = evt.result;
+              if (evt.result?.usage) {
+                setContextUsageBySession((prev) => ({
+                  ...prev,
+                  [targetTab.sessionId]: evt.result.usage,
+                }));
+              }
             }
           }
         }
@@ -2275,10 +2838,11 @@ export function App() {
         diagnostics: result.diagnostics || result.checkpoint?.diagnostics || liveDiagnostics,
       };
       const fullMessages = [...nextWithUser, assistantMsg];
+      latestMessagesForTitle = fullMessages;
       setMessagesByTab((prev) => ({ ...prev, [tabId]: fullMessages }));
       await saveChatSession({
         sessionId: targetTab.sessionId,
-        title: nextTitle,
+        title: resolvedTitle,
         projectId,
         projectLabel,
         modelId: targetTab.modelId,
@@ -2294,16 +2858,17 @@ export function App() {
         return;
       }
       const errMsg: ChatEntry = {
-        id: `e-${Date.now()}`,
+        id: createChatMessageId('e'),
         role: 'assistant',
         content: err?.message || 'Execution failed.',
         isError: true,
       };
       const fullMessages = [...nextWithUser, errMsg];
+      latestMessagesForTitle = fullMessages;
       setMessagesByTab((prev) => ({ ...prev, [tabId]: fullMessages }));
       await saveChatSession({
         sessionId: targetTab.sessionId,
-        title: nextTitle,
+        title: resolvedTitle,
         projectId,
         projectLabel,
         modelId: targetTab.modelId,
@@ -2371,7 +2936,7 @@ export function App() {
       })();
       const newTitle = (goal || activeTab.title || 'Coding task').slice(0, 40);
       const handoffEntry: ChatEntry = {
-        id: `handoff-${Date.now()}`,
+        id: createChatMessageId('handoff'),
         role: 'assistant',
         content: `### Context from Chat\n\n${summary}`,
       };
@@ -2403,7 +2968,7 @@ export function App() {
     });
     const data = await res.json();
     const msg: ChatEntry = {
-      id: `s-${Date.now()}`,
+      id: createChatMessageId('s'),
       role: 'assistant',
       runId: data.runId,
       remoteSessionId: data.sessionId,
@@ -2417,11 +2982,12 @@ export function App() {
     const prevMessages = messagesByTab[tabId] || [];
     const fullMessages = [...prevMessages, msg];
     setMessagesByTab((prev) => ({ ...prev, [tabId]: fullMessages }));
-    const projectLabel = projects.find((p) => p.id === activeProjectId)?.label || 'Local workspace';
+    const projectId = activeTab.projectId || (activeTab.mode === 'code' ? activeProjectId : undefined);
+    const projectLabel = projects.find((p) => p.id === projectId)?.label || 'Local workspace';
     saveChatSession({
       sessionId: activeTab.sessionId,
       title: activeTab.title || 'New Chat',
-      projectId: activeProjectId,
+      projectId,
       projectLabel,
       modelId: activeTab.modelId,
       messages: fullMessages,
@@ -2453,7 +3019,7 @@ export function App() {
         });
       }
       const patchMsg: ChatEntry = {
-        id: `lyra-patch-${runId}-${Date.now()}`,
+        id: createChatMessageId(`lyra-patch-${runId}`),
         role: 'assistant',
         runId,
         reviewLayerId: data.layerId,
@@ -2465,13 +3031,13 @@ export function App() {
       await saveChatSession({
         sessionId: activeTab.sessionId,
         title: activeTab.title,
-        projectId: activeProjectId,
-        projectLabel: projects.find((project) => project.id === activeProjectId)?.label || 'Local workspace',
+        projectId: activeTab.projectId || (activeTab.mode === 'code' ? activeProjectId : undefined),
+        projectLabel: projects.find((project) => project.id === (activeTab.projectId || (activeTab.mode === 'code' ? activeProjectId : undefined)))?.label || 'Local workspace',
         modelId: activeTab.modelId,
         messages: fullMessages,
       });
     } catch (error: any) {
-      const errorMsg: ChatEntry = { id: `lyra-patch-error-${Date.now()}`, role: 'assistant', content: error?.message || 'Could not pull the Lyra patch.' };
+      const errorMsg: ChatEntry = { id: createChatMessageId('lyra-patch-error'), role: 'assistant', content: error?.message || 'Could not pull the Lyra patch.' };
       setMessagesByTab((prev) => ({ ...prev, [activeTab.id]: [...(prev[activeTab.id] || []), errorMsg] }));
     }
   }
@@ -2491,9 +3057,12 @@ export function App() {
         ? { ...item, content: `${item.content}\n\nCommitted ${[...(data.committedFiles || []), ...(data.deletedFiles || [])].length} file change(s) to the workspace.`, reviewLayerId: undefined }
         : item);
       setMessagesByTab((prev) => ({ ...prev, [tabId]: next }));
-      await saveChatSession({ sessionId: activeTab.sessionId, title: activeTab.title, projectId: activeProjectId, projectLabel: projects.find((p) => p.id === activeProjectId)?.label || 'Local workspace', modelId: activeTab.modelId, messages: next });
+      await saveChatSession({ sessionId: activeTab.sessionId, title: activeTab.title, projectId: activeTab.projectId || (activeTab.mode === 'code' ? activeProjectId : undefined), projectLabel: projects.find((p) => p.id === (activeTab.projectId || (activeTab.mode === 'code' ? activeProjectId : undefined)))?.label || 'Local workspace', modelId: activeTab.modelId, mode: activeTab.mode, messages: next });
+      emitSystemToast({ title: 'Changes committed to workspace', variant: 'success' });
     } catch (error: any) {
-      const errorMsg: ChatEntry = { id: `lyra-commit-error-${Date.now()}`, role: 'assistant', content: error?.message || 'Could not commit the Lyra overlay.' };
+      const msg = error?.message || 'Could not commit the Lyra overlay.';
+      emitSystemToast({ title: 'Overlay commit failed', description: msg, variant: 'error' });
+      const errorMsg: ChatEntry = { id: createChatMessageId('lyra-commit-error'), role: 'assistant', content: msg };
       setMessagesByTab((prev) => ({ ...prev, [activeTab.id]: [...(prev[activeTab.id] || []), errorMsg] }));
     }
   }
@@ -2513,9 +3082,12 @@ export function App() {
         ? { ...item, content: `${item.content}\n\nDiscarded the Lyra overlay.`, reviewLayerId: undefined }
         : item);
       setMessagesByTab((prev) => ({ ...prev, [tabId]: next }));
-      await saveChatSession({ sessionId: activeTab.sessionId, title: activeTab.title, projectId: activeProjectId, projectLabel: projects.find((p) => p.id === activeProjectId)?.label || 'Local workspace', modelId: activeTab.modelId, messages: next });
+      await saveChatSession({ sessionId: activeTab.sessionId, title: activeTab.title, projectId: activeTab.projectId || (activeTab.mode === 'code' ? activeProjectId : undefined), projectLabel: projects.find((p) => p.id === (activeTab.projectId || (activeTab.mode === 'code' ? activeProjectId : undefined)))?.label || 'Local workspace', modelId: activeTab.modelId, mode: activeTab.mode, messages: next });
+      emitSystemToast({ title: 'Overlay discarded', variant: 'info' });
     } catch (error: any) {
-      const errorMsg: ChatEntry = { id: `lyra-rollback-error-${Date.now()}`, role: 'assistant', content: error?.message || 'Could not discard the Lyra overlay.' };
+      const msg = error?.message || 'Could not discard the Lyra overlay.';
+      emitSystemToast({ title: 'Overlay discard failed', description: msg, variant: 'error' });
+      const errorMsg: ChatEntry = { id: createChatMessageId('lyra-rollback-error'), role: 'assistant', content: msg };
       setMessagesByTab((prev) => ({ ...prev, [activeTab.id]: [...(prev[activeTab.id] || []), errorMsg] }));
     }
   }
@@ -2758,7 +3330,11 @@ export function App() {
         <header className="topbar">
           <div className="topbar-left">
             <a className="brand" href="/" aria-label="Gram home">
-              <img src="/icons/gram-logo.svg" alt="Gram" className="h-6 w-6 rounded-md" />
+              <img
+                src={theme === 'bone' ? '/icons/gram-logo-light.svg' : '/icons/gram-logo.svg'}
+                alt="Gram"
+                className="h-6 w-6 rounded-md"
+              />
             </a>
             <nav className="topbar-nav">
               <button
@@ -2941,8 +3517,19 @@ export function App() {
         ) : (
         <main className="page-frame">
           <div className={`workspace-panes ${sidebarOpen ? 'left-open' : 'left-closed'}`}>
-            <aside className={`pane pane-left ${sidebarOpen ? 'open' : 'closed'}`}>
-              <div className="pane-content">
+            <aside
+              className={`pane pane-left ${sidebarOpen ? 'open' : 'closed'}${isResizingSidebar ? ' resizing' : ''}`}
+              style={
+                sidebarOpen
+                  ? ({
+                      '--sidebar-width': `${sidebarWidth}px`,
+                      width: `${sidebarWidth}px`,
+                      minWidth: `${sidebarWidth}px`,
+                    } as React.CSSProperties)
+                  : undefined
+              }
+            >
+              <div className="pane-content" style={{ width: '100%', minWidth: 0 }}>
                 <div className="rail-header" style={{ gap: '8px' }}>
                   <button
                     className="btn-new-chat"
@@ -2955,6 +3542,15 @@ export function App() {
                   <button
                     className="btn-pane-toggle"
                     type="button"
+                    title={sidebarWidth >= 340 ? 'Restore sidebar width' : 'Expand sidebar'}
+                    aria-label={sidebarWidth >= 340 ? 'Restore sidebar width' : 'Expand sidebar'}
+                    onClick={toggleSidebarExpanded}
+                  >
+                    {sidebarWidth >= 340 ? <ChevronsLeftIcon size={14} /> : <ChevronsRightIcon size={14} />}
+                  </button>
+                  <button
+                    className="btn-pane-toggle"
+                    type="button"
                     title="Close chats"
                     onClick={() => setSidebarOpen(false)}
                   >
@@ -2963,24 +3559,73 @@ export function App() {
                 </div>
                 <div
                   className="conversation-list"
-                  style={{ maxHeight: 'calc(100vh - 108px)', overflowY: 'auto' }}
+                  style={{ width: '100%', maxHeight: 'calc(100vh - 108px)', overflowY: 'auto' }}
                 >
                   {(() => {
                     const visibleChats = chatSessions
-                      .filter((c) => !chatMeta.archived[c.sessionId] && (c.mode || 'chat') === appMode)
-                      .sort((a, b) => Number(Boolean(chatMeta.pinned[b.sessionId])) - Number(Boolean(chatMeta.pinned[a.sessionId])));
+                      .filter((c) =>
+                        !chatMeta.archived[c.sessionId] &&
+                        (c.mode || 'chat') === appMode &&
+                        (appMode === 'code' || !c.projectId || c.projectId === 'local')
+                      )
+                      .sort((a, b) => {
+                        const pinDiff = Number(Boolean(chatMeta.pinned[b.sessionId])) - Number(Boolean(chatMeta.pinned[a.sessionId]));
+                        if (pinDiff !== 0) return pinDiff;
+                        return (Date.parse(b.updatedAt || '') || 0) - (Date.parse(a.updatedAt || '') || 0);
+                      });
+
+                    const now = new Date();
+                    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                    const startOfYesterday = startOfToday - 86_400_000;
+                    const startOfThisWeek = startOfToday - 6 * 86_400_000;
+
+                    const formatChatTimestamp = (iso?: string): string => {
+                      const ms = iso ? Date.parse(iso) : NaN;
+                      if (!Number.isFinite(ms)) return '';
+                      const d = new Date(ms);
+                      if (ms >= startOfToday) {
+                        return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                      }
+                      if (ms >= startOfYesterday) return 'Yesterday';
+                      if (ms >= startOfThisWeek) {
+                        return d.toLocaleDateString([], { weekday: 'short' });
+                      }
+                      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                    };
+
+                    const groupChatsByTime = (chats: ChatSessionSummary[]) => {
+                      const buckets: Array<{ label: string; items: ChatSessionSummary[] }> = [
+                        { label: 'Today', items: [] },
+                        { label: 'Yesterday', items: [] },
+                        { label: 'This Week', items: [] },
+                        { label: 'Older', items: [] },
+                      ];
+                      for (const chat of chats) {
+                        const ms = Date.parse(chat.updatedAt || '');
+                        if (!Number.isFinite(ms) || ms >= startOfToday) {
+                          buckets[0]!.items.push(chat);
+                        } else if (ms >= startOfYesterday) {
+                          buckets[1]!.items.push(chat);
+                        } else if (ms >= startOfThisWeek) {
+                          buckets[2]!.items.push(chat);
+                        } else {
+                          buckets[3]!.items.push(chat);
+                        }
+                      }
+                      return buckets.filter((b) => b.items.length > 0);
+                    };
 
                     const renderChatRow = (c: ChatSessionSummary) => {
                       const isActive = activeTab.sessionId === c.sessionId;
-                      const isPinned = Boolean(chatMeta.pinned[c.sessionId]);
                       const isUnread = Boolean(chatMeta.unread[c.sessionId]);
                       const displayTitle = chatMeta.titles[c.sessionId] || c.title || c.sessionId;
+                      const timeLabel = formatChatTimestamp(c.updatedAt);
                       const menuOpen = openChatMenu?.runId === c.sessionId;
 
                       return (
                         <div
                           key={c.sessionId}
-                          className={`group/conv relative flex items-center rounded-md transition-colors ${
+                          className={`group/conv relative flex items-center rounded-lg transition-colors ${
                             isActive
                               ? 'bg-[var(--bg-active)] font-medium text-[var(--text-primary)]'
                               : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
@@ -3001,13 +3646,13 @@ export function App() {
                                   setRenamingRunId(null);
                                 }
                               }}
-                              className="w-full rounded-[var(--radius-sm)] border border-[var(--border-focus)] bg-[var(--bg-panel)] px-2 py-1 text-[13.5px] text-[var(--text-primary)] focus:outline-none"
+                              className="w-full rounded-[var(--radius-sm)] border border-[var(--border-focus)] bg-[var(--bg-panel)] px-2.5 py-1.5 text-[14.5px] text-[var(--text-primary)] focus:outline-none"
                             />
                           ) : (
                             <>
                               <button
                                 type="button"
-                                className="flex min-w-0 flex-1 items-center gap-2 bg-transparent px-2 py-1.5 text-left text-[13.5px] focus:outline-none"
+                                className="flex min-w-0 flex-1 items-center gap-2.5 bg-transparent px-2.5 py-2 text-left text-[14.5px] leading-snug focus:outline-none"
                                 onClick={() => {
                                   if (isUnread) {
                                     updateChatMeta((prev) => ({
@@ -3027,19 +3672,29 @@ export function App() {
                                 <span className="truncate">{displayTitle}</span>
                               </button>
 
+                              {timeLabel && (
+                                <span
+                                  className={`shrink-0 pr-2.5 text-xs tabular-nums text-[var(--text-muted)] ${
+                                    menuOpen ? 'hidden' : 'group-hover/conv:hidden'
+                                  }`}
+                                >
+                                  {timeLabel}
+                                </span>
+                              )}
+
                               <div
-                                className={`flex shrink-0 items-center pr-1 transition-opacity ${
+                                className={`shrink-0 items-center pr-1 ${
                                   menuOpen
-                                    ? 'opacity-100'
-                                    : 'opacity-0 group-hover/conv:opacity-100'
+                                    ? 'flex'
+                                    : 'hidden group-hover/conv:flex'
                                 }`}
                               >
                                 <button
                                   type="button"
                                   title="More options"
                                   aria-label="Conversation options"
-                                  className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-opacity hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)] ${
-                                    menuOpen ? 'opacity-100 text-[var(--text-primary)]' : 'opacity-0 group-hover/conv:opacity-100'
+                                  className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)] ${
+                                    menuOpen ? 'text-[var(--text-primary)]' : ''
                                   }`}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -3062,6 +3717,9 @@ export function App() {
 
                     if (appMode === 'code') {
                       const pinnedChats = visibleChats.filter((c) => Boolean(chatMeta.pinned[c.sessionId]));
+                      const localChats = visibleChats.filter(
+                        (c) => (!c.projectId || c.projectId === 'local') && !chatMeta.pinned[c.sessionId]
+                      );
                       return (
                         <div className="flex flex-col gap-3">
                           {pinnedChats.length > 0 && (
@@ -3092,7 +3750,7 @@ export function App() {
                               const shown = expanded ? projChats : projChats.slice(0, 3);
                               const isSelectedProj = activeProjectId === proj.id;
                               return (
-                                <div className="flex flex-col gap-0.5">
+                                <div key={proj.id} className="flex flex-col gap-0.5">
                                   <div
                                     className={`group/proj flex items-center justify-between rounded-md px-2 py-1.5 text-[13.5px] transition-colors ${
                                       isSelectedProj
@@ -3103,7 +3761,16 @@ export function App() {
                                     <button
                                       type="button"
                                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                                      onClick={() => setActiveProjectId(proj.id)}
+                                      onClick={() => {
+                                        setActiveProjectId(proj.id);
+                                        if (activeMessages.length === 0) {
+                                          setTabs((prev) =>
+                                            prev.map((t) => (t.id === activeTab.id ? { ...t, projectId: proj.id } : t))
+                                          );
+                                        } else if (activeTab.projectId !== proj.id) {
+                                          openNewChatTab(proj.id);
+                                        }
+                                      }}
                                     >
                                       <FolderIcon
                                         size={14}
@@ -3152,6 +3819,12 @@ export function App() {
                                 </div>
                               );
                             })}
+                            {localChats.length > 0 && (
+                              <div className="flex flex-col gap-1">
+                                <div className="px-2 text-xs font-medium text-[var(--text-muted)]">Local chats</div>
+                                {localChats.map(renderChatRow)}
+                              </div>
+                            )}
                             {projects.some((p) => p.archived) && (
                               <button
                                 type="button"
@@ -3168,19 +3841,91 @@ export function App() {
                       );
                     }
 
-                    if (visibleChats.length === 0) {
-                      return (
-                        <div className="sidebar-empty-state flex flex-1 items-center justify-center text-center text-xs text-[var(--text-muted)]">
-                          No recent chats
-                        </div>
-                      );
-                    }
-
-                    return visibleChats.map(renderChatRow);
+                    const archivedInMode = archivedChats.filter((c) => (c.mode || 'chat') === appMode);
+                    const pinnedChats = visibleChats.filter((c) => Boolean(chatMeta.pinned[c.sessionId]));
+                    const unpinnedChats = visibleChats.filter((c) => !chatMeta.pinned[c.sessionId]);
+                    const timeGroups = groupChatsByTime(unpinnedChats);
+                    return (
+                      <>
+                        {visibleChats.length === 0 ? (
+                          <div className="sidebar-empty-state flex flex-1 items-center justify-center text-center text-xs text-[var(--text-muted)]">
+                            No recent chats
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-4">
+                            {pinnedChats.length > 0 && (
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1.5 px-2.5 pb-1 text-xs font-medium text-[var(--text-muted)]">
+                                  <PinIcon size={12} />
+                                  <span>Pinned</span>
+                                </div>
+                                {pinnedChats.map(renderChatRow)}
+                              </div>
+                            )}
+                            {timeGroups.map((group) => (
+                              <div key={group.label} className="flex flex-col gap-1">
+                                <div className="px-2.5 pb-1 text-xs font-medium text-[var(--text-muted)]">
+                                  {group.label}
+                                </div>
+                                {group.items.map(renderChatRow)}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {archivedInMode.length > 0 && (
+                          <div className="mt-2 flex flex-col gap-1 border-t border-[var(--border-color)] pt-2">
+                            <button
+                              type="button"
+                              className="px-2 py-1 text-left text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                              onClick={() => setShowArchivedChats((v) => !v)}
+                            >
+                              {showArchivedChats
+                                ? 'Hide archived chats'
+                                : `Show archived (${archivedInMode.length})`}
+                            </button>
+                            {showArchivedChats &&
+                              archivedInMode.map((ac) => (
+                                <div
+                                  key={ac.sessionId}
+                                  className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
+                                >
+                                  <span className="truncate">{ac.title || ac.sessionId}</span>
+                                  <div className="flex shrink-0 items-center gap-1.5">
+                                    <span className="text-[10px] opacity-75">{ac.daysRemaining}d</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleRestoreChat(ac.sessionId)}
+                                      className="rounded border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-active)] cursor-pointer"
+                                    >
+                                      Restore
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </>
+                    );
                   })()}
                 </div>
               </div>
             </aside>
+            {sidebarOpen && (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize sidebar"
+                title="Drag to resize sidebar (double-click to expand/reset)"
+                onMouseDown={startSidebarResize}
+                onDoubleClick={toggleSidebarExpanded}
+                style={{ touchAction: 'none' }}
+                className={`relative z-30 -ml-1 h-full w-2 shrink-0 cursor-col-resize transition-colors ${
+                  isResizingSidebar
+                    ? 'bg-[var(--border-focus)]/50'
+                    : 'bg-transparent hover:bg-[var(--border-focus)]/35'
+                }`}
+              />
+            )}
 
             <div className="flex min-w-0 flex-1 overflow-hidden">
               {appMode === 'code' && (
@@ -3314,10 +4059,60 @@ export function App() {
               <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {activeMessages.length === 0 ? (
                   isPlanMode ? (
-                    <div className="mx-auto flex w-full max-w-[780px] flex-1 flex-col justify-start px-4 pt-10">
-                      <h1 className="text-center text-3xl font-semibold tracking-tight text-[var(--text-primary)]">
-                        Plan mode
-                      </h1>
+                    <div className="mx-auto flex w-full max-w-[900px] flex-1 flex-col justify-start gap-6 px-6 pt-10 pb-8 overflow-y-auto">
+                      <div className="text-center">
+                        <h1 className="text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
+                          Plan mode
+                        </h1>
+                        <p className="mt-1 text-xs text-[var(--text-muted)]">
+                          Read-only codebase inspection, EARS requirements, architecture design, and task breakdown.
+                        </p>
+                      </div>
+                      {planBySession[activeTab.sessionId] ? (
+                        <PlanArtifactCard
+                          markdown={planBySession[activeTab.sessionId] || ''}
+                          onChange={(nextMd) =>
+                            setPlanBySession((prev) => ({ ...prev, [activeTab.sessionId]: nextMd }))
+                          }
+                          onSave={(md) => saveSessionPlan(activeTab.sessionId, md)}
+                          onApproveAndBuild={handleApprovePlanAndBuild}
+                        />
+                      ) : (
+                        <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 py-2">
+                          <div className="text-center text-sm font-medium text-[var(--text-secondary)]">
+                            Explore an idea for {activeProjectId !== 'local' ? activeProjectLabel : 'this workspace'}
+                          </div>
+                          <div className="grid gap-3.5 sm:grid-cols-3">
+                            {currentPlanIdeas.map((idea) => (
+                              <button
+                                key={idea}
+                                type="button"
+                                onClick={() => {}}
+                                className="flex items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--border-color)_45%,transparent)] bg-[var(--bg-panel)] px-4 py-3 text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
+                              >
+                                <span className="truncate text-base font-medium text-[var(--text-primary)]">
+                                  {idea}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex justify-center pt-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPlanBySession((prev) => ({
+                                  ...prev,
+                                  [activeTab.sessionId]:
+                                    '## Requirements\n- WHEN <trigger> THE SYSTEM SHALL <behavior>\n\n### Non-Goals (Deferred)\n- \n\n## Design\n- \n\n## Tasks\n1. [ ] ',
+                                }))
+                              }
+                              className="rounded-lg border border-[var(--border-color)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                            >
+                              Create blank spec
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                   <Empty>
@@ -3326,12 +4121,16 @@ export function App() {
                         <MessageCircleDashedIcon size={20} />
                       </EmptyMedia>
                       <EmptyTitle>
-                        {appMode === 'code' && activeProjectId !== 'local'
-                          ? `What should we build in ${activeProjectLabel}?`
-                          : 'What should we build?'}
+                        {appMode === 'chat'
+                          ? chatEmptyCopy.title
+                          : activeProjectId !== 'local'
+                            ? `What should we build in ${activeProjectLabel}?`
+                            : 'What should we build?'}
                       </EmptyTitle>
                       <EmptyDescription>
-                        Ask the agent to read your code, run commands, and make changes.
+                        {appMode === 'chat'
+                          ? chatEmptyCopy.description
+                          : 'Ask the agent to read your code, run commands, and make changes.'}
                       </EmptyDescription>
                     </EmptyHeader>
                   </Empty>
@@ -3374,6 +4173,15 @@ export function App() {
                                             key={msg.id}
                                             className={`group/msg flex w-full flex-col gap-1.5 ${isUser ? 'items-end' : 'items-start'}`}
                                           >
+                                            {msg.syncConflictOf && (
+                                              <div
+                                                role="status"
+                                                className="flex max-w-[85%] items-center gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/[0.06] px-2 py-1 text-[10px] text-[var(--text-muted)]"
+                                              >
+                                                <CircleAlertIcon size={11} className="shrink-0 text-amber-500" />
+                                                <span>Different text arrived from another device. This version is preserved alongside the original.</span>
+                                              </div>
+                                            )}
                                             {isUser ? (
                                               <Bubble align="end" variant="secondary">
                                                 <BubbleContent className="!bg-[var(--bg-panel-subtle)] !border-[var(--border-color)] text-[var(--text-primary)]">
@@ -3467,11 +4275,11 @@ export function App() {
                                                  {msg.isError ? (
                                                    <div
                                                      role="alert"
-                                                     className="rounded-xl border border-red-500/25 bg-red-500/10 px-3.5 py-2.5 text-sm text-[var(--text-primary)]"
+                                                     className="rounded-xl border border-red-500/20 bg-red-500/[0.05] px-4 py-3 text-sm text-[var(--text-primary)]"
                                                    >
-                                                     <div className="mb-1 flex items-center justify-between gap-2">
-                                                       <div className="flex items-center gap-1.5 text-xs font-semibold text-red-400">
-                                                         <CircleAlertIcon size={14} />
+                                                     <div className="flex items-center justify-between gap-3">
+                                                       <div className="flex items-center gap-2 text-xs font-medium text-red-500">
+                                                         <CircleAlertIcon size={14} className="shrink-0" />
                                                          <span>Message failed</span>
                                                        </div>
                                                        {!isExecuting && (() => {
@@ -3483,7 +4291,7 @@ export function App() {
                                                            <button
                                                              type="button"
                                                              onClick={() => handleRetryMessage(prevUser)}
-                                                             className="inline-flex items-center gap-1 rounded-md border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-300 hover:bg-red-500/20 cursor-pointer"
+                                                             className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/12 px-2.5 py-1 text-[11px] font-medium text-red-500 transition-colors hover:bg-red-500/20 cursor-pointer"
                                                            >
                                                              <RotateCcwIcon size={11} />
                                                              <span>Retry</span>
@@ -3491,20 +4299,28 @@ export function App() {
                                                          ) : null;
                                                        })()}
                                                      </div>
-                                                     <MessageResponse isStreaming={false}>
-                                                       {msg.content || 'Execution failed.'}
-                                                     </MessageResponse>
+                                                     <div className="mt-1.5 text-[13px] leading-relaxed">
+                                                       <MessageResponse isStreaming={false}>
+                                                         {msg.content || 'Execution failed.'}
+                                                       </MessageResponse>
+                                                     </div>
                                                      {msg.diagnostics && (
-                                                       <details className="mt-2 rounded-lg border border-red-500/20 bg-black/20 px-2.5 py-1.5 text-[11px]">
-                                                         <summary className="flex cursor-pointer select-none items-center justify-between gap-2 font-medium text-red-300/90">
-                                                           <span>
-                                                             Diagnostics ({String((msg.diagnostics as any).requestedModelId || 'auto')} →{' '}
-                                                             {String((msg.diagnostics as any).resolvedModelId || 'unknown')}
-                                                             {(msg.diagnostics as any).phase ? ` · ${String((msg.diagnostics as any).phase)}` : ''}
-                                                             {(msg.diagnostics as any).elapsedMs !== undefined
-                                                               ? ` · ${String((msg.diagnostics as any).elapsedMs)}ms`
-                                                               : ''}
-                                                             )
+                                                       <details className="group mt-2.5 border-t border-red-500/12 pt-2 text-[11px]">
+                                                         <summary className="flex cursor-pointer list-none select-none items-center justify-between gap-2 text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]">
+                                                           <span className="inline-flex items-center gap-1.5 min-w-0">
+                                                             <ChevronRightIcon
+                                                               size={12}
+                                                               className="shrink-0 transition-transform duration-150 group-open:rotate-90"
+                                                             />
+                                                             <span className="font-medium text-[var(--text-secondary)]">Diagnostics</span>
+                                                             <span className="truncate opacity-80">
+                                                               {String((msg.diagnostics as any).requestedModelId || 'auto')} →{' '}
+                                                               {String((msg.diagnostics as any).resolvedModelId || 'unknown')}
+                                                               {(msg.diagnostics as any).phase ? ` · ${String((msg.diagnostics as any).phase)}` : ''}
+                                                               {(msg.diagnostics as any).elapsedMs !== undefined
+                                                                 ? ` · ${String((msg.diagnostics as any).elapsedMs)}ms`
+                                                                 : ''}
+                                                             </span>
                                                            </span>
                                                            <button
                                                              type="button"
@@ -3515,12 +4331,13 @@ export function App() {
                                                                  JSON.stringify(msg.diagnostics, null, 2)
                                                                );
                                                              }}
-                                                             className="rounded border border-red-400/25 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-200 hover:bg-red-500/20 cursor-pointer"
+                                                             className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-red-500/10 hover:text-[var(--text-primary)] cursor-pointer"
                                                            >
-                                                             Copy JSON
+                                                             <CopyIcon size={11} />
+                                                             <span>Copy JSON</span>
                                                            </button>
                                                          </summary>
-                                                         <pre className="mt-1.5 max-h-60 overflow-auto whitespace-pre-wrap break-all font-mono text-[10.5px] leading-relaxed text-[var(--text-secondary)]">
+                                                         <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all font-mono text-[10.5px] leading-relaxed text-[var(--text-secondary)]">
                                                            {JSON.stringify(msg.diagnostics, null, 2)}
                                                          </pre>
                                                        </details>
@@ -3567,7 +4384,7 @@ export function App() {
                                               className={`result-actions flex items-center gap-1.5 ${isUser ? 'justify-end' : 'justify-start'}`}
                                               style={{ marginTop: 0 }}
                                             >
-                                              {msg.content && (
+                                              {!msg.isError && msg.content && (
                                                 <button
                                                   className="message-action-btn"
                                                   type="button"
@@ -3577,14 +4394,29 @@ export function App() {
                                                   <span>{isCopied ? 'Copied' : 'Copy'}</span>
                                                 </button>
                                               )}
-                                              <button
-                                                className="message-action-btn"
-                                                type="button"
-                                                onClick={() => handleReplyMessage(msg)}
-                                              >
-                                                <ReplyIcon size={12} />
-                                                <span>Reply</span>
-                                              </button>
+                                              {!msg.isError && (
+                                                <button
+                                                  className="message-action-btn"
+                                                  type="button"
+                                                  onClick={() => handleReplyMessage(msg)}
+                                                >
+                                                  <ReplyIcon size={12} />
+                                                  <span>Reply</span>
+                                                </button>
+                                              )}
+                                              {!isUser && !msg.isError && msg.content && (
+                                                <button
+                                                  className="message-action-btn"
+                                                  type="button"
+                                                  onClick={() => {
+                                                    if (speakingMessageId === msg.id) stopSpeechPlayback();
+                                                    else void speakSummary(msg.content, msg.id);
+                                                  }}
+                                                >
+                                                  <Volume2Icon size={12} />
+                                                  <span>{speakingMessageId === msg.id ? 'Stop' : 'Listen'}</span>
+                                                </button>
+                                              )}
                                               {isUser && msg.content && (
                                                 <button
                                                   className="message-action-btn"
@@ -3648,14 +4480,61 @@ export function App() {
                           <MessageScrollerItem>
                             <div
                               ref={planSectionRef}
-                              className="flex min-h-[80vh] w-full flex-col justify-start pt-10"
+                              className="mx-auto flex min-h-[calc(100vh-210px)] w-full max-w-[900px] flex-col justify-start gap-6 pt-10 pb-8"
                             >
-                              <h1 className="text-center text-3xl font-semibold tracking-tight text-[var(--text-primary)]">
-                                Plan mode
-                              </h1>
-                              <div aria-hidden="true" className="flex-1 whitespace-pre-wrap select-none">
-                                {'\n'.repeat(32)}
+                              <div className="text-center">
+                                <h2 className="text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
+                                  Plan mode
+                                </h2>
+                                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                                  Review, edit, or approve the spec below to switch into Code mode and build.
+                                </p>
                               </div>
+                              {planBySession[activeTab.sessionId] ? (
+                                <PlanArtifactCard
+                                  markdown={planBySession[activeTab.sessionId] || ''}
+                                  onChange={(nextMd) =>
+                                    setPlanBySession((prev) => ({ ...prev, [activeTab.sessionId]: nextMd }))
+                                  }
+                                  onSave={(md) => saveSessionPlan(activeTab.sessionId, md)}
+                                  onApproveAndBuild={handleApprovePlanAndBuild}
+                                />
+                              ) : (
+                                <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 py-2">
+                                  <div className="text-center text-sm font-medium text-[var(--text-secondary)]">
+                                    Explore an idea for {activeProjectId !== 'local' ? activeProjectLabel : 'this workspace'}
+                                  </div>
+                                  <div className="grid gap-3.5 sm:grid-cols-3">
+                                    {currentPlanIdeas.map((idea) => (
+                                      <button
+                                        key={idea}
+                                        type="button"
+                                        onClick={() => {}}
+                                        className="flex items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--border-color)_45%,transparent)] bg-[var(--bg-panel)] px-4 py-3 text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
+                                      >
+                                        <span className="truncate text-base font-medium text-[var(--text-primary)]">
+                                          {idea}
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <div className="flex justify-center pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setPlanBySession((prev) => ({
+                                          ...prev,
+                                          [activeTab.sessionId]:
+                                            '## Requirements\n- WHEN <trigger> THE SYSTEM SHALL <behavior>\n\n### Non-Goals (Deferred)\n- \n\n## Design\n- \n\n## Tasks\n1. [ ] ',
+                                        }))
+                                      }
+                                      className="rounded-lg border border-[var(--border-color)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                                    >
+                                      Create blank spec
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </MessageScrollerItem>
                         )}
@@ -3670,10 +4549,10 @@ export function App() {
                 <div className="mx-auto mb-2 w-full max-w-[836px] px-7">
                   <div
                     role="status"
-                    className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-100"
+                    className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/35 bg-amber-500/12 px-3.5 py-2 text-xs text-[var(--text-primary)]"
                   >
                     <div className="flex min-w-0 flex-1 flex-col gap-1">
-                      <div className="flex items-center gap-1.5 font-medium text-amber-300">
+                      <div className="flex items-center gap-1.5 font-semibold text-amber-300 [[data-theme=bone]_&]:text-amber-800">
                         <CircleAlertIcon size={13} className="shrink-0" />
                         <span>
                           {systemWarnings.length === 1
@@ -3681,7 +4560,7 @@ export function App() {
                             : `${systemWarnings.length} system warnings`}
                         </span>
                       </div>
-                      <ul className="space-y-0.5 text-[11px] text-amber-100/85">
+                      <ul className="space-y-0.5 text-[11px] text-[var(--text-secondary)]">
                         {systemWarnings.map((w) => (
                           <li key={w.id} className="flex flex-wrap items-center gap-2">
                             <span>{w.message}</span>
@@ -3689,7 +4568,7 @@ export function App() {
                               <button
                                 type="button"
                                 onClick={() => navigateToPage('auth', { authMode: 'signin', direction: 'forward' })}
-                                className="underline underline-offset-2 hover:text-white cursor-pointer"
+                                className="font-medium text-[var(--text-primary)] underline underline-offset-2 hover:opacity-80 cursor-pointer"
                               >
                                 Sign in
                               </button>
@@ -3698,7 +4577,7 @@ export function App() {
                               <button
                                 type="button"
                                 onClick={() => openSettings()}
-                                className="underline underline-offset-2 hover:text-white cursor-pointer"
+                                className="font-medium text-[var(--text-primary)] underline underline-offset-2 hover:opacity-80 cursor-pointer"
                               >
                                 Open Settings
                               </button>
@@ -3711,7 +4590,7 @@ export function App() {
                       type="button"
                       onClick={() => setSystemWarningsDismissed(true)}
                       aria-label="Dismiss warnings"
-                      className="shrink-0 rounded-md p-0.5 text-amber-200/75 hover:bg-amber-500/20 hover:text-amber-100 cursor-pointer"
+                      className="shrink-0 rounded-md p-0.5 text-[var(--text-muted)] hover:bg-amber-500/20 hover:text-[var(--text-primary)] cursor-pointer"
                     >
                       <XIcon size={13} />
                     </button>
@@ -3723,7 +4602,7 @@ export function App() {
                 <div className="mx-auto mb-2 w-full max-w-[836px] px-7">
                   <div
                     role="alert"
-                    className="flex items-start justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-xs text-red-200"
+                    className="flex items-start justify-between gap-3 rounded-xl border border-red-500/35 bg-red-500/12 px-3.5 py-2.5 text-xs text-[var(--text-primary)]"
                   >
                     <div className="flex min-w-0 items-start gap-2">
                       <CircleAlertIcon size={14} className="mt-0.5 shrink-0 text-red-400" />
@@ -3899,7 +4778,7 @@ export function App() {
                       e.target.style.height = 'auto';
                       e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
                     }}
-                    placeholder="Ask the agent..."
+                    placeholder={voiceRecording ? 'Listening... speak naturally' : composerPlaceholder}
                     aria-label="Message"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
@@ -4177,6 +5056,37 @@ export function App() {
                         )}
                       </div>
 
+                      {(() => {
+                        const ctx = contextUsageBySession[activeTab.sessionId];
+                        if (!ctx || !ctx.contextWindow) return null;
+                        const fmtK = (n: number) =>
+                          n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+                        const pct = Math.min(100, Math.max(0, ctx.usagePercent || 0));
+                        const tone =
+                          pct >= 85
+                            ? 'border-red-500/35 text-red-400'
+                            : pct >= 70
+                              ? 'border-amber-500/35 text-amber-400'
+                              : 'border-[var(--border-color)] text-[var(--text-muted)]';
+                        const title = [
+                          `Context: ${ctx.estimatedContextTokens.toLocaleString()} / ${ctx.contextWindow.toLocaleString()} (${pct}%)`,
+                          `Input: ${ctx.inputTokens.toLocaleString()} · Output: ${ctx.outputTokens.toLocaleString()}`,
+                          ctx.cacheReadTokens > 0 ? `Cache read: ${ctx.cacheReadTokens.toLocaleString()}` : '',
+                          ctx.estimatedCostUsd > 0 ? `Est. cost: $${ctx.estimatedCostUsd.toFixed(4)}` : '',
+                          ctx.compactedCount > 0 ? `Compacted: ${ctx.compactedCount}x` : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' | ');
+                        return (
+                          <span
+                            title={title}
+                            className={`inline-flex h-7 items-center rounded-md border px-2 font-mono text-[11px] tabular-nums ${tone}`}
+                          >
+                            {fmtK(ctx.estimatedContextTokens)} / {fmtK(ctx.contextWindow)} ({pct}%)
+                          </span>
+                        );
+                      })()}
+
                       <InputGroupButton
                         type="button"
                         size="icon-sm"
@@ -4193,6 +5103,7 @@ export function App() {
                       >
                         <Volume2Icon size={14} />
                       </InputGroupButton>
+
                       <InputGroupButton
                         type="button"
                         size="icon-sm"
@@ -4328,11 +5239,11 @@ export function App() {
               onTogglePin={handleTogglePin}
               onToggleUnread={handleToggleUnread}
               onSplit={handleSplitChat}
-              onArchive={handleArchiveTask}
-              onDelete={handleDeleteChat}
+              onArchive={(sessionId) => void handleArchiveTask(sessionId)}
             />
           );
         })()}
+        <SystemToastViewport />
       </div>
     </MessageScrollerProvider>
   );

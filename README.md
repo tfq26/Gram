@@ -68,7 +68,7 @@ bun test            # Bun test suite across tests/ and src/
 
 ## Workspace Modes
 
-- **Chat**: Read-only answers and web search (`search_web`, `fetch_web_content`). When a project is selected, it can also inspect workspace files without modifying them.
+- **Chat**: Read-only workspace answers and web search (`search_web`, `fetch_web_content`). When a project is selected, it can inspect workspace files without modifying them. It can also save explicit user context through the separate personal profile.
 - **Plan**: Read-only repository inspection (`read_file`, `list_files`, `search_code`, `find_symbol_definition`, git read tools) to clarify requirements and produce EARS-style specifications saved under `.gram/plans/`.
 - **Code**: Full read/write file editing, `apply_changeset` multi-file edits, shell execution (`run_command`, background processes), headless browser inspection, and verification runs.
 
@@ -80,8 +80,13 @@ Each project stores a lightweight `.gram/` directory containing `gram.md` (proje
 - **Semantic Graph (`src/core/semanticGraph.ts`)**: Line-independent symbol URIs (`gram://<filePath>#<kind>:<symbolName>`) and topological impact checks (`blast_radius_simulate`, `semantic_blame_why`).
 - **Code Mode (`src/core/codeMode.ts`)**: Executes batched workspace reads and transforms in a single TypeScript evaluation rather than chaining sequential single-tool roundtrips.
 - **Context Envelope & Gram Connect (`src/core/contextEnvelope.ts`, `src/sync/`)**: Model-neutral conversation history projection, AHP v2 delta sync (`sinceSeq`), and multi-device presence.
+- **Personal Context (`src/db/userContextStore.ts`)**: A local structured profile of user-stated facts, preferences, and goals. Chat, Plan, and Code runs can include a compact profile block; Settings supports review, edits, deletion, JSON export, and a local review queue for facts found in saved chats.
 
 ## Authentication, Model Routing, and Privacy
+
+### Personal Context
+
+Personal context is stored in the local runtime SQLite database and is not included in Lyra Hub sync. The model may save a durable fact only when it supplies an exact quote from the current user message. Saved-chat scanning runs locally over user-authored messages and requires review before importing candidates. The profile is included in prompts only when **Settings > Personal Context > Use personal context** is enabled.
 
 ### Signing In via Lyra Hub
 

@@ -18,6 +18,7 @@ export type SettingsCategory =
   | 'general'
   | 'models'
   | 'prompts'
+  | 'personal-context'
   | 'skills'
   | 'themes'
   | 'workspace'
@@ -66,6 +67,7 @@ export const CATEGORIES: Array<{
   { id: 'general', label: 'General', description: 'Behavior, permissions, and local storage', icon: SlidersHorizontalIcon },
   { id: 'models', label: 'Models', description: 'Default routing, reasoning effort, and verified catalog', icon: CpuIcon },
   { id: 'prompts', label: 'Prompts & Rules', description: 'Workspace system instructions and constraints', icon: FileTextIcon },
+  { id: 'personal-context', label: 'Personal Context', description: 'Durable facts, preferences, and goals used across chats', icon: SparklesIcon },
   { id: 'skills', label: 'Skills & Tools', description: 'Autonomous cognitive skills and runtime tools', icon: SparklesIcon },
   { id: 'themes', label: 'Themes', description: 'Color palettes applied across the studio shell', icon: PaletteIcon },
   { id: 'workspace', label: 'Workspace & Sandbox', description: 'GramFS overlay, Git branch, and mesh devices', icon: FolderGit2Icon },

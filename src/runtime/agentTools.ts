@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { GramFS } from '../core/gramfs';
+import type { UserContextCategory } from '../db/userContextStore';
 import type { SemanticGraph } from '../core/semanticGraph';
 import type { NovelTools } from '../tools/novelTools';
 import type { LlmToolDef } from '../providers/llmClient';
@@ -33,38 +34,70 @@ import {
 export const AGENT_TOOLS: LlmToolDef[] = [
   {
     name: 'read_file',
-    description: 'Read the contents of a file in the workspace (or staged GramFS overlay).',
+    description: 'Read the contents of one or more files in the workspace (or staged GramFS overlay). Pass `path` for a single file, or `paths` / `files` to batch-read multiple files in one call.',
     inputSchema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Workspace-relative file path.' },
         startLine: { type: 'number', description: 'Optional 1-based start line.' },
         endLine: { type: 'number', description: 'Optional 1-based end line.' },
+        paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional batch list of workspace-relative file paths to read.',
+        },
+        files: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+              startLine: { type: 'number' },
+              endLine: { type: 'number' },
+            },
+            required: ['path'],
+          },
+          description: 'Optional batch list of file slices to read.',
+        },
       },
-      required: ['path'],
     },
   },
   {
     name: 'write_file',
-    description: 'Create or update a file in the isolated GramFS Copy-on-Write overlay.',
+    description: 'Create or update one or more files in the isolated GramFS Copy-on-Write overlay. Pass `path` + `content` for a single file, or `files` to atomically stage multiple files in one call.',
     inputSchema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Workspace-relative file path.' },
         content: { type: 'string', description: 'Complete file content to write.' },
+        files: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+              content: { type: 'string' },
+            },
+            required: ['path', 'content'],
+          },
+          description: 'Optional batch list of files to stage atomically.',
+        },
       },
-      required: ['path', 'content'],
     },
   },
   {
     name: 'delete_file',
-    description: 'Mark a workspace file as deleted in the isolated GramFS Copy-on-Write overlay (staged until commit_changes; reversible with rollback_checkpoint).',
+    description: 'Mark one or more workspace files as deleted in the isolated GramFS Copy-on-Write overlay (staged until commit_changes; reversible with rollback_checkpoint). Pass `path` for a single file or `paths` for batch deletion.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Workspace-relative file path to delete.' },
+        path: { type: 'string', description: 'Single workspace-relative file path to delete.' },
+        paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Batch list of workspace-relative file paths to delete in one call.',
+        },
       },
-      required: ['path'],
     },
   },
   {
@@ -281,6 +314,20 @@ export const AGENT_TOOLS: LlmToolDef[] = [
     },
   },
   {
+    name: 'remember_user_context',
+    description: 'Remember one durable fact, preference, or goal that the user explicitly stated about themselves. Only call this when you can provide an exact quote from the current user message as evidence. Never infer personal facts or save secrets. Updates the user profile shared across chats and projects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        category: { type: 'string', enum: ['communication', 'coding', 'workflow', 'career', 'family', 'finances', 'relationships', 'health', 'education', 'background', 'goals', 'other'] },
+        key: { type: 'string', description: 'Stable snake_case identifier within the category, e.g. current_role or career_goal.' },
+        value: { type: 'string', description: 'A concise, neutral fact or preference, without adding details beyond the evidence.' },
+        evidence: { type: 'string', description: 'Exact substring copied from the current user message that supports this memory.' },
+      },
+      required: ['category', 'key', 'value', 'evidence'],
+    },
+  },
+  {
     name: 'remember_insight',
     description:
       'Persist a durable preference, correction, architectural invariant, workflow, or gotcha into Gram’s shared Knowledge Store so future models and projects inherit it.',
@@ -320,6 +367,20 @@ export const AGENT_TOOLS: LlmToolDef[] = [
       properties: {},
     },
   },
+  {
+    name: 'retrieve_context',
+    description:
+      'Retrieve the full raw payload (or line range) for a CCR-compressed context blob ID (e.g. ctx_a1b2c3d4e5f6) from Lyra Gateway.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The ctx_* blob ID from a [CCR ...] stub or CROSS_MODEL_WORKING_SET.' },
+        startLine: { type: 'number', description: 'Optional 1-based start line.' },
+        endLine: { type: 'number', description: 'Optional 1-based end line.' },
+      },
+      required: ['id'],
+    },
+  },
 ];
 
 export type ToolGroupName = 'diagnostics' | 'git' | 'browser' | 'web' | 'analysis' | 'swarm';
@@ -335,7 +396,9 @@ export const CORE_WARM_TOOL_NAMES = new Set<string>([
   'start_process',
   'stop_process',
   'remember_insight',
+  'remember_user_context',
   'enable_tools',
+  'retrieve_context',
 ]);
 
 export const TOOL_GROUP_MEMBERS: Record<ToolGroupName, string[]> = {
@@ -554,6 +617,7 @@ async function executeAgentToolRaw(params: {
   gramfs: GramFS;
   layerId: string;
   requireApproval?: boolean;
+  authToken?: string;
   signal?: AbortSignal;
   graph?: SemanticGraph;
   novelTools?: NovelTools;
@@ -568,58 +632,161 @@ async function executeAgentToolRaw(params: {
       tags?: string[];
     }) => { id: string; created: boolean; title: string; scope: string };
   };
+  userContext?: {
+    remember: (input: {
+      category: UserContextCategory;
+      key: string;
+      value: string;
+      evidence: string;
+      sessionId?: string;
+    }) => unknown;
+  };
   sessionId?: string;
+  sourceUserMessage?: string;
   pinnedFacts?: Record<string, string>;
   lyra?: {
     escalate: (payload: Record<string, unknown>) => Promise<unknown>;
     status: (runId: string, sessionId?: string) => Promise<unknown>;
   };
 }): Promise<ToolExecResult> {
-  const { name, input, workspaceRoot, gramfs, layerId, requireApproval, signal, graph, novelTools, rememberRule, refreshSymbols, knowledge, sessionId, pinnedFacts, lyra } = params;
+  const { name, input, workspaceRoot, gramfs, layerId, requireApproval, signal, graph, novelTools, rememberRule, refreshSymbols, knowledge, userContext, sessionId, sourceUserMessage, pinnedFacts, lyra } = params;
 
   try {
     if (name === 'read_file') {
-      const relPath = String(input.path || '');
-      if (!relPath) return { output: 'Missing required "path" argument.', isError: true };
-      if (isSecretFilePath(relPath)) {
-        return { output: `Access blocked: "${relPath}" is a protected secret/credential path.`, isError: true };
+      type ReadSpec = { path: string; startLine?: number; endLine?: number };
+      const specs: ReadSpec[] = [];
+      if (typeof input.path === 'string' && input.path.trim()) {
+        specs.push({
+          path: input.path.trim(),
+          startLine: input.startLine !== undefined ? Number(input.startLine) : undefined,
+          endLine: input.endLine !== undefined ? Number(input.endLine) : undefined,
+        });
       }
-      let content: string;
-      try {
-        content = gramfs.readFile(relPath, layerId);
-      } catch (err: any) {
-        const msg = err?.message || String(err);
-        return {
-          output: `${msg} Call list_files or search_code to inspect existing files in the workspace.`,
-          isError: true,
-        };
+      if (Array.isArray(input.paths)) {
+        for (const p of input.paths) {
+          if (typeof p === 'string' && p.trim()) specs.push({ path: p.trim() });
+        }
       }
-      const lines = content.split('\n');
-      const start = Math.max(1, Number(input.startLine || 1));
-      const end = Math.min(lines.length, Number(input.endLine || Math.min(lines.length, start + 250)));
-      const slice = lines.slice(start - 1, end).join('\n');
-      return {
-        output: slice.slice(0, 16000),
+      if (Array.isArray(input.files)) {
+        for (const f of input.files as Array<Record<string, unknown>>) {
+          if (f && typeof f.path === 'string' && f.path.trim()) {
+            specs.push({
+              path: f.path.trim(),
+              startLine: f.startLine !== undefined ? Number(f.startLine) : undefined,
+              endLine: f.endLine !== undefined ? Number(f.endLine) : undefined,
+            });
+          }
+        }
+      }
+      if (specs.length === 0) {
+        return { output: 'Missing required "path", "paths", or "files" argument.', isError: true };
+      }
+
+      const readOne = (spec: ReadSpec): { text: string; isError?: boolean } => {
+        if (isSecretFilePath(spec.path)) {
+          return { text: `Access blocked: "${spec.path}" is a protected secret/credential path.`, isError: true };
+        }
+        let content: string;
+        try {
+          content = gramfs.readFile(spec.path, layerId);
+        } catch (err: any) {
+          const msg = err?.message || String(err);
+          return {
+            text: `${msg} Call list_files or search_code to inspect existing files in the workspace.`,
+            isError: true,
+          };
+        }
+        const lines = content.split('\n');
+        const start = Math.max(1, spec.startLine || 1);
+        const end = Math.min(lines.length, spec.endLine || Math.min(lines.length, start + 250));
+        const slice = lines.slice(start - 1, end).join('\n');
+        const truncatedNote =
+          end < lines.length
+            ? `\n[Showing lines ${start}-${end} of ${lines.length}. Pass startLine/endLine to read more.]`
+            : '';
+        return { text: `${slice.slice(0, 16000)}${truncatedNote}` };
       };
+
+      if (specs.length === 1) {
+        const res = readOne(specs[0]);
+        return { output: res.text, isError: res.isError };
+      }
+
+      const sections: string[] = [];
+      let totalChars = 0;
+      const maxBatchChars = 24000;
+      for (const spec of specs.slice(0, 20)) {
+        const res = readOne(spec);
+        const block = `=== ${spec.path} ===\n${res.text}`;
+        if (totalChars + block.length > maxBatchChars && sections.length > 0) {
+          sections.push(`... (truncated remaining ${specs.length - sections.length} file(s); read them in a narrower batch)`);
+          break;
+        }
+        sections.push(block);
+        totalChars += block.length;
+      }
+      return { output: sections.join('\n\n') };
     }
 
     if (name === 'write_file') {
+      if (Array.isArray(input.files) && input.files.length > 0) {
+        const batch = (input.files as Array<Record<string, unknown>>).map((entry) => ({
+          path: String(entry?.path || '').trim(),
+          content: String(entry?.content ?? ''),
+        }));
+        if (batch.some((e) => !e.path)) {
+          return { output: 'Every entry in "files" requires a non-empty "path".', isError: true };
+        }
+        for (const entry of batch) {
+          resolveSafeWorkspacePath(workspaceRoot, entry.path);
+        }
+        gramfs.writeFilesAtomic(batch, layerId);
+        return {
+          output: `Atomically staged ${batch.length} file(s) in GramFS layer '${layerId}': ${batch.map((b) => b.path).join(', ')}`,
+        };
+      }
       const relPath = String(input.path || '');
       const content = String(input.content ?? '');
-      if (!relPath) return { output: 'Missing required "path" argument.', isError: true };
+      if (!relPath) return { output: 'Missing required "path" or "files" argument.', isError: true };
       gramfs.writeFile(relPath, content, layerId);
       return { output: `Staged ${relPath} (${content.length} bytes) in GramFS layer '${layerId}'.` };
     }
 
     if (name === 'delete_file') {
-      const relPath = String(input.path || '');
-      if (!relPath) return { output: 'Missing required "path" argument.', isError: true };
-      resolveSafeWorkspacePath(workspaceRoot, relPath);
-      if (!gramfs.fileExists(relPath, layerId)) {
-        return { output: `File not found in workspace or overlay: ${relPath}`, isError: true };
+      const rawPaths: string[] = [];
+      if (typeof input.path === 'string' && input.path.trim()) rawPaths.push(input.path.trim());
+      if (Array.isArray(input.paths)) {
+        for (const p of input.paths) {
+          if (typeof p === 'string' && p.trim()) rawPaths.push(p.trim());
+        }
       }
-      gramfs.deleteFile(relPath, layerId);
-      return { output: `Staged deletion of ${relPath} in GramFS layer '${layerId}'.` };
+      const uniquePaths = Array.from(new Set(rawPaths));
+      if (uniquePaths.length === 0) {
+        return { output: 'Missing required "path" or "paths" argument.', isError: true };
+      }
+
+      const deleted: string[] = [];
+      const missing: string[] = [];
+      for (const relPath of uniquePaths) {
+        resolveSafeWorkspacePath(workspaceRoot, relPath);
+        if (!gramfs.fileExists(relPath, layerId)) {
+          missing.push(relPath);
+          continue;
+        }
+        gramfs.deleteFile(relPath, layerId);
+        deleted.push(relPath);
+      }
+
+      if (deleted.length === 0) {
+        return { output: `File(s) not found in workspace or overlay: ${missing.join(', ')}`, isError: true };
+      }
+      const summary =
+        deleted.length === 1
+          ? `Staged deletion of ${deleted[0]} in GramFS layer '${layerId}'.`
+          : `Staged deletion of ${deleted.length} files in GramFS layer '${layerId}': ${deleted.join(', ')}`;
+      return {
+        output: missing.length > 0 ? `${summary} (Not found: ${missing.join(', ')})` : summary,
+      };
     }
 
     if (name === 'list_files') {
@@ -627,7 +794,15 @@ async function executeAgentToolRaw(params: {
       const patternRaw = String(input.pattern || '').trim();
       const maxDepth = Math.min(patternRaw ? 6 : 4, Math.max(1, Number(input.depth || (patternRaw ? 5 : 2))));
       const rootDir = resolveSafeWorkspacePath(workspaceRoot, relDir === '.' ? '' : relDir);
+      const overlayEntries = gramfs.listModifiedFiles(layerId);
+      const deletedSet = new Set(overlayEntries.filter((e) => e.isDeleted).map((e) => e.path));
       const results: string[] = [];
+      const seenResults = new Set<string>();
+      const pushResult = (val: string) => {
+        if (results.length >= 200 || seenResults.has(val)) return;
+        seenResults.add(val);
+        results.push(val);
+      };
 
       let patternRe: RegExp | null = null;
       if (patternRaw) {
@@ -653,12 +828,13 @@ async function executeAgentToolRaw(params: {
           const full = path.join(dir, entry.name);
           const rel = path.relative(workspaceRoot, full).split(path.sep).join('/');
           if (isSecretFilePath(rel)) continue;
+          if (!entry.isDirectory() && deletedSet.has(rel)) continue;
           if (patternRe) {
             if (!entry.isDirectory() && (patternRe.test(rel) || patternRe.test(entry.name))) {
-              results.push(rel);
+              pushResult(rel);
             }
           } else {
-            results.push(entry.isDirectory() ? `${rel}/` : rel);
+            pushResult(entry.isDirectory() ? `${rel}/` : rel);
           }
           if (entry.isDirectory()) walk(full, depth + 1);
           if (results.length >= 200) break;
@@ -666,6 +842,25 @@ async function executeAgentToolRaw(params: {
       };
 
       walk(rootDir, 1);
+
+      const relPrefix = relDir === '.' ? '' : `${relDir.replace(/^\.\/|\/+$/g, '')}/`;
+      for (const entry of overlayEntries) {
+        if (entry.isDeleted || results.length >= 200) continue;
+        if (isSecretFilePath(entry.path)) continue;
+        if (relPrefix && !entry.path.startsWith(relPrefix)) continue;
+        const sub = relPrefix ? entry.path.slice(relPrefix.length) : entry.path;
+        const depth = sub.split('/').length;
+        if (depth > maxDepth) continue;
+        const baseName = path.posix.basename(entry.path);
+        if (patternRe) {
+          if (patternRe.test(entry.path) || patternRe.test(baseName)) {
+            pushResult(entry.path);
+          }
+        } else {
+          pushResult(entry.path);
+        }
+      }
+
       return { output: results.length > 0 ? results.join('\n') : '(empty directory)' };
     }
 
@@ -674,27 +869,99 @@ async function executeAgentToolRaw(params: {
       if (!query) return { output: 'Missing required "query" argument.', isError: true };
       const relDir = input.dir ? String(input.dir) : '.';
       const targetDir = relDir === '.' ? workspaceRoot : resolveSafeWorkspacePath(workspaceRoot, relDir);
-      const proc = Bun.spawn([
-        'rg', '-n', '--max-count', '40',
-        '--glob', '!node_modules/**', '--glob', '!.git/**',
-        '--glob', '!**/.env*', '--glob', '!**/*.pem', '--glob', '!**/*.key',
-        '--glob', '!**/.aws/**', '--glob', '!**/.ssh/**', '--glob', '!**/secrets/**', '!**/credentials/**',
-        query, targetDir,
-      ], {
-        cwd: workspaceRoot,
-        stdout: 'pipe',
-        stderr: 'pipe',
-      });
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      const exitCode = await proc.exited;
-      if (exitCode === 0 && stdout.trim()) {
-        return { output: stdout.slice(0, 12000) };
+      const rgBin = Bun.which('rg');
+
+      if (rgBin) {
+        const proc = Bun.spawn([
+          rgBin, '-n', '--max-count', '40',
+          '--glob', '!node_modules/**', '--glob', '!.git/**',
+          '--glob', '!**/.env*', '--glob', '!**/*.pem', '--glob', '!**/*.key',
+          '--glob', '!**/.aws/**', '--glob', '!**/.ssh/**', '--glob', '!**/secrets/**', '!**/credentials/**',
+          query, targetDir,
+        ], {
+          cwd: workspaceRoot,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        });
+        const stdout = await new Response(proc.stdout).text();
+        const stderr = await new Response(proc.stderr).text();
+        const exitCode = await proc.exited;
+        if (exitCode === 0 && stdout.trim()) {
+          return { output: stdout.slice(0, 12000) };
+        }
+        if (exitCode === 1) {
+          return { output: 'No matches found.' };
+        }
+        return { output: (stderr || stdout || `Search exited with code ${exitCode}`).slice(0, 4000), isError: exitCode > 1 };
       }
-      if (exitCode === 1) {
-        return { output: 'No matches found.' };
+
+      // Fast in-process fallback when rg is not installed
+      let searchRe: RegExp;
+      try {
+        searchRe = new RegExp(query, 'i');
+      } catch {
+        searchRe = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       }
-      return { output: (stderr || stdout || `Search exited with code ${exitCode}`).slice(0, 4000), isError: exitCode > 1 };
+      const overlayEntries = gramfs.listModifiedFiles(layerId);
+      const deletedSet = new Set(overlayEntries.filter((e) => e.isDeleted).map((e) => e.path));
+      const overlayContentMap = new Map(
+        overlayEntries.filter((e) => !e.isDeleted).map((e) => [e.path, e.content])
+      );
+      const BINARY_EXT = /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|eot|pdf|zip|gz|tar|exe|dll|so|dylib|sqlite|db)$/i;
+      const matches: string[] = [];
+      const visited = new Set<string>();
+
+      const scanText = (relPath: string, text: string) => {
+        const lines = text.split('\n');
+        for (let i = 0; i < lines.length && matches.length < 40; i++) {
+          if (searchRe.test(lines[i])) {
+            matches.push(`${relPath}:${i + 1}:${lines[i].slice(0, 240)}`);
+          }
+        }
+      };
+
+      const walkSearch = (dir: string) => {
+        if (matches.length >= 40) return;
+        let entries: fs.Dirent[] = [];
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return;
+        }
+        for (const entry of entries) {
+          if (matches.length >= 40) break;
+          if (IGNORED_DIRS.has(entry.name)) continue;
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            walkSearch(full);
+            continue;
+          }
+          const rel = path.relative(workspaceRoot, full).split(path.sep).join('/');
+          if (isSecretFilePath(rel) || deletedSet.has(rel) || BINARY_EXT.test(rel)) continue;
+          visited.add(rel);
+          const text = overlayContentMap.get(rel) ?? (() => {
+            try {
+              const stat = fs.statSync(full);
+              if (stat.size > 512_000) return '';
+              return fs.readFileSync(full, 'utf8');
+            } catch {
+              return '';
+            }
+          })();
+          if (text) scanText(rel, text);
+        }
+      };
+
+      walkSearch(targetDir);
+      for (const [rel, content] of overlayContentMap) {
+        if (matches.length >= 40) break;
+        if (visited.has(rel) || isSecretFilePath(rel) || BINARY_EXT.test(rel)) continue;
+        scanText(rel, content);
+      }
+
+      return {
+        output: matches.length > 0 ? matches.join('\n').slice(0, 12000) : 'No matches found.',
+      };
     }
 
     if (name === 'edit_file') {
@@ -1089,6 +1356,22 @@ async function executeAgentToolRaw(params: {
       return { output: JSON.stringify(saved, null, 2) };
     }
 
+    if (name === 'remember_user_context') {
+      if (!userContext) return { output: 'Personal context store is unavailable.', isError: true };
+      const category = String(input.category || 'other') as UserContextCategory;
+      const key = String(input.key || '').trim();
+      const value = String(input.value || '').trim();
+      const evidence = String(input.evidence || '').trim();
+      if (!key || !value || !evidence) {
+        return { output: 'Provide category, key, value, and an exact evidence quote.', isError: true };
+      }
+      if (!sourceUserMessage || !sourceUserMessage.toLocaleLowerCase().includes(evidence.toLocaleLowerCase())) {
+        return { output: 'Memory was not saved: evidence must be an exact quote from the current user message.', isError: true };
+      }
+      const saved = userContext.remember({ category, key, value, evidence, sessionId });
+      return { output: `Saved to personal context: ${category}/${key}. ${JSON.stringify(saved)}` };
+    }
+
     if (name === 'enable_tools') {
       const requested = Array.isArray(input.groups) ? input.groups.map(String) : [];
       const valid = requested.filter((g): g is ToolGroupName => g in TOOL_GROUP_MEMBERS);
@@ -1099,6 +1382,35 @@ async function executeAgentToolRaw(params: {
         output: `Enabled tool groups for this run: ${valid.join(', ')}. Tools available: ${valid
           .flatMap((g) => TOOL_GROUP_MEMBERS[g])
           .join(', ')}.`,
+      };
+    }
+
+    if (name === 'retrieve_context') {
+      const id = String(input.id || '').trim();
+      if (!id) return { output: 'Missing context blob id (e.g. ctx_...).', isError: true };
+      const lyraUrl = (process.env.LYRA_HUB_URL || 'https://lyra.2helix.org').replace(/\/+$/, '');
+      const qs = new URLSearchParams();
+      if (typeof input.startLine === 'number') qs.set('startLine', String(Math.floor(input.startLine)));
+      if (typeof input.endLine === 'number') qs.set('endLine', String(Math.floor(input.endLine)));
+      const queryStr = qs.toString() ? `?${qs.toString()}` : '';
+      const headers: Record<string, string> = {};
+      if (process.env.LYRA_GATEWAY_API_KEY) {
+        headers['x-lyra-api-key'] = process.env.LYRA_GATEWAY_API_KEY;
+        headers.Authorization = `Bearer ${process.env.LYRA_GATEWAY_API_KEY}`;
+      }
+      if (params.authToken) {
+        headers.Authorization = `Bearer ${params.authToken}`;
+      }
+      const res = await fetch(`${lyraUrl}/api/gateway/context/${encodeURIComponent(id)}${queryStr}`, {
+        headers,
+        signal,
+      });
+      const data = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !data?.found) {
+        return { output: data?.error || `Context blob "${id}" not found (${res.status}).`, isError: true };
+      }
+      return {
+        output: `[CCR ${id} (${data.totalLines} total lines)]\n${data.content || ''}`,
       };
     }
 

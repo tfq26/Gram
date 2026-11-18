@@ -6,6 +6,19 @@ import type { PlanNode } from '../core/contextEnvelope';
 import type { LlmErrorDiagnostics } from '../providers/llmClient';
 import type { ToolApprovalAction } from './agentTools';
 
+export interface ContextUsageSnapshot {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  estimatedContextTokens: number;
+  contextWindow: number;
+  usagePercent: number;
+  estimatedCostUsd: number;
+  compactedCount: number;
+  lastCompactedStrategy?: 'tier1-prune' | 'tier2-llm' | 'tier2-deterministic';
+}
+
 export interface RunErrorDiagnostics {
   timestamp: string;
   runId: string;
@@ -79,6 +92,7 @@ export interface RunCheckpoint {
   activeLayerId: string;
   timestamp: string;
   toolCalls?: Array<{ id: string; name: string; command: string; result?: string; error?: string }>;
+  usage?: ContextUsageSnapshot;
   diagnostics?: RunErrorDiagnostics;
 }
 
@@ -89,6 +103,15 @@ export type RuntimeStreamEvent =
   | { type: 'text_delta'; delta: string }
   | { type: 'tool_start'; id: string; name: string; command: string }
   | { type: 'tool_result'; id: string; name: string; command: string; result?: string; error?: string }
+  | { type: 'context_update'; usage: ContextUsageSnapshot }
+  | {
+      type: 'context_compacted';
+      strategy: 'tier1-prune' | 'tier2-llm' | 'tier2-deterministic';
+      beforeTokens: number;
+      afterTokens: number;
+      summarizedTurns: number;
+    }
+  | { type: 'plan_updated'; sessionId: string; markdown: string }
   | { type: 'approval_required'; approval: PendingApproval; runId: string; sessionId: string }
   | { type: 'done'; result: any }
   | { type: 'error'; error: string; diagnostics?: RunErrorDiagnostics };

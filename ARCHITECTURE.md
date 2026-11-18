@@ -38,6 +38,7 @@ In development, Vite (`vite.config.ts`) listens on `127.0.0.1:5174` and proxies 
   - `authStore.ts`: Local user accounts and session token lookup.
   - `projectStore.ts`: Registered projects, uploaded project files, instructions, and workspace rules.
   - `chatStore.ts`: Persisted chat sessions, run checkpoints, and AHP sequence deltas.
+  - `userContextStore.ts`: Local user profile items, settings, exact-quote capture, and locally scanned saved-chat candidates.
 - `src/core/` -- Workspace and context primitives:
   - `gramfs.ts`: SQLite-backed copy-on-write overlay and `opLog` for staging and rollback.
   - `semanticGraph.ts`: Symbol indexing with `gram://<path>#<kind>:<symbol>` URIs.
@@ -55,12 +56,13 @@ In development, Vite (`vite.config.ts`) listens on `127.0.0.1:5174` and proxies 
   - `agentRuntime.ts`: `GramAgentRuntime` orchestration (`executeRun`, `runLlmAgentLoop`, `resumeRun`, error diagnostics).
   - `types.ts`: `AgentRunOptions`, `RunCheckpoint`, `RuntimeStreamEvent`, `RunErrorDiagnostics`, `PendingApproval`.
   - `agentTools.ts`, `browserTools.ts`, `webTools.ts`, `processManager.ts`, `unifiedPatch.ts`, `toolGuides.ts`.
+  - `remember_user_context`: Saves an explicitly supported user fact or preference; the compact profile is added to prompts when enabled.
 - `src/server/`:
   - `index.ts`: Bun HTTP server, bootstrap endpoint (`/api/bootstrap`), system checks (`/api/system/checks`), error diagnostics (`/api/diagnostics/errors`), SSE run streaming (`/api/run/stream`), and static/studio asset serving.
-  - `routes/`: Focused route handlers (`auth.ts`, `files.ts`, `lyra.ts`, `models.ts`, `processes.ts`, `projects.ts`).
+  - `routes/`: Focused route handlers (`auth.ts`, `files.ts`, `lyra.ts`, `models.ts`, `processes.ts`, `projects.ts`, `userContext.ts`).
   - `lyraClient.ts`: Auth header/cookie extraction (`gram_lyra_token`) and HTTP bridge to `LYRA_HUB_URL`.
   - `http.ts`, `voice.ts`, `classicShell.ts`.
-- `src/sync/`: `ahpProtocol.ts` (JSON-RPC + sequence-delta sync) and `connectPresence.ts` (device mesh tracking).
+- `src/sync/`: `ahpProtocol.ts` (legacy JSON-RPC + sequence-delta sync), `oberonProtocol.ts` (shared transport contract for future Gram/Lyra sync through Oberon), and `connectPresence.ts` (device mesh tracking).
 - `src/tools/`: `agentSkills.ts` and `novelTools.ts`.
 
 ### Frontend (`src/ui/`)

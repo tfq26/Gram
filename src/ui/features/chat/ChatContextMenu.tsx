@@ -7,7 +7,6 @@ import {
   MessageSquareDotIcon,
   PencilIcon,
   PinIcon,
-  Trash2Icon,
 } from 'lucide-react';
 import type { ChatSessionSummary } from '../../lib/types';
 
@@ -23,7 +22,6 @@ export interface ChatContextMenuProps {
   onToggleUnread: (sessionId: string) => void;
   onSplit: (chat: ChatSessionSummary) => void;
   onArchive: (sessionId: string) => void;
-  onDelete: (chat: ChatSessionSummary) => void;
 }
 
 export function ChatContextMenu({
@@ -38,7 +36,6 @@ export function ChatContextMenu({
   onToggleUnread,
   onSplit,
   onArchive,
-  onDelete,
 }: ChatContextMenuProps) {
   return createPortal(
     <div
@@ -102,20 +99,15 @@ export function ChatContextMenu({
       <div className="shadcn-context-menu-separator" />
       <button
         type="button"
-        className="shadcn-context-menu-item gap-2"
+        title="Archive chat (restorable for 30 days)"
+        className="shadcn-context-menu-item justify-between gap-2"
         onClick={() => onArchive(chat.sessionId)}
       >
-        <ArchiveIcon size={13} />
-        <span>Archive</span>
-      </button>
-      <button
-        type="button"
-        className="shadcn-context-menu-item gap-2"
-        style={{ color: 'var(--danger)' }}
-        onClick={() => onDelete(chat)}
-      >
-        <Trash2Icon size={13} />
-        <span>Delete</span>
+        <span className="flex items-center gap-2">
+          <ArchiveIcon size={13} />
+          <span>Archive</span>
+        </span>
+        <span className="text-[10px] text-[var(--text-muted)]">30d</span>
       </button>
     </div>,
     document.body

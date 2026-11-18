@@ -205,6 +205,18 @@ export function MessageResponse({
       <Streamdown
         plugins={{ mermaid: mermaidPlugin }}
         isAnimating={isStreaming}
+        animated={
+          isStreaming
+            ? {
+                animation: 'fadeIn',
+                duration: 120,
+                easing: 'ease-out',
+                stagger: 12,
+                sep: 'word',
+                maxBacklogMs: 180,
+              }
+            : false
+        }
         shikiTheme={['github-dark', 'github-dark']}
         components={{
           p({ children: pChildren }) {

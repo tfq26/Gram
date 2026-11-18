@@ -53,6 +53,7 @@ export function initRuntimeSchema(db: Database): void {
     `ALTER TABLE chat_sessions ADD COLUMN sync_seq INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE chat_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'`,
     `ALTER TABLE chat_sessions ADD COLUMN revision INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE chat_sessions ADD COLUMN archived_at TEXT`,
   ]) {
     try {
       db.run(sql);

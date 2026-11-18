@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeftIcon,
+  AlertTriangleIcon,
   CheckIcon,
   DatabaseIcon,
   RefreshCwIcon,
@@ -20,6 +21,32 @@ import {
 } from '@/components/ui/item';
 import { Separator } from '@/components/ui/separator';
 import { getModelLogoPath } from '../../lib/modelLogos';
+
+type PersonalContextCategory =
+  | 'communication' | 'coding' | 'workflow' | 'career' | 'family' | 'finances'
+  | 'relationships' | 'health' | 'education' | 'background' | 'goals' | 'other';
+type PersonalContextItem = {
+  id: string;
+  category: PersonalContextCategory;
+  value: string;
+  source: 'explicit' | 'manual' | 'imported';
+  evidence: string | null;
+  updatedAt: string;
+};
+type PersonalContextCandidate = {
+  category: PersonalContextCategory;
+  key: string;
+  value: string;
+  evidence: string;
+  sessionId: string;
+  chatTitle: string;
+};
+type PersonalContextProfile = {
+  schemaVersion: 1;
+  enabled: boolean;
+  autoCapture: boolean;
+  items: PersonalContextItem[];
+};
 import {
   CATEGORIES,
   NOVEL_TOOLS,
@@ -81,8 +108,29 @@ export function SettingsView({
   const [devices, setDevices] = useState<Array<{ deviceId: string; deviceName: string; deviceType: string; isExecutionHost?: boolean }>>([]);
   const [healthInfo, setHealthInfo] = useState<{ status?: string; version?: string; workspace?: string }>({});
   const [doctorResult, setDoctorResult] = useState<Record<string, unknown> | null>(null);
+  const [personalContext, setPersonalContext] = useState<PersonalContextProfile>({
+    schemaVersion: 1,
+    enabled: true,
+    autoCapture: true,
+    items: [],
+  });
+  const [contextDrafts, setContextDrafts] = useState<Record<string, string>>({});
+  const [contextCategory, setContextCategory] = useState<PersonalContextCategory>('other');
+  const [newContextValue, setNewContextValue] = useState('');
+  const [contextError, setContextError] = useState('');
+  const [contextBusy, setContextBusy] = useState<string | null>(null);
+  const [clearContextConfirming, setClearContextConfirming] = useState(false);
+  const [contextCandidates, setContextCandidates] = useState<PersonalContextCandidate[]>([]);
 
   const [syncStatus, setSyncStatus] = useState<{ synced?: boolean; latestSeq?: number; loading?: boolean; message?: string }>({});
+  const [syncConflicts, setSyncConflicts] = useState<Array<{
+    conflictId: string;
+    sessionId: string;
+    field: string;
+    localValue: string;
+    remoteValue: string;
+    detectedAt: string;
+  }>>([]);
   const [clearConfirming, setClearConfirming] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
@@ -107,11 +155,178 @@ export function SettingsView({
       .then((r) => r.json())
       .then((d) => setHealthInfo(d || {}))
       .catch(() => {});
+    fetch('/api/sync/conflicts')
+      .then((r) => r.json())
+      .then((d) => setSyncConflicts(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }
+
+  async function refreshPersonalContext() {
+    try {
+      const response = await fetch('/api/user-context');
+      if (!response.ok) throw new Error(`Could not load personal context (${response.status}).`);
+      const profile = await response.json();
+      if (profile && Array.isArray(profile.items)) setPersonalContext(profile);
+    } catch (error: any) {
+      setContextError(error?.message || 'Could not load personal context.');
+    }
   }
 
   useEffect(() => {
     refreshLiveData();
+    refreshPersonalContext();
   }, []);
+
+  async function updatePersonalContextSettings(patch: { enabled?: boolean; autoCapture?: boolean }) {
+    setContextBusy('settings');
+    setContextError('');
+    try {
+      const response = await fetch('/api/user-context/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || `Could not update personal context (${response.status}).`);
+      setPersonalContext(data);
+    } catch (error: any) {
+      setContextError(error?.message || 'Could not update personal context.');
+    } finally {
+      setContextBusy(null);
+    }
+  }
+
+  async function addPersonalContextItem() {
+    if (!newContextValue.trim()) return;
+    setContextBusy('add');
+    setContextError('');
+    try {
+      const response = await fetch('/api/user-context/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: contextCategory, value: newContextValue }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || `Could not add personal context (${response.status}).`);
+      setPersonalContext(data.profile);
+      setNewContextValue('');
+    } catch (error: any) {
+      setContextError(error?.message || 'Could not add personal context.');
+    } finally {
+      setContextBusy(null);
+    }
+  }
+
+  async function savePersonalContextItem(item: PersonalContextItem) {
+    const value = contextDrafts[item.id] ?? item.value;
+    if (!value.trim() || value === item.value) return;
+    setContextBusy(item.id);
+    setContextError('');
+    try {
+      const response = await fetch(`/api/user-context/items/${encodeURIComponent(item.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || `Could not update personal context (${response.status}).`);
+      setPersonalContext(data.profile);
+      setContextDrafts((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+    } catch (error: any) {
+      setContextError(error?.message || 'Could not update personal context.');
+    } finally {
+      setContextBusy(null);
+    }
+  }
+
+  async function deletePersonalContextItem(id: string) {
+    setContextBusy(id);
+    setContextError('');
+    try {
+      const response = await fetch(`/api/user-context/items/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || `Could not delete personal context (${response.status}).`);
+      setPersonalContext((prev) => ({ ...prev, items: prev.items.filter((item) => item.id !== id) }));
+      setContextDrafts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch (error: any) {
+      setContextError(error?.message || 'Could not delete personal context.');
+    } finally {
+      setContextBusy(null);
+    }
+  }
+
+  async function clearPersonalContext() {
+    setContextBusy('clear');
+    setContextError('');
+    try {
+      const response = await fetch('/api/user-context', { method: 'DELETE' });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || `Could not clear personal context (${response.status}).`);
+      setPersonalContext(data.profile);
+      setContextDrafts({});
+      setContextCandidates([]);
+      setClearContextConfirming(false);
+    } catch (error: any) {
+      setContextError(error?.message || 'Could not clear personal context.');
+    } finally {
+      setContextBusy(null);
+    }
+  }
+
+  async function scanPastChatsForContext() {
+    setContextBusy('scan');
+    setContextError('');
+    try {
+      const response = await fetch('/api/user-context/scan-history', { method: 'POST' });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || `Could not scan saved chats (${response.status}).`);
+      setContextCandidates(Array.isArray(data?.candidates) ? data.candidates : []);
+    } catch (error: any) {
+      setContextError(error?.message || 'Could not scan saved chats.');
+    } finally {
+      setContextBusy(null);
+    }
+  }
+
+  async function acceptPastChatContext(candidate: PersonalContextCandidate) {
+    setContextBusy(candidate.key + candidate.sessionId);
+    setContextError('');
+    try {
+      const response = await fetch('/api/user-context/import-candidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(candidate),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || `Could not save memory (${response.status}).`);
+      setPersonalContext(data.profile);
+      setContextCandidates((prev) => prev.filter((item) => item !== candidate));
+    } catch (error: any) {
+      setContextError(error?.message || 'Could not save memory candidate.');
+    } finally {
+      setContextBusy(null);
+    }
+  }
+
+  function exportPersonalContext() {
+    const blob = new Blob([JSON.stringify({ ...personalContext, exportedAt: new Date().toISOString() }, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'gram-personal-context.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function handleSyncNow() {
     setSyncStatus((prev) => ({ ...prev, loading: true, message: 'Syncing...' }));
@@ -125,8 +340,30 @@ export function SettingsView({
         message: data.synced ? `Synced (seq ${data.latestSeq ?? 0})` : 'Lyra Hub offline — saved locally in SQLite',
       });
       onSyncCompleted();
+      const conflictsRes = await fetch('/api/sync/conflicts');
+      const conflictsData = await conflictsRes.json().catch(() => []);
+      setSyncConflicts(Array.isArray(conflictsData) ? conflictsData : []);
     } catch {
       setSyncStatus({ synced: false, loading: false, message: 'Sync failed' });
+    }
+  }
+
+  async function handleResolveSyncConflict(conflictId: string, choice: 'local' | 'remote') {
+    setBusyAction(`sync-conflict:${conflictId}`);
+    try {
+      const response = await fetch('/api/sync/conflicts/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conflictId, choice }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || `Could not resolve sync conflict (${response.status}).`);
+      setSyncConflicts(Array.isArray(data.conflicts) ? data.conflicts : []);
+      onSyncCompleted();
+    } catch (error: any) {
+      setSyncStatus((prev) => ({ ...prev, message: error?.message || 'Could not resolve sync conflict.' }));
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -400,6 +637,199 @@ export function SettingsView({
                 </Item>
               )}
             </ItemGroup>
+          )}
+
+          {category === 'personal-context' && (
+            <div className="flex flex-col gap-5">
+              <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-4 text-xs leading-relaxed text-[var(--text-secondary)]">
+                Gram can remember durable facts and goals you explicitly share, such as your role, career plans, family context, or preferences. Saved context is stored locally in this Gram installation and may be included in prompts sent to the model you select. Gram requires a quote from your message before it can save a fact.
+              </div>
+
+              <ItemGroup className="divide-y divide-[var(--border-color)]">
+                <Item className="rounded-none border-0 px-0 py-3.5">
+                  <ItemContent>
+                    <ItemTitle>Use personal context</ItemTitle>
+                    <ItemDescription>Include saved details in new Chat, Code, and Plan conversations.</ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={personalContext.enabled ? 'default' : 'outline'}
+                      disabled={contextBusy === 'settings'}
+                      onClick={() => void updatePersonalContextSettings({ enabled: !personalContext.enabled })}
+                    >
+                      {personalContext.enabled ? 'On' : 'Off'}
+                    </Button>
+                  </ItemActions>
+                </Item>
+                <Item className="rounded-none border-0 px-0 py-3.5">
+                  <ItemContent>
+                    <ItemTitle>Automatically remember explicit details</ItemTitle>
+                    <ItemDescription>Only facts and preferences directly stated by you are saved; inferred details are not stored.</ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={personalContext.autoCapture ? 'default' : 'outline'}
+                      disabled={contextBusy === 'settings'}
+                      onClick={() => void updatePersonalContextSettings({ autoCapture: !personalContext.autoCapture })}
+                    >
+                      {personalContext.autoCapture ? 'On' : 'Off'}
+                    </Button>
+                  </ItemActions>
+                </Item>
+              </ItemGroup>
+
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-[var(--text-primary)]">Saved context</h2>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">Review, edit, or remove anything Gram has saved about you.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" variant="outline" disabled={contextBusy === 'scan'} onClick={() => void scanPastChatsForContext()}>
+                      {contextBusy === 'scan' ? 'Scanning…' : 'Find memories in recent chats'}
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={exportPersonalContext}>
+                      Export JSON
+                    </Button>
+                  </div>
+                </div>
+
+                {contextCandidates.length > 0 && (
+                  <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
+                    <div className="mb-2">
+                      <h3 className="text-xs font-semibold text-[var(--text-primary)]">Review possible memories</h3>
+                      <p className="mt-1 text-[11px] text-[var(--text-muted)]">Found locally in up to 80 recent saved chats, using your messages only. Nothing is saved until you choose Add.</p>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {contextCandidates.map((candidate, index) => (
+                        <div key={`${candidate.sessionId}-${candidate.key}-${index}`} className="rounded-md border border-[var(--border-color)] bg-[var(--bg-app)] p-3">
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-muted)]">{candidate.category}</span>
+                            <span className="max-w-[65%] truncate text-[10px] text-[var(--text-muted)]">{candidate.chatTitle}</span>
+                          </div>
+                          <p className="text-xs leading-relaxed text-[var(--text-primary)]">{candidate.value}</p>
+                          <div className="mt-2 flex justify-end gap-2">
+                            <Button type="button" size="sm" variant="ghost" onClick={() => setContextCandidates((prev) => prev.filter((item) => item !== candidate))}>Ignore</Button>
+                            <Button type="button" size="sm" disabled={contextBusy === candidate.key + candidate.sessionId} onClick={() => void acceptPastChatContext(candidate)}>Add</Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {personalContext.items.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-[var(--border-color)] p-5 text-center text-xs text-[var(--text-muted)]">
+                    Nothing saved yet. Add an item below or share a durable fact in chat. Gram will offer to remember personal facts when automatic capture is enabled.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {personalContext.items.map((item) => (
+                      <div key={item.id} className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <span className="rounded bg-[var(--bg-panel-subtle)] px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                            {item.category}
+                          </span>
+                          <span className="text-[10px] text-[var(--text-muted)]">
+                            {item.source === 'imported' ? 'Imported from saved chat' : item.source === 'explicit' ? 'Saved from chat' : 'Added manually'}
+                          </span>
+                        </div>
+                        <textarea
+                          value={contextDrafts[item.id] ?? item.value}
+                          onChange={(event) => setContextDrafts((prev) => ({ ...prev, [item.id]: event.target.value }))}
+                          rows={2}
+                          aria-label={`Personal context: ${item.category}`}
+                          className="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-app)] p-2.5 text-xs leading-relaxed text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+                        />
+                        {item.evidence && (
+                          <p className="mt-2 border-l-2 border-[var(--border-color)] pl-2 text-[10px] leading-relaxed text-[var(--text-muted)]">
+                            Source: “{item.evidence}”
+                          </p>
+                        )}
+                        <div className="mt-2 flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={contextBusy === item.id}
+                            onClick={() => void deletePersonalContextItem(item.id)}
+                          >
+                            <Trash2Icon size={12} />
+                            Forget
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={contextBusy === item.id || !(contextDrafts[item.id] ?? item.value).trim() || (contextDrafts[item.id] ?? item.value) === item.value}
+                            onClick={() => void savePersonalContextItem(item)}
+                          >
+                            <CheckIcon size={12} />
+                            Save edit
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">Add context</h2>
+                <div className="mt-3 flex flex-col gap-2">
+                  <select
+                    aria-label="Personal context category"
+                    value={contextCategory}
+                    onChange={(event) => setContextCategory(event.target.value as PersonalContextCategory)}
+                    className="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-app)] px-2.5 py-2 text-xs text-[var(--text-primary)]"
+                  >
+                    {['communication', 'coding', 'workflow', 'career', 'family', 'finances', 'relationships', 'health', 'education', 'background', 'goals', 'other'].map((value) => (
+                      <option key={value} value={value}>{value[0]!.toUpperCase() + value.slice(1)}</option>
+                    ))}
+                  </select>
+                  <textarea
+                    value={newContextValue}
+                    onChange={(event) => setNewContextValue(event.target.value)}
+                    rows={3}
+                    placeholder="For example: I’m preparing for senior software engineering interviews."
+                    className="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-app)] p-2.5 text-xs leading-relaxed text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+                  />
+                  <div className="flex justify-end">
+                    <Button type="button" size="sm" disabled={contextBusy === 'add' || !newContextValue.trim()} onClick={() => void addPersonalContextItem()}>
+                      Add to profile
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {contextError && (
+                <div role="alert" className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                  {contextError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between border-t border-[var(--border-color)] pt-4">
+                <span className="text-xs text-[var(--text-muted)]">{personalContext.items.length} saved item(s)</span>
+                <div className="flex items-center gap-2">
+                  {clearContextConfirming && (
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setClearContextConfirming(false)}>Cancel</Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={clearContextConfirming ? 'destructive' : 'outline'}
+                    disabled={contextBusy === 'clear' || personalContext.items.length === 0}
+                    onClick={() => clearContextConfirming ? void clearPersonalContext() : setClearContextConfirming(true)}
+                  >
+                    {clearContextConfirming ? 'Confirm forget all' : 'Forget all'}
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
 
           {category === 'models' && (
@@ -955,6 +1385,46 @@ export function SettingsView({
           )}
 
           {category === 'account' && (
+            <div className="flex flex-col gap-4">
+            {syncConflicts.length > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+                  <AlertTriangleIcon size={15} className="text-amber-500" />
+                  <span>Changes from another device need review</span>
+                </div>
+                <p className="mb-3 text-xs leading-relaxed text-[var(--text-secondary)]">
+                  Gram kept both versions. Choose which session detail should become the shared version.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {syncConflicts.map((conflict) => (
+                    <div key={conflict.conflictId} className="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-[var(--text-primary)]">{conflict.field.replace(/_/g, ' ')}</span>
+                        <span className="max-w-[60%] truncate text-[10px] text-[var(--text-muted)]">{conflict.sessionId}</span>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded bg-[var(--bg-app)] p-2">
+                          <div className="mb-1 text-[10px] font-medium uppercase text-[var(--text-muted)]">This device</div>
+                          <div className="break-words text-xs text-[var(--text-secondary)]">{conflict.localValue}</div>
+                        </div>
+                        <div className="rounded bg-[var(--bg-app)] p-2">
+                          <div className="mb-1 text-[10px] font-medium uppercase text-[var(--text-muted)]">Synced version</div>
+                          <div className="break-words text-xs text-[var(--text-secondary)]">{conflict.remoteValue}</div>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex justify-end gap-2">
+                        <Button type="button" size="sm" variant="outline" disabled={busyAction === `sync-conflict:${conflict.conflictId}`} onClick={() => void handleResolveSyncConflict(conflict.conflictId, 'local')}>
+                          Keep this device
+                        </Button>
+                        <Button type="button" size="sm" disabled={busyAction === `sync-conflict:${conflict.conflictId}`} onClick={() => void handleResolveSyncConflict(conflict.conflictId, 'remote')}>
+                          Use synced version
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <ItemGroup className="divide-y divide-[var(--border-color)]">
               <Item className="rounded-none border-0 px-0 py-3.5">
                 <ItemMedia className="text-[var(--text-muted)]">
@@ -1046,6 +1516,7 @@ export function SettingsView({
                 </Item>
               )}
             </ItemGroup>
+            </div>
           )}
 
           {category === 'diagnostics' && (

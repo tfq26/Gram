@@ -50,9 +50,12 @@ export interface LlmTurnResult {
   thinking: string;
   toolCalls: LlmToolCall[];
   stopReason: string;
+  resolvedModelId?: string;
   usage?: {
     inputTokens: number;
     outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
   };
 }
 
@@ -285,7 +288,7 @@ async function streamBedrockTurn(params: {
   let text = '';
   let thinking = '';
   let stopReason = 'end_turn';
-  let usage: { inputTokens: number; outputTokens: number } | undefined;
+  let usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number } | undefined;
 
   const toolUseByIndex = new Map<number, { id: string; name: string; inputJson: string }>();
   const splitter = new ThinkingTagStreamSplitter(
@@ -343,6 +346,8 @@ async function streamBedrockTurn(params: {
         usage = {
           inputTokens: event.metadata.usage.inputTokens ?? 0,
           outputTokens: event.metadata.usage.outputTokens ?? 0,
+          cacheReadTokens: (event.metadata.usage as any).cacheReadInputTokens ?? 0,
+          cacheWriteTokens: (event.metadata.usage as any).cacheWriteInputTokens ?? 0,
         };
       }
     }
@@ -569,6 +574,8 @@ async function streamLyraGatewayTurn(params: {
   systemPrompt: string;
   messages: LlmMessage[];
   tools: LlmToolDef[];
+  sessionId?: string;
+  mode?: 'chat' | 'plan' | 'code';
   effort?: 'low' | 'medium' | 'high';
   privacyMode?: PrivacyMode;
   authToken?: string;
@@ -585,6 +592,9 @@ async function streamLyraGatewayTurn(params: {
   }
   if (params.authToken) {
     headers.Authorization = `Bearer ${params.authToken}`;
+  }
+  if (params.sessionId) {
+    headers['X-Lyra-Session-Id'] = params.sessionId;
   }
 
   const provider =
@@ -633,23 +643,74 @@ async function streamLyraGatewayTurn(params: {
     gatewayDiagnostics,
   });
 
-  try {
-    const res = await fetch(`${lyraUrl}/api/gateway/llm/stream`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: params.model.id,
-        provider,
-        privacyMode,
-        effort: params.effort,
-        supportsPromptCaching: params.model.supportsPromptCaching,
-        systemPrompt: redactSecretText(params.systemPrompt),
-        messages: params.messages,
-        tools: params.tools,
-        byokConfig: params.model.byokConfig,
-      }),
-      signal: params.signal,
+  const requestBody = JSON.stringify({
+    model: params.model.id,
+    sessionId: params.sessionId,
+    mode: params.mode,
+    provider,
+    privacyMode,
+    effort: params.effort,
+    supportsPromptCaching: params.model.supportsPromptCaching,
+    systemPrompt: redactSecretText(params.systemPrompt),
+    messages: params.messages,
+    tools: params.tools,
+    byokConfig: params.model.byokConfig,
+  });
+
+  const isTransientConnectError = (err: unknown): boolean => {
+    const code = String((err as { code?: string; cause?: { code?: string } } | null)?.code
+      ?? (err as { cause?: { code?: string } } | null)?.cause?.code
+      ?? '');
+    return (
+      code === 'ECONNRESET' ||
+      code === 'ETIMEDOUT' ||
+      code === 'EPIPE' ||
+      code === 'ECONNABORTED' ||
+      code === 'UND_ERR_SOCKET'
+    );
+  };
+
+  const sleepWithSignal = (ms: number, signal?: AbortSignal): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
+
+  const CONNECT_RETRY_DELAYS_MS = [300, 800];
+
+  try {
+    let res: Response | null = null;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        res = await fetch(`${lyraUrl}/api/gateway/llm/stream`, {
+          method: 'POST',
+          headers,
+          body: requestBody,
+          signal: params.signal,
+        });
+        break;
+      } catch (err) {
+        if (
+          params.signal?.aborted ||
+          attempt >= CONNECT_RETRY_DELAYS_MS.length ||
+          !isTransientConnectError(err)
+        ) {
+          throw err;
+        }
+        await sleepWithSignal(CONNECT_RETRY_DELAYS_MS[attempt], params.signal);
+      }
+    }
     httpStatus = res.status;
 
     if (!res.ok || !res.body) {
@@ -726,6 +787,8 @@ export async function streamLlmTurn(params: {
   systemPrompt: string;
   messages: LlmMessage[];
   tools: LlmToolDef[];
+  sessionId?: string;
+  mode?: 'chat' | 'plan' | 'code';
   effort?: 'low' | 'medium' | 'high';
   privacyMode?: PrivacyMode;
   authToken?: string;

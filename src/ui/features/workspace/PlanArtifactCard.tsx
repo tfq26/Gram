@@ -2,12 +2,14 @@ import React, { useMemo, useState } from 'react';
 import {
   CheckIcon,
   ClipboardListIcon,
+  CopyIcon,
   Edit3Icon,
   PlayIcon,
   SaveIcon,
   XIcon,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { MessageResponse } from '../../components/ai-elements/Message';
 
 export interface PlanArtifactCardProps {
   markdown: string;
@@ -43,6 +45,37 @@ function parsePlanSections(markdown: string): {
       return { label, checked };
     });
   return { requirements, design, tasks, taskItems };
+}
+
+export function togglePlanTaskCheckbox(markdown: string, taskIndex: number): string {
+  const lines = markdown.split('\n');
+  let inTasks = false;
+  let hasTasksHeading = /^##\s+Tasks\b/im.test(markdown);
+  let seen = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i]!.trim();
+    if (/^##\s+/.test(trimmed)) {
+      inTasks = /^##\s+Tasks\b/i.test(trimmed);
+      continue;
+    }
+    if (hasTasksHeading && !inTasks) continue;
+    if (/^(?:[-*]|\d+\.)\s+/.test(trimmed)) {
+      if (seen === taskIndex) {
+        const line = lines[i]!;
+        if (/^(\s*[-*]\s+)\[x\]\s+/i.test(line)) {
+          lines[i] = line.replace(/^(\s*[-*]\s+)\[x\]\s+/i, '$1[ ] ');
+        } else if (/^(\s*[-*]\s+)\[ \]\s+/.test(line)) {
+          lines[i] = line.replace(/^(\s*[-*]\s+)\[ \]\s+/, '$1[x] ');
+        } else if (/^(\s*(?:[-*]|\d+\.)\s+)/.test(line)) {
+          lines[i] = line.replace(/^(\s*(?:[-*]|\d+\.)\s+)/, '$1[x] ');
+        }
+        break;
+      }
+      seen += 1;
+    }
+  }
+  return lines.join('\n');
 }
 
 export function PlanArtifactCard({
@@ -109,6 +142,14 @@ export function PlanArtifactCard({
         <div className="flex items-center gap-1.5">
           <button
             type="button"
+            onClick={() => void navigator.clipboard?.writeText(markdown)}
+            className="inline-flex items-center gap-1 rounded-md border border-[var(--border-color)] px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+          >
+            <CopyIcon size={11} />
+            <span>Copy</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setEditing((v) => !v)}
             className="inline-flex items-center gap-1 rounded-md border border-[var(--border-color)] px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
           >
@@ -146,33 +187,45 @@ export function PlanArtifactCard({
         </div>
       </div>
 
-      <div className={variant === 'stage' ? 'flex-1 overflow-y-auto p-5' : 'max-h-[230px] overflow-y-auto px-4 py-3'}>
+      <div className={variant === 'stage' ? 'flex-1 overflow-y-auto p-5' : 'max-h-[420px] overflow-y-auto px-4 py-3'}>
         {editing ? (
           <textarea
             value={markdown}
             onChange={(e) => onChange(e.target.value)}
-            rows={variant === 'stage' ? 18 : 9}
-            placeholder={'## Requirements\n- ...\n\n## Design\n- ...\n\n## Tasks\n1. ...'}
+            rows={variant === 'stage' ? 18 : 11}
+            placeholder={'## Requirements\n- WHEN ...\n\n### Non-Goals (Deferred)\n- ...\n\n## Design\n- ...\n\n## Tasks\n1. ...'}
             className="w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-body)] p-3 font-mono text-xs leading-relaxed text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)]"
           />
         ) : tab === 'tasks' && parsed.taskItems.length > 0 ? (
           <div className="flex flex-col gap-1.5">
             {parsed.taskItems.map((task, idx) => (
-              <div
+              <button
                 key={`${idx}-${task.label}`}
-                className="flex items-start gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-body)] px-3 py-2 text-xs text-[var(--text-primary)]"
+                type="button"
+                onClick={() => onChange(togglePlanTaskCheckbox(markdown, idx))}
+                className="flex w-full items-start gap-2.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-body)] px-3 py-2 text-left text-xs text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
               >
-                <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-[var(--border-color)] text-[10px] text-[var(--text-muted)]">
+                <span
+                  className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
+                    task.checked
+                      ? 'border-[var(--accent)] bg-[var(--accent-light)] text-[var(--accent-text)]'
+                      : 'border-[var(--border-color)] text-[var(--text-muted)]'
+                  }`}
+                >
                   {task.checked ? <CheckIcon size={10} /> : idx + 1}
                 </span>
-                <span className="leading-snug">{task.label}</span>
-              </div>
+                <span className={`leading-snug ${task.checked ? 'line-through text-[var(--text-muted)]' : ''}`}>
+                  {task.label}
+                </span>
+              </button>
             ))}
           </div>
         ) : (
-          <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-[var(--text-secondary)]">
-            {activeBody || 'Ask Gram to draft a plan, or click Edit to write your requirements, design, and tasks.'}
-          </pre>
+          <div className="text-xs leading-relaxed text-[var(--text-primary)]">
+            <MessageResponse isStreaming={false}>
+              {activeBody || 'Ask Gram to draft a plan, or click Edit to write your requirements, design, and tasks.'}
+            </MessageResponse>
+          </div>
         )}
       </div>
 

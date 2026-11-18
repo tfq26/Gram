@@ -3,7 +3,20 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::{Manager, RunEvent};
+use tauri::{window::Color, Manager, RunEvent, Theme};
+
+#[tauri::command]
+fn set_window_theme(window: tauri::WebviewWindow, theme: String) {
+    let normalized = theme.trim().to_ascii_lowercase();
+    let (native_theme, bg_color) = match normalized.as_str() {
+        "bone" | "light" => (Theme::Light, Color(247, 245, 240, 255)),
+        "prism" => (Theme::Dark, Color(9, 10, 11, 255)),
+        "obsidian" => (Theme::Dark, Color(14, 15, 16, 255)),
+        _ => (Theme::Dark, Color(10, 10, 12, 255)),
+    };
+    let _ = window.set_theme(Some(native_theme));
+    let _ = window.set_background_color(Some(bg_color));
+}
 
 struct SidecarState(Mutex<Option<Child>>);
 
@@ -68,6 +81,7 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .manage(SidecarState(Mutex::new(child)))
+        .invoke_handler(tauri::generate_handler![set_window_theme])
         .build(tauri::generate_context!())
         .expect("error while building Gram Tauri application");
 

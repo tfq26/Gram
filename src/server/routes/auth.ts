@@ -89,8 +89,8 @@ export async function handleAuthRoutes(
 <title>Gram Sign-In</title>
 <style>
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0e0f10; color: #ececec; font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif; }
-  .card { width: 100%; max-width: 360px; padding: 32px 28px; border-radius: 18px; background: #151719; border: 1px solid rgba(255,255,255,0.1); text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
-  .marks { display: inline-flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 18px; }
+  .card { width: 100%; max-width: 360px; padding: 32px 28px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .marks { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; margin-bottom: 20px; }
   .check { width: 32px; height: 32px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: rgba(52, 211, 153, 0.14); border: 1px solid rgba(52, 211, 153, 0.35); color: #34d399; opacity: 0; transform: scale(0.85); transition: opacity 0.2s ease, transform 0.2s ease; }
   .check.ready { opacity: 1; transform: scale(1); }
   .check.error { background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.35); color: #f87171; opacity: 1; transform: scale(1); }
@@ -149,10 +149,20 @@ export async function handleAuthRoutes(
         if (!res.ok) throw new Error('Session verification failed.');
         badge.classList.add('ready');
         title.textContent = 'Account signed in';
-        msg.textContent = 'You can now go back to the Gram desktop app.';
-        window.setTimeout(function () {
+        let remaining = 30;
+        const renderMsg = function () {
+          msg.textContent = 'You can now go back to the Gram desktop app. This tab closes in ' + remaining + 's.';
+        };
+        renderMsg();
+        const timer = window.setInterval(function () {
+          remaining -= 1;
+          if (remaining > 0) { renderMsg(); return; }
+          window.clearInterval(timer);
           try { window.close(); } catch (e) {}
-        }, 900);
+          window.setTimeout(function () {
+            msg.textContent = 'You can now close this tab and go back to the Gram desktop app.';
+          }, 300);
+        }, 1000);
       } catch (e) {
         badge.classList.add('error');
         badgeIcon.innerHTML = '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>';

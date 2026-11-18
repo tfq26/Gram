@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "streamdown/styles.css";
 @source "../../node_modules/streamdown/dist/*.js";
 
 .gram-markdown [data-streamdown="code-block"],
@@ -184,6 +185,12 @@ html:active-view-transition-type(backward)::view-transition-new(root) {
   .gram-tile-reveal,
   .gram-boot-logo {
     animation: none !important;
+  }
+
+  [data-sd-animate],
+  [data-sd-animate-marker]::marker {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
   }
 
   ::view-transition-group(root) {
