@@ -18,6 +18,52 @@ fn set_window_theme(window: tauri::WebviewWindow, theme: String) {
     let _ = window.set_background_color(Some(bg_color));
 }
 
+#[tauri::command]
+fn toggle_mission_pip(app: tauri::AppHandle, open: bool) -> Result<(), String> {
+    if !open {
+        if let Some(pip) = app.get_webview_window("mission-pip") {
+            let _ = pip.close();
+        }
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.show();
+            let _ = main.set_focus();
+        }
+        return Ok(());
+    }
+
+    if let Some(existing) = app.get_webview_window("mission-pip") {
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+
+    let target_url = if let Some(main) = app.get_webview_window("main") {
+        if let Ok(mut url) = main.url() {
+            url.set_query(Some("pip=1"));
+            tauri::WebviewUrl::External(url)
+        } else {
+            tauri::WebviewUrl::App("index.html?pip=1".into())
+        }
+    } else {
+        tauri::WebviewUrl::App("index.html?pip=1".into())
+    };
+
+    let pip = tauri::WebviewWindowBuilder::new(&app, "mission-pip", target_url)
+        .title("Gram Miniplayer")
+        .inner_size(348.0, 152.0)
+        .min_inner_size(280.0, 128.0)
+        .resizable(true)
+        .decorations(false)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .background_color(Color(15, 16, 18, 255))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let _ = pip.set_focus();
+    Ok(())
+}
+
 struct SidecarState(Mutex<Option<Child>>);
 
 fn server_is_reachable() -> bool {
@@ -81,7 +127,7 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .manage(SidecarState(Mutex::new(child)))
-        .invoke_handler(tauri::generate_handler![set_window_theme])
+        .invoke_handler(tauri::generate_handler![set_window_theme, toggle_mission_pip])
         .build(tauri::generate_context!())
         .expect("error while building Gram Tauri application");
 

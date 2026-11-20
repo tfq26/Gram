@@ -111,11 +111,20 @@ export class UserContextStore {
     try {
       this.db.run(`ALTER TABLE user_context_items ADD COLUMN evidence_text TEXT`);
     } catch {}
-    const tableSqlRow = this.db
-      .query<{ sql?: string }, []>(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'user_context_items'`)
-      .get();
-    const tableSql = String(tableSqlRow?.sql || '');
-    if (tableSql && !/UNIQUE\s*\(\s*category\s*,\s*context_key\s*\)/i.test(tableSql)) {
+    // Invariant: Verify the composite UNIQUE(category, context_key) index via SQLite PRAGMA
+    // metadata (not regex over CREATE TABLE SQL) so legacy schemas always migrate reliably.
+    const indexList = this.db
+      .query<{ name: string; unique: number }, []>(`PRAGMA index_list('user_context_items')`)
+      .all();
+    const hasCompositeCategoryKeyUnique = indexList.some((idx) => {
+      if (idx.unique !== 1) return false;
+      const cols = this.db
+        .query<{ name: string }, []>(`PRAGMA index_info('${idx.name.replace(/'/g, "''")}')`)
+        .all()
+        .map((c) => c.name);
+      return cols.length === 2 && cols[0] === 'category' && cols[1] === 'context_key';
+    });
+    if (!hasCompositeCategoryKeyUnique) {
       this.db.run('BEGIN IMMEDIATE');
       try {
         this.db.run(`

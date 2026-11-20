@@ -1,14 +1,21 @@
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArchiveIcon,
   ChevronRightIcon,
-  Columns2Icon,
   CopyIcon,
+  FileTextIcon,
+  GitBranchIcon,
+  HashIcon,
   MessageSquareDotIcon,
+  MessageSquareTextIcon,
   PencilIcon,
   PinIcon,
+  SparklesIcon,
 } from 'lucide-react';
 import type { ChatSessionSummary } from '../../lib/types';
+
+export type ChatCopyMode = 'last' | 'full' | 'summary' | 'id';
 
 export interface ChatContextMenuProps {
   menu: { runId: string; top: number; left: number };
@@ -20,7 +27,8 @@ export interface ChatContextMenuProps {
   onRename: (sessionId: string, currentTitle: string) => void;
   onTogglePin: (sessionId: string) => void;
   onToggleUnread: (sessionId: string) => void;
-  onSplit: (chat: ChatSessionSummary) => void;
+  onFork: (sessionId: string) => void;
+  onCopyChat: (chat: ChatSessionSummary, mode: ChatCopyMode) => void;
   onArchive: (sessionId: string) => void;
 }
 
@@ -34,9 +42,12 @@ export function ChatContextMenu({
   onRename,
   onTogglePin,
   onToggleUnread,
-  onSplit,
+  onFork,
+  onCopyChat,
   onArchive,
 }: ChatContextMenuProps) {
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
+
   return createPortal(
     <div
       className="fixed z-[9999] flex w-[188px] flex-col gap-0.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-1.5 shadow-2xl"
@@ -70,32 +81,85 @@ export function ChatContextMenu({
         <MessageSquareDotIcon size={13} />
         <span>{isUnread ? 'Mark Read' : 'Mark Unread'}</span>
       </button>
-      <div className="shadcn-context-menu-separator" />
       <button
         type="button"
-        className="shadcn-context-menu-item justify-between"
+        className="shadcn-context-menu-item gap-2"
         onClick={() => {
-          navigator.clipboard?.writeText(displayTitle).catch(() => {});
           onClose();
+          onFork(chat.sessionId);
         }}
       >
-        <span className="flex items-center gap-2">
-          <CopyIcon size={13} />
-          <span>Copy</span>
-        </span>
-        <ChevronRightIcon size={12} className="text-[var(--text-muted)]" />
+        <GitBranchIcon size={13} />
+        <span>Fork chat</span>
       </button>
-      <button
-        type="button"
-        className="shadcn-context-menu-item justify-between"
-        onClick={() => onSplit(chat)}
+      <div className="shadcn-context-menu-separator" />
+      <div
+        className="relative"
+        onMouseEnter={() => setCopyMenuOpen(true)}
+        onMouseLeave={() => setCopyMenuOpen(false)}
       >
-        <span className="flex items-center gap-2">
-          <Columns2Icon size={13} />
-          <span>Split</span>
-        </span>
-        <ChevronRightIcon size={12} className="text-[var(--text-muted)]" />
-      </button>
+        <button
+          type="button"
+          className="shadcn-context-menu-item justify-between"
+          onClick={() => setCopyMenuOpen((v) => !v)}
+        >
+          <span className="flex items-center gap-2">
+            <CopyIcon size={13} />
+            <span>Copy</span>
+          </span>
+          <ChevronRightIcon size={12} className="text-[var(--text-muted)]" />
+        </button>
+
+        {copyMenuOpen && (
+          <div className="absolute left-[calc(100%+4px)] top-0 z-[10000] flex w-[212px] flex-col gap-0.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-1.5 shadow-2xl">
+            <button
+              type="button"
+              className="shadcn-context-menu-item gap-2"
+              onClick={() => {
+                onClose();
+                onCopyChat(chat, 'last');
+              }}
+            >
+              <MessageSquareTextIcon size={13} />
+              <span>Copy last interaction</span>
+            </button>
+            <button
+              type="button"
+              className="shadcn-context-menu-item gap-2"
+              onClick={() => {
+                onClose();
+                onCopyChat(chat, 'full');
+              }}
+            >
+              <FileTextIcon size={13} />
+              <span>Copy entire chat</span>
+            </button>
+            <button
+              type="button"
+              className="shadcn-context-menu-item gap-2"
+              onClick={() => {
+                onClose();
+                onCopyChat(chat, 'summary');
+              }}
+            >
+              <SparklesIcon size={13} />
+              <span>Copy chat summary</span>
+            </button>
+            <div className="shadcn-context-menu-separator" />
+            <button
+              type="button"
+              className="shadcn-context-menu-item gap-2"
+              onClick={() => {
+                onClose();
+                onCopyChat(chat, 'id');
+              }}
+            >
+              <HashIcon size={13} />
+              <span>Copy chat ID</span>
+            </button>
+          </div>
+        )}
+      </div>
       <div className="shadcn-context-menu-separator" />
       <button
         type="button"

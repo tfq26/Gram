@@ -69,7 +69,7 @@ bun test            # Bun test suite across tests/ and src/
 ## Workspace Modes
 
 - **Chat**: Read-only workspace answers and web search (`search_web`, `fetch_web_content`). When a project is selected, it can inspect workspace files without modifying them. It can also save explicit user context through the separate personal profile.
-- **Plan**: Read-only repository inspection (`read_file`, `list_files`, `search_code`, `find_symbol_definition`, git read tools) to clarify requirements and produce EARS-style specifications saved under `.gram/plans/`.
+- **Plan**: Strictly read-only repository inspection (`read_file`, `list_files`, `search_code`, `find_symbol_definition`, git read tools) to clarify requirements and produce EARS-style specifications (`Experience & User Flow`, `Requirements`, `Design`, `Tasks`) saved under `.gram/plans/` without writing project code files until the plan is approved.
 - **Code**: Full read/write file editing, `apply_changeset` multi-file edits, shell execution (`run_command`, background processes), headless browser inspection, and verification runs.
 
 Each project stores a lightweight `.gram/` directory containing `gram.md` (project instructions, detected commands, and gotchas) and `context.json`. Persistent session state, checkpoints, projects, and cached sync deltas live in SQLite (`src/db/schema.ts`).
@@ -99,7 +99,10 @@ When running an agent turn, Gram extracts `gram_lyra_token` (or the `Authorizati
 
 ### Model Routing and BYOK
 
-Model selection in `src/providers/router.ts` supports `auto` (selecting cost-optimized models for `chat`, planning-capable models for `plan`, and balanced models for `code`) or explicit pinning from the curated Bedrock and OpenRouter allowlists.
+Model selection in `src/providers/router.ts` supports `auto` or explicit pinning across curated **Amazon Bedrock**, **Microsoft Azure AI Foundry** (`gpt-4o`, `MAI-Thinking-1`, `Phi-4-reasoning` via Lyra Gateway), and **OpenRouter** allowlists:
+
+- **Gateway `auto` routing**: By default (when `GRAM_DIRECT_LLM` is unset), `GramAgentRuntime` sends `model: 'auto'` to `${LYRA_HUB_URL}/api/gateway/llm/stream`, where Lyra selects across configured, healthy Bedrock, Foundry, and OpenRouter routes with automatic cross-provider failover.
+- **Client-side failover (`src/runtime/agentRuntime.ts`)**: If an upstream model returns a recoverable error (`400`, `403`, `404`, `429`, `502`, `503`, `529`, or invalid/unavailable model errors) before streaming text, Gram marks that model unavailable in-session and retries (up to `modelAttempt < 4`) via `selectOptimalModel()`, skipping `autoEligible: false` speculative models.
 
 Custom OpenAI-compatible or local Ollama endpoints can be added under **Settings > Models** (`src/providers/byokStore.ts`). BYOK API keys are encrypted at rest in SQLite. Privacy modes (`standard`, `zdr`, `local-only`) filter models and enforce zero-data-retention or local-only routing.
 

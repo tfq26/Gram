@@ -206,5 +206,41 @@ export async function handleLyraRoutes(
     });
   }
 
+  if (url.pathname === '/api/lyra/autopilot/issues' && req.method === 'POST') {
+    const body = (await req.json()) as Record<string, any>;
+    return proxyLyraJson(req, '/api/autopilot/issues', {
+      method: 'POST',
+      body: { ...body, workspacePath: body.workspacePath || cwd },
+    });
+  }
+
+  if (url.pathname === '/api/lyra/autopilot/runs' && req.method === 'GET') {
+    return proxyLyraJson(req, '/api/autopilot/runs', { method: 'GET' });
+  }
+
+  const autopilotRespondMatch = url.pathname.match(/^\/api\/lyra\/autopilot\/runs\/([^/]+)\/respond$/);
+  if (autopilotRespondMatch && req.method === 'POST') {
+    const runId = encodeURIComponent(autopilotRespondMatch[1]!);
+    const body = (await req.json()) as Record<string, any>;
+    return proxyLyraJson(req, `/api/autopilot/runs/${runId}/respond`, { method: 'POST', body });
+  }
+
+  if (url.pathname === '/api/lyra/council' && req.method === 'POST') {
+    const body = (await req.json()) as Record<string, any>;
+    return proxyLyraJson(req, '/api/council/analyze', {
+      method: 'POST',
+      body: { ...body, workspacePath: body.workspacePath || cwd },
+    });
+  }
+
+  if (url.pathname === '/api/lyra/a2a/tasks' && req.method === 'GET') {
+    return proxyLyraJson(req, '/api/a2a/tasks', { method: 'GET' });
+  }
+
+  if (url.pathname === '/api/lyra/a2a/tasks' && req.method === 'POST') {
+    const body = (await req.json()) as Record<string, any>;
+    return proxyLyraJson(req, '/api/a2a/tasks', { method: 'POST', body });
+  }
+
   return null;
 }

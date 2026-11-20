@@ -83,7 +83,7 @@ export function InputGroupButton({
         'inline-flex shrink-0 items-center justify-center gap-1.5 text-xs font-medium transition-colors focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40',
         size === 'icon-sm' ? 'h-7 w-7 rounded-full' : 'h-7 rounded-lg px-2.5',
         isDefault
-          ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] hover:opacity-90'
+          ? 'bg-[var(--btn-primary-bg,var(--accent,#ececec))] text-[var(--btn-primary-text,var(--bg-body,#0e0f10))] hover:opacity-90'
           : 'border border-[var(--border-color)] bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
         className
       )}

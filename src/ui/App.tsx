@@ -1,5 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ProjectDialog } from './features/workspace/ProjectDialog';
+import React, { lazy, useEffect, useRef, useState } from 'react';
 import {
   ArchiveIcon,
   ArrowUpIcon,
@@ -39,11 +38,32 @@ import {
 } from 'lucide-react';
 import { MessageResponse } from './components/ai-elements/Message';
 import { AppErrorScreen } from './components/ui/ErrorBoundary';
-import { SettingsView, type LayoutPreset } from './features/settings/SettingsView';
-import { WorkspaceDock, type DockSurface } from './features/workspace/WorkspaceDock';
-import { PlanArtifactCard } from './features/workspace/PlanArtifactCard';
+import type { LayoutPreset } from './features/settings/SettingsView';
+import type { DockSurface } from './features/workspace/WorkspaceDock';
+import { MissionControlDrawer, splitAttentionActivities } from './features/workspace/MissionControlDrawer';
 import { AuthPage, GramMark } from './features/auth/AuthPage';
-import { OnboardingWizard } from './features/auth/OnboardingWizard';
+
+const ProjectDialog = lazy(() =>
+  import('./features/workspace/ProjectDialog').then((m) => ({ default: m.ProjectDialog }))
+);
+const SettingsView = lazy(() =>
+  import('./features/settings/SettingsView').then((m) => ({ default: m.SettingsView }))
+);
+const WorkspaceDock = lazy(() =>
+  import('./features/workspace/WorkspaceDock').then((m) => ({ default: m.WorkspaceDock }))
+);
+const MissionControlPip = lazy(() =>
+  import('./features/workspace/MissionControlPip').then((m) => ({ default: m.MissionControlPip }))
+);
+const PlanArtifactCard = lazy(() =>
+  import('./features/workspace/PlanArtifactCard').then((m) => ({ default: m.PlanArtifactCard }))
+);
+const OnboardingWizard = lazy(() =>
+  import('./features/auth/OnboardingWizard').then((m) => ({ default: m.OnboardingWizard }))
+);
+const ShortcutsDialog = lazy(() =>
+  import('./features/chat/ShortcutsDialog').then((m) => ({ default: m.ShortcutsDialog }))
+);
 import { getModelLogoPath } from './lib/modelLogos';
 import { Bubble, BubbleContent, BubbleGroup } from './components/ui/bubble';
 import { Button } from './components/ui/button';
@@ -60,6 +80,7 @@ import { Field, FieldGroup } from './components/ui/field';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { DynamicIslandBar, type IslandActivity } from './components/ui/dynamic-island';
+import { DottedGlowBackground } from './components/ui/dotted-glow-background';
 import { SystemToastViewport, emitSystemToast } from './components/ui/toast';
 import {
   Item,
@@ -112,10 +133,9 @@ import type {
   TaskItem,
   TraceStep,
 } from './lib/types';
-import { checkpointInspectionSteps, StepRow, TaskRow } from './features/chat/TraceRows';
+import { checkpointInspectionSteps, StepRow, TaskRow, TraceStepList } from './features/chat/TraceRows';
 import { isCodingWorkPrompt } from './features/chat/chatHelpers';
-import { ShortcutsDialog } from './features/chat/ShortcutsDialog';
-import { ChatContextMenu } from './features/chat/ChatContextMenu';
+import { ChatContextMenu, type ChatCopyMode } from './features/chat/ChatContextMenu';
 
 function createChatMessageId(prefix: string): string {
   const unique = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 12);
@@ -274,7 +294,18 @@ export function App() {
     instructions: '',
   });
   const [pickingFolder, setPickingFolder] = useState(false);
-  const [authState, setAuthState] = useState<AuthState>({ connected: false, authenticated: false, user: null });
+  const [authState, setAuthState] = useState<AuthState>(() => {
+    try {
+      const raw = localStorage.getItem('gram.cache.authState');
+      if (raw) {
+        const parsed = JSON.parse(raw) as AuthState;
+        if (parsed?.authenticated && parsed?.user) {
+          return { ...parsed, connected: false, lyraConnected: false };
+        }
+      }
+    } catch {}
+    return { connected: false, authenticated: false, user: null };
+  });
 
   const [prompt, setPrompt] = useState('');
   const [activePromptTitle, setActivePromptTitle] = useState<string | null>(null);
@@ -288,6 +319,19 @@ export function App() {
     } catch {}
     return 'medium';
   });
+  const [permissionMode, setPermissionMode] = useState<'autonomous' | 'safe' | 'ask'>(() => {
+    try {
+      const saved = localStorage.getItem('gram.settings.permissionMode');
+      if (saved === 'autonomous' || saved === 'safe' || saved === 'ask') return saved;
+    } catch {}
+    return 'autonomous';
+  });
+  const updatePermissionMode = (next: 'autonomous' | 'safe' | 'ask') => {
+    setPermissionMode(next);
+    try {
+      localStorage.setItem('gram.settings.permissionMode', next);
+    } catch {}
+  };
   const [composerModelOpen, setComposerModelOpen] = useState(false);
   const [effortMenuOpen, setEffortMenuOpen] = useState(false);
   const [contextUsageBySession, setContextUsageBySession] = useState<
@@ -314,7 +358,9 @@ export function App() {
     return 'chat';
   });
   const [activeDockSurface, setActiveDockSurface] = useState<DockSurface | null>(null);
+  const [missionControlOpen, setMissionControlOpen] = useState(false);
   const [planBySession, setPlanBySession] = useState<Record<string, string>>({});
+  const [planBrainDumpBySession, setPlanBrainDumpBySession] = useState<Record<string, boolean>>({});
   const [planIdeasByKey, setPlanIdeasByKey] = useState<Record<string, string[]>>({});
   const fetchedPlanIdeasRef = useRef<Set<string>>(new Set());
   const [showInlinePlan, setShowInlinePlan] = useState(true);
@@ -383,6 +429,17 @@ export function App() {
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
   const [editingQueueText, setEditingQueueText] = useState('');
   const [voiceMode, setVoiceMode] = useState(false);
+  const [pipOpen, setPipOpen] = useState(false);
+  const isPipMode =
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pip') === '1';
+
+  useEffect(() => {
+    if (!isPipMode) return;
+    const id = window.setInterval(() => {
+      void loadRecentTasks();
+    }, 1500);
+    return () => window.clearInterval(id);
+  }, [isPipMode]);
   const [voiceRecording, setVoiceRecording] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [bootError, setBootError] = useState<{ title: string; message: string; details?: string } | null>(null);
@@ -523,10 +580,12 @@ export function App() {
     setSpeakingMessageId(messageId || '__auto__');
     const controller = new AbortController();
     speechRequestRef.current = controller;
+    let provider: string | undefined;
     let voiceId: string | undefined;
     let speed: number | undefined;
     try {
-      voiceId = localStorage.getItem('gram.settings.elevenLabsVoiceId') || undefined;
+      provider = localStorage.getItem('gram.settings.ttsProvider') || undefined;
+      voiceId = localStorage.getItem('gram.settings.ttsVoiceId') || localStorage.getItem('gram.settings.elevenLabsVoiceId') || undefined;
       const rawSpeed = Number(localStorage.getItem('gram.settings.elevenLabsSpeed'));
       if (Number.isFinite(rawSpeed) && rawSpeed > 0) speed = rawSpeed;
     } catch {}
@@ -534,7 +593,7 @@ export function App() {
       const response = await fetch('/api/voice/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: summary, voiceId, speed }),
+        body: JSON.stringify({ text: summary, provider, voiceId, speed }),
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -1362,7 +1421,88 @@ export function App() {
     };
   }, []);
 
+  async function handleCopyChat(chat: ChatSessionSummary, mode: ChatCopyMode) {
+    if (mode === 'id') {
+      await navigator.clipboard?.writeText(chat.sessionId).catch(() => {});
+      emitSystemToast({ title: 'Copied chat ID', description: chat.sessionId, variant: 'success' });
+      return;
+    }
+
+    const existingTab = tabs.find((t) => t.sessionId === chat.sessionId);
+    let msgs: Array<{ role?: string; content?: string }> = existingTab
+      ? (messagesByTab[existingTab.id] || [])
+      : [];
+    if (msgs.length === 0) {
+      try {
+        const res = await fetch(`/api/chats/${encodeURIComponent(chat.sessionId)}`);
+        if (res.ok) {
+          const data = (await res.json()) as { messages?: Array<{ role?: string; content?: string }> };
+          if (Array.isArray(data?.messages)) msgs = data.messages;
+        }
+      } catch {}
+    }
+
+    const nonEmpty = msgs.filter((m) => typeof m.content === 'string' && m.content.trim());
+    if (nonEmpty.length === 0) {
+      emitSystemToast({ title: 'Nothing to copy yet', description: 'This chat has no messages.', variant: 'info' });
+      return;
+    }
+
+    if (mode === 'last') {
+      let lastUserIdx = -1;
+      for (let i = nonEmpty.length - 1; i >= 0; i--) {
+        if (nonEmpty[i]?.role === 'user') {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      const slice = lastUserIdx >= 0 ? nonEmpty.slice(lastUserIdx) : nonEmpty.slice(-2);
+      const formatted = slice
+        .map((m) => `${m.role === 'assistant' ? 'Assistant' : 'User'}:\n${m.content!.trim()}`)
+        .join('\n\n');
+      await navigator.clipboard?.writeText(formatted).catch(() => {});
+      emitSystemToast({ title: 'Copied last interaction', variant: 'success' });
+      return;
+    }
+
+    if (mode === 'full') {
+      const formatted = nonEmpty
+        .map((m) => `${m.role === 'assistant' ? 'Assistant' : 'User'}:\n${m.content!.trim()}`)
+        .join('\n\n---\n\n');
+      await navigator.clipboard?.writeText(formatted).catch(() => {});
+      emitSystemToast({ title: 'Copied entire chat', variant: 'success' });
+      return;
+    }
+
+    if (mode === 'summary') {
+      emitSystemToast({ title: 'Summarizing chat...', variant: 'info', durationMs: 2200 });
+      try {
+        const res = await fetch('/api/chat/summarize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: chat.sessionId, messages: nonEmpty }),
+        });
+        const data = (await res.json().catch(() => null)) as { summary?: string; error?: string } | null;
+        if (!res.ok || !data?.summary) {
+          throw new Error(data?.error || `Summarize failed (${res.status}).`);
+        }
+        await navigator.clipboard?.writeText(data.summary).catch(() => {});
+        emitSystemToast({ title: 'Copied chat summary', variant: 'success' });
+      } catch (err: any) {
+        emitSystemToast({
+          title: 'Could not summarize chat',
+          description: err?.message || 'Try copying the full chat instead.',
+          variant: 'error',
+        });
+      }
+    }
+  }
+
   async function handleSignOut() {
+    try {
+      localStorage.removeItem('gram.cache.authState');
+    } catch {}
+    setAuthState({ connected: false, authenticated: false, user: null });
     await fetch('/api/auth/sign-out', { method: 'POST' }).catch(() => {});
     refreshAuth();
   }
@@ -1574,9 +1714,40 @@ export function App() {
     try {
       const res = await fetch('/api/auth/state');
       const data = (await res.json()) as AuthState;
+      if (data.authenticated && data.user) {
+        try {
+          localStorage.setItem(
+            'gram.cache.authState',
+            JSON.stringify({
+              authenticated: true,
+              user: data.user,
+              source: data.source,
+              hubUrl: data.hubUrl,
+              googleEnabled: data.googleEnabled,
+            })
+          );
+        } catch {}
+        setAuthState(data);
+        return;
+      }
+      if (!data.connected && !data.lyraConnected) {
+        setAuthState((prev) =>
+          prev.authenticated && prev.user
+            ? { ...prev, connected: false, lyraConnected: false, googleEnabled: data.googleEnabled, hubUrl: data.hubUrl }
+            : data
+        );
+        return;
+      }
+      try {
+        localStorage.removeItem('gram.cache.authState');
+      } catch {}
       setAuthState(data);
     } catch {
-      setAuthState({ connected: false, authenticated: false, user: null });
+      setAuthState((prev) =>
+        prev.authenticated && prev.user
+          ? { ...prev, connected: false, lyraConnected: false }
+          : { connected: false, authenticated: false, user: null }
+      );
     }
   }
 
@@ -1838,9 +2009,11 @@ export function App() {
   }
 
   useEffect(() => {
-    const firstAssistant = [...activeMessages].reverse().find((m) => m.role === 'assistant' && m.content.trim());
+    const firstAssistant = [...activeMessages]
+      .reverse()
+      .find((m) => m.role === 'assistant' && !m.isError && m.content.trim() && !/^Model execution error\b/i.test(m.content));
     if (!firstAssistant) return;
-    if (isPlanMode || /##\s+(?:Requirements|Design|Tasks)\b/i.test(firstAssistant.content)) {
+    if (/##\s+(?:Requirements|Design|Tasks)\b/i.test(firstAssistant.content)) {
       setPlanBySession((prev) => {
         if (prev[activeTab.sessionId] === firstAssistant.content) return prev;
         return { ...prev, [activeTab.sessionId]: firstAssistant.content };
@@ -2511,12 +2684,14 @@ export function App() {
     }
 
     try {
-      let permissionMode = 'autonomous';
+      let activePermissionMode = permissionMode;
       let personaTone = 'programmer';
       let systemPrompt = '';
       let rules = '';
       try {
-        permissionMode = localStorage.getItem('gram.settings.permissionMode') || 'autonomous';
+        activePermissionMode =
+          (localStorage.getItem('gram.settings.permissionMode') as 'autonomous' | 'safe' | 'ask' | null) ||
+          permissionMode;
         personaTone = localStorage.getItem('gram.settings.personaTone') || 'programmer';
         systemPrompt = localStorage.getItem('gram.settings.systemPrompt') || '';
         rules = localStorage.getItem('gram.settings.rules') || '';
@@ -2577,7 +2752,7 @@ export function App() {
             history: historyPayload,
             systemPrompt: promptPrefixes.join('\n\n') || undefined,
             effort,
-            requireApproval: permissionMode === 'ask',
+            requireApproval: activePermissionMode === 'ask',
           };
       const res = await fetch(streamEndpoint, {
         method: 'POST',
@@ -2609,7 +2784,7 @@ export function App() {
           streamedThinkingSec = thinkingDurationSeconds;
 
           const renderThinking = done ? liveThinking : shownThinking;
-          const renderText = done ? liveText : shownText;
+          const renderText = done ? liveText : '';
 
           const liveSteps: TraceStep[] = [];
           if (renderThinking.trim() || (!done && thinkingStartedAt !== null)) {
@@ -2739,6 +2914,7 @@ export function App() {
                 ...prev,
                 [targetTab.sessionId]: evt.markdown,
               }));
+              setActiveDockSurface((prev) => prev || 'plan');
             } else if (evt.type === 'context_update' && evt.usage) {
               setContextUsageBySession((prev) => ({
                 ...prev,
@@ -3324,6 +3500,42 @@ export function App() {
     );
   }
 
+  if (isPipMode) {
+    return (
+      <div className="app-shell h-screen w-screen overflow-hidden" data-theme={theme}>
+        <MissionControlPip
+          activities={islandActivities}
+          onApproveActivity={handleApproveActivity}
+          onStopActivity={(runId) => {
+            fetch('/api/cancel', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ runId }),
+            })
+              .then(() => void loadRecentTasks())
+              .catch(() => {});
+          }}
+          onExpandToMain={() => {
+            const tauriInvoke = (window as any)?.__TAURI_INTERNALS__?.invoke;
+            if (typeof tauriInvoke === 'function') {
+              void Promise.resolve(tauriInvoke('toggle_mission_pip', { open: false })).catch(() => {});
+            } else {
+              window.close();
+            }
+          }}
+          onClose={() => {
+            const tauriInvoke = (window as any)?.__TAURI_INTERNALS__?.invoke;
+            if (typeof tauriInvoke === 'function') {
+              void Promise.resolve(tauriInvoke('toggle_mission_pip', { open: false })).catch(() => {});
+            } else {
+              window.close();
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <MessageScrollerProvider>
       <div className="app-shell" data-theme={theme}>
@@ -3358,6 +3570,7 @@ export function App() {
               activeSessionId={activeTab.sessionId}
               onSelectActivity={handleSelectTask}
               onApproveActivity={handleApproveActivity}
+              onOpenMissionControl={() => setMissionControlOpen(true)}
               onContinueActivity={async (activity, feedback) => {
                 await fetch('/api/tasks/continue', {
                   method: 'POST',
@@ -3371,14 +3584,23 @@ export function App() {
                 await loadRecentTasks();
               }}
               onStopActivity={(runId) => {
+                if (runId === activeRunId) {
+                  activeRequestRef.current?.abort();
+                  activeRequestRef.current = null;
+                  setIsExecuting(false);
+                }
+                setRecentTasks((prev) =>
+                  prev.map((t) =>
+                    t.runId === runId ? { ...t, stage: 'failed', isActive: false, pendingApproval: undefined } : t
+                  )
+                );
                 fetch('/api/cancel', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ runId }),
                 })
                   .then(() => {
-                    if (runId === activeRunId) setIsExecuting(false);
-                    loadRecentTasks();
+                    void loadRecentTasks();
                   })
                   .catch(() => {});
               }}
@@ -3749,6 +3971,9 @@ export function App() {
                               const expanded = Boolean(expandedProjects[proj.id]);
                               const shown = expanded ? projChats : projChats.slice(0, 3);
                               const isSelectedProj = activeProjectId === proj.id;
+                              const projActivities = islandActivities.filter((a) => (a.projectId || 'local') === proj.id);
+                              const projNeedsApproval = projActivities.some((a) => Boolean(a.pendingApproval) || a.stage === 'paused');
+                              const projRunning = projActivities.some((a) => a.stage === 'executing' || a.isActive);
                               return (
                                 <div key={proj.id} className="flex flex-col gap-0.5">
                                   <div
@@ -3779,6 +4004,17 @@ export function App() {
                                         }`}
                                       />
                                       <span className="truncate">{proj.label}</span>
+                                      {projNeedsApproval ? (
+                                        <span
+                                          title="Agent waiting for approval"
+                                          className="h-2 w-2 shrink-0 rounded-full bg-amber-500"
+                                        />
+                                      ) : projRunning ? (
+                                        <span
+                                          title="Agent running"
+                                          className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500"
+                                        />
+                                      ) : null}
                                       {proj.files && proj.files.length > 0 && (
                                         <span className="rounded bg-[var(--bg-hover)] px-1 text-[10px] text-[var(--text-muted)]">
                                           {proj.files.length}
@@ -3934,9 +4170,13 @@ export function App() {
                   onToggleSurface={(surface) => {
                     if (surface === 'plan') {
                       setActiveDockSurface((prev) => (prev === 'plan' ? null : 'plan'));
+                    } else if (surface === 'agents') {
+                      setMissionControlOpen((prev) => !prev);
                     }
                   }}
                   hasPlan={Boolean(planBySession[activeTab.sessionId])}
+                  attentionCount={splitAttentionActivities(islandActivities).attention.length}
+                  missionControlOpen={missionControlOpen}
                   processCount={managedProcesses.length}
                   devices={devices}
                   activeDeviceId={activeDeviceId}
@@ -3957,13 +4197,42 @@ export function App() {
                     </button>
                   )}
                 </div>
-                {appMode === 'code' && activeMessages.length > 0 && activeProjectId !== 'local' && (
+                {appMode === 'code' && (isPlanMode || (activeMessages.length > 0 && activeProjectId !== 'local')) && (
                   <div
-                    className="pointer-events-none absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5 text-xs font-medium text-[var(--text-secondary)]"
+                    className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
                     title={activeProjectLabel}
                   >
                     <FolderIcon size={13} />
-                    <span className="max-w-[240px] truncate">{activeProjectLabel}</span>
+                    <span className="max-w-[200px] truncate">{activeProjectLabel}</span>
+                    {(() => {
+                      const activeDev = devices.find((d) => d.deviceId === activeDeviceId);
+                      const envLabel =
+                        activeDev?.kind === 'cloud'
+                          ? 'Cloud'
+                          : activeDev?.kind === 'network'
+                            ? 'Network'
+                            : 'Local';
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setMissionControlOpen(true)}
+                          title="Open Mission Control"
+                          className="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10.5px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                        >
+                          {envLabel}
+                        </button>
+                      );
+                    })()}
+                    {isPlanMode && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveDockSurface(null)}
+                        title="Exit Plan mode (read-only)"
+                        className="rounded-md border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10.5px] font-medium text-sky-400 transition-colors hover:bg-sky-500/20 cursor-pointer"
+                      >
+                        Plan
+                      </button>
+                    )}
                   </div>
                 )}
                 {appMode === 'code' && managedProcesses.length > 0 && (
@@ -4057,64 +4326,157 @@ export function App() {
               </header>
 
               <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                {activeMessages.length === 0 ? (
-                  isPlanMode ? (
-                    <div className="mx-auto flex w-full max-w-[900px] flex-1 flex-col justify-start gap-6 px-6 pt-10 pb-8 overflow-y-auto">
-                      <div className="text-center">
-                        <h1 className="text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
-                          Plan mode
-                        </h1>
-                        <p className="mt-1 text-xs text-[var(--text-muted)]">
-                          Read-only codebase inspection, EARS requirements, architecture design, and task breakdown.
-                        </p>
-                      </div>
-                      {planBySession[activeTab.sessionId] ? (
-                        <PlanArtifactCard
-                          markdown={planBySession[activeTab.sessionId] || ''}
-                          onChange={(nextMd) =>
-                            setPlanBySession((prev) => ({ ...prev, [activeTab.sessionId]: nextMd }))
-                          }
-                          onSave={(md) => saveSessionPlan(activeTab.sessionId, md)}
-                          onApproveAndBuild={handleApprovePlanAndBuild}
+                {isPlanMode ? (
+                  (() => {
+                    const lastMsg = activeMessages[activeMessages.length - 1];
+                    const lastPlanError = lastMsg?.isError ? lastMsg : null;
+                    const lastPlanUser = lastPlanError
+                      ? [...activeMessages].reverse().find((m) => m.role === 'user' && m.content.trim())
+                      : null;
+                    const latestAssistant = [...activeMessages]
+                      .reverse()
+                      .find((m) => m.role === 'assistant' && !m.isError && m.content.trim());
+                    return (
+                      <div className="relative flex w-full flex-1 flex-col justify-start gap-6 px-6 pt-10 pb-8 overflow-y-auto">
+                        <DottedGlowBackground
+                          className="pointer-events-none mask-radial-to-90% mask-radial-at-center opacity-55 [[data-theme=bone]_&]:opacity-35"
+                          opacity={0.8}
+                          gap={12}
+                          radius={1.5}
+                          colorLightVar="--color-neutral-500"
+                          glowColorLightVar="--color-neutral-600"
+                          colorDarkVar="--color-neutral-500"
+                          glowColorDarkVar="--color-sky-800"
+                          backgroundOpacity={0}
+                          speedMin={0.3}
+                          speedMax={1.4}
+                          speedScale={1}
                         />
-                      ) : (
-                        <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 py-2">
-                          <div className="text-center text-sm font-medium text-[var(--text-secondary)]">
-                            Explore an idea for {activeProjectId !== 'local' ? activeProjectLabel : 'this workspace'}
-                          </div>
-                          <div className="grid gap-3.5 sm:grid-cols-3">
-                            {currentPlanIdeas.map((idea) => (
+                        <div className="relative z-10 mx-auto flex w-full max-w-[900px] flex-col gap-6">
+                          {!planBySession[activeTab.sessionId] && planBrainDumpBySession[activeTab.sessionId] ? (
+                            <div className="mx-auto flex w-full max-w-[720px] flex-col items-center gap-3 py-8 text-center">
+                              <h1 className="text-4xl font-semibold tracking-tight text-[var(--text-primary)]">
+                                What do you want to build?
+                              </h1>
+                              <p className="mt-1 max-w-[620px] text-lg leading-relaxed text-[var(--text-muted)]">
+                                Jot down your rough thoughts, goals, or features in the box below. I’ll break them into components, give feedback, and help shape a structured plan.
+                              </p>
                               <button
-                                key={idea}
                                 type="button"
-                                onClick={() => {}}
-                                className="flex items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--border-color)_45%,transparent)] bg-[var(--bg-panel)] px-4 py-3 text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
+                                onClick={() =>
+                                  setPlanBrainDumpBySession((prev) => ({ ...prev, [activeTab.sessionId]: false }))
+                                }
+                                className="mt-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                               >
-                                <span className="truncate text-base font-medium text-[var(--text-primary)]">
-                                  {idea}
-                                </span>
+                                ← Back to ideas
                               </button>
-                            ))}
-                          </div>
-                          <div className="flex justify-center pt-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setPlanBySession((prev) => ({
-                                  ...prev,
-                                  [activeTab.sessionId]:
-                                    '## Requirements\n- WHEN <trigger> THE SYSTEM SHALL <behavior>\n\n### Non-Goals (Deferred)\n- \n\n## Design\n- \n\n## Tasks\n1. [ ] ',
-                                }))
-                              }
-                              className="rounded-lg border border-[var(--border-color)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                            </div>
+                          ) : (
+                            <>
+                              <div className="text-center">
+                                <h1 className="text-4xl font-semibold tracking-tight text-[var(--text-primary)]">
+                                  Plan mode
+                                </h1>
+                                <p className="mt-1.5 text-lg text-[var(--text-muted)]">
+                                  Read-only codebase inspection, architecture design, and step-by-step planning.
+                                </p>
+                              </div>
+                              {isExecuting && isPlanMode ? (
+                                <div className="mx-auto flex min-h-[180px] w-full max-w-[520px] flex-col items-center justify-center gap-2.5 text-center">
+                                  <LoaderCircleIcon size={20} className="animate-spin text-[var(--accent-text)]" />
+                                  <div className="text-sm font-medium text-[var(--text-primary)]">Planning…</div>
+                                  <div className="text-xs text-[var(--text-muted)]">
+                                    Designing the experience and compiling your plan document.
+                                  </div>
+                                </div>
+                              ) : planBySession[activeTab.sessionId] ? (
+                                <PlanArtifactCard
+                                  markdown={planBySession[activeTab.sessionId] || ''}
+                                  onChange={(nextMd) =>
+                                    setPlanBySession((prev) => ({ ...prev, [activeTab.sessionId]: nextMd }))
+                                  }
+                                  onSave={(md) => saveSessionPlan(activeTab.sessionId, md)}
+                                  onApproveAndBuild={handleApprovePlanAndBuild}
+                                />
+                              ) : latestAssistant && !lastPlanError ? (
+                                <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 py-2">
+                                  {(() => {
+                                    const latestUser = [...activeMessages]
+                                      .reverse()
+                                      .find((m) => m.role === 'user' && m.content.trim());
+                                    return latestUser ? (
+                                      <div className="border-l-2 border-[var(--border-color)] pl-3 text-xs text-[var(--text-muted)]">
+                                        {latestUser.content}
+                                      </div>
+                                    ) : null;
+                                  })()}
+                                  <div className="text-sm leading-relaxed text-[var(--text-primary)]">
+                                    <MessageResponse isStreaming={isExecuting}>
+                                      {latestAssistant.content}
+                                    </MessageResponse>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 py-2">
+                                  <div className="text-center text-sm font-medium text-[var(--text-secondary)]">
+                                    Explore an idea for {activeProjectId !== 'local' ? activeProjectLabel : 'this workspace'}
+                                  </div>
+                                  <div className="grid gap-3.5 sm:grid-cols-3">
+                                    {currentPlanIdeas.map((idea) => (
+                                      <button
+                                        key={idea}
+                                        type="button"
+                                        onClick={() => {}}
+                                        className="flex items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--border-color)_45%,transparent)] bg-[var(--bg-panel)] px-4 py-3 text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
+                                      >
+                                        <span className="truncate text-base font-medium text-[var(--text-primary)]">
+                                          {idea}
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <div className="flex justify-center pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPlanBrainDumpBySession((prev) => ({ ...prev, [activeTab.sessionId]: true }));
+                                        requestAnimationFrame(() => textareaRef.current?.focus());
+                                      }}
+                                      className="rounded-lg border border-[var(--border-color)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                                    >
+                                      Write from scratch
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {lastPlanError && (
+                            <div
+                              role="alert"
+                              className="mx-auto flex w-full max-w-[760px] items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/[0.05] px-4 py-3 text-xs text-[var(--text-primary)]"
                             >
-                              Create blank spec
-                            </button>
-                          </div>
+                              <div className="flex min-w-0 items-center gap-2">
+                                <CircleAlertIcon size={14} className="shrink-0 text-red-500" />
+                                <span className="truncate">{lastPlanError.content || 'Planning request failed.'}</span>
+                              </div>
+                              {lastPlanUser && !isExecuting && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRetryMessage(lastPlanUser)}
+                                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-red-500/12 px-2.5 py-1 text-[11px] font-medium text-red-500 hover:bg-red-500/20 cursor-pointer"
+                                >
+                                  <RotateCcwIcon size={11} />
+                                  <span>Retry</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  ) : (
+                      </div>
+                    );
+                  })()
+                ) : activeMessages.length === 0 ? (
                   <Empty>
                     <EmptyHeader>
                       <EmptyMedia variant="icon">
@@ -4134,7 +4496,6 @@ export function App() {
                       </EmptyDescription>
                     </EmptyHeader>
                   </Empty>
-                  )
                 ) : (
                   <MessageScroller>
                     <MessageScrollerViewport>
@@ -4195,7 +4556,11 @@ export function App() {
                                                 </BubbleContent>
                                               </Bubble>
                                             ) : (
-                                              <div className="flex w-full flex-col gap-3 text-sm leading-relaxed text-[var(--text-primary)]">
+                                              <div
+                                                className={`flex w-full flex-col gap-3 text-sm leading-relaxed text-[var(--text-primary)] ${
+                                                  streaming ? 'gram-message-turn--streaming' : 'gram-message-turn'
+                                                }`}
+                                              >
                                                 {msg.tasks && msg.tasks.length > 0 && (
                                                   <Trace>
                                                     {msg.tasks.map((taskItem) => (
@@ -4204,11 +4569,7 @@ export function App() {
                                                   </Trace>
                                                 )}
                                                 {msg.steps && msg.steps.length > 0 && (
-                                                  <Trace>
-                                                    {msg.steps.map((step, idx) => (
-                                                      <StepRow key={idx} step={step} streaming={streaming} busy={isExecuting} />
-                                                    ))}
-                                                  </Trace>
+                                                  <TraceStepList steps={msg.steps} streaming={streaming} busy={isExecuting} />
                                                 )}
                                                 {msg.approval && msg.approval.state === 'approval-requested' && (
                                                   <Item variant="outline" size="sm">
@@ -4343,13 +4704,67 @@ export function App() {
                                                        </details>
                                                      )}
                                                    </div>
-                                                 ) : (
-                                                   msg.content && (
-                                                     <MessageResponse isStreaming={isExecuting && msg.id === activeMessages[activeMessages.length - 1]?.id}>
-                                                       {msg.content}
-                                                     </MessageResponse>
-                                                   )
-                                                 )}
+                                                 ) : msg.content ? (
+                                                   <MessageResponse isStreaming={false}>
+                                                     {msg.content}
+                                                   </MessageResponse>
+                                                 ) : streaming ? (
+                                                   <div className="flex w-full items-center justify-center py-6">
+                                                     <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)]">
+                                                       <LoaderCircleIcon size={13} className="animate-spin text-[var(--accent-text)]" />
+                                                       <span>{isPlanMode ? 'Planning…' : 'Thinking…'}</span>
+                                                     </div>
+                                                   </div>
+                                                 ) : null}
+                                                {!isUser &&
+                                                  !streaming &&
+                                                  !msg.isError &&
+                                                  msg.id === activeMessages[activeMessages.length - 1]?.id &&
+                                                  Boolean(planBySession[activeTab.sessionId]) &&
+                                                  /##\s+Tasks\b/i.test(planBySession[activeTab.sessionId] || '') &&
+                                                  !/\b(?:critical questions|please answer|what would you like to lock in)\b/i.test(
+                                                    msg.content || ''
+                                                  ) && (
+                                                    <div className="mt-2 flex w-full flex-col gap-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-3.5 text-xs">
+                                                      <div className="flex items-center justify-between gap-2">
+                                                        <span className="font-semibold text-[var(--text-primary)]">
+                                                          I&apos;ve compiled a plan — here&apos;s a summary
+                                                        </span>
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => setActiveDockSurface('plan')}
+                                                          className="inline-flex items-center gap-1 rounded-md border border-[var(--border-color)] px-2 py-1 text-[11px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+                                                        >
+                                                          <FileTextIcon size={12} />
+                                                          <span>View full doc</span>
+                                                        </button>
+                                                      </div>
+                                                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                                        <Button
+                                                          type="button"
+                                                          size="sm"
+                                                          onClick={() =>
+                                                            handleApprovePlanAndBuild({
+                                                              markdown: planBySession[activeTab.sessionId] || '',
+                                                              isolateWorktree: false,
+                                                            })
+                                                          }
+                                                        >
+                                                          Yes, go ahead
+                                                        </Button>
+                                                        <Button
+                                                          type="button"
+                                                          size="sm"
+                                                          variant="outline"
+                                                          onClick={() => {
+                                                            requestAnimationFrame(() => textareaRef.current?.focus());
+                                                          }}
+                                                        >
+                                                          No, here&apos;s some more
+                                                        </Button>
+                                                      </div>
+                                                    </div>
+                                                  )}
                                                 {msg.workers && msg.workers.length > 0 && (
                                                   <div className="cloud-progress-list">
                                                     {msg.workers.map((w, idx) => (
@@ -4476,68 +4891,6 @@ export function App() {
                               </MessageScrollerItem>
                             );
                           })}
-                        {isPlanMode && (
-                          <MessageScrollerItem>
-                            <div
-                              ref={planSectionRef}
-                              className="mx-auto flex min-h-[calc(100vh-210px)] w-full max-w-[900px] flex-col justify-start gap-6 pt-10 pb-8"
-                            >
-                              <div className="text-center">
-                                <h2 className="text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
-                                  Plan mode
-                                </h2>
-                                <p className="mt-1 text-xs text-[var(--text-muted)]">
-                                  Review, edit, or approve the spec below to switch into Code mode and build.
-                                </p>
-                              </div>
-                              {planBySession[activeTab.sessionId] ? (
-                                <PlanArtifactCard
-                                  markdown={planBySession[activeTab.sessionId] || ''}
-                                  onChange={(nextMd) =>
-                                    setPlanBySession((prev) => ({ ...prev, [activeTab.sessionId]: nextMd }))
-                                  }
-                                  onSave={(md) => saveSessionPlan(activeTab.sessionId, md)}
-                                  onApproveAndBuild={handleApprovePlanAndBuild}
-                                />
-                              ) : (
-                                <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 py-2">
-                                  <div className="text-center text-sm font-medium text-[var(--text-secondary)]">
-                                    Explore an idea for {activeProjectId !== 'local' ? activeProjectLabel : 'this workspace'}
-                                  </div>
-                                  <div className="grid gap-3.5 sm:grid-cols-3">
-                                    {currentPlanIdeas.map((idea) => (
-                                      <button
-                                        key={idea}
-                                        type="button"
-                                        onClick={() => {}}
-                                        className="flex items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--border-color)_45%,transparent)] bg-[var(--bg-panel)] px-4 py-3 text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
-                                      >
-                                        <span className="truncate text-base font-medium text-[var(--text-primary)]">
-                                          {idea}
-                                        </span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                  <div className="flex justify-center pt-1">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setPlanBySession((prev) => ({
-                                          ...prev,
-                                          [activeTab.sessionId]:
-                                            '## Requirements\n- WHEN <trigger> THE SYSTEM SHALL <behavior>\n\n### Non-Goals (Deferred)\n- \n\n## Design\n- \n\n## Tasks\n1. [ ] ',
-                                        }))
-                                      }
-                                      className="rounded-lg border border-[var(--border-color)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-                                    >
-                                      Create blank spec
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </MessageScrollerItem>
-                        )}
                       </MessageScrollerContent>
                     </MessageScrollerViewport>
                     <MessageScrollerButton />
@@ -4778,7 +5131,13 @@ export function App() {
                       e.target.style.height = 'auto';
                       e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
                     }}
-                    placeholder={voiceRecording ? 'Listening... speak naturally' : composerPlaceholder}
+                    placeholder={
+                      voiceRecording
+                        ? 'Listening... speak naturally'
+                        : isPlanMode && planBrainDumpBySession[activeTab.sessionId] && !planBySession[activeTab.sessionId]
+                          ? 'Jot down what you want to build — rough thoughts, features, goals...'
+                          : composerPlaceholder
+                    }
                     aria-label="Message"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
@@ -5009,8 +5368,16 @@ export function App() {
                           type="button"
                           size="sm"
                           variant="outline"
-                          aria-label={`Effort: ${effort}`}
-                          onClick={() => {
+                          title="Click for Effort & Permissions · ⌘+Click to cycle permission mode"
+                          aria-label={`Effort: ${effort}, Permissions: ${permissionMode}`}
+                          onClick={(e) => {
+                            if (e.metaKey || e.ctrlKey) {
+                              e.preventDefault();
+                              const order: Array<'autonomous' | 'safe' | 'ask'> = ['autonomous', 'safe', 'ask'];
+                              const next = order[(order.indexOf(permissionMode) + 1) % order.length]!;
+                              updatePermissionMode(next);
+                              return;
+                            }
                             setEffortMenuOpen((v) => !v);
                             setComposerModelOpen(false);
                             setContextMenuOpen(false);
@@ -5018,6 +5385,9 @@ export function App() {
                         >
                           <span className="text-[var(--text-muted)]">Effort</span>
                           <span className="capitalize">{effort}</span>
+                          {permissionMode !== 'autonomous' && (
+                            <span className="text-[10px] text-amber-400 capitalize">· {permissionMode}</span>
+                          )}
                           <ChevronDownIcon size={12} />
                         </InputGroupButton>
                         {effortMenuOpen && (
@@ -5028,7 +5398,7 @@ export function App() {
                               position: 'absolute',
                               right: 0,
                               bottom: 'calc(100% + 6px)',
-                              width: '130px',
+                              width: '188px',
                               background: 'var(--bg-panel)',
                               border: '1px solid var(--border-color)',
                               borderRadius: 'var(--radius-md)',
@@ -5038,6 +5408,9 @@ export function App() {
                               gap: '2px',
                             }}
                           >
+                            <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
+                              Effort
+                            </div>
                             {(['low', 'medium', 'high'] as const).map((level) => (
                               <button
                                 key={level}
@@ -5050,6 +5423,29 @@ export function App() {
                               >
                                 <span>{level}</span>
                                 {effort === level && <CheckIcon size={12} />}
+                              </button>
+                            ))}
+                            <div className="my-1 border-t border-[var(--border-color)]" />
+                            <div className="flex items-center justify-between px-2 py-1 text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
+                              <span>Permissions</span>
+                              <span className="font-mono text-[9px] opacity-70">⌘+Click</span>
+                            </div>
+                            {([
+                              { id: 'autonomous', label: 'Autonomous' },
+                              { id: 'safe', label: 'Safe' },
+                              { id: 'ask', label: 'Ask' },
+                            ] as const).map((perm) => (
+                              <button
+                                key={perm.id}
+                                type="button"
+                                className="shadcn-context-menu-item justify-between"
+                                onClick={() => {
+                                  updatePermissionMode(perm.id);
+                                  setEffortMenuOpen(false);
+                                }}
+                              >
+                                <span>{perm.label}</span>
+                                {permissionMode === perm.id && <CheckIcon size={12} />}
                               </button>
                             ))}
                           </div>
@@ -5140,8 +5536,9 @@ export function App() {
                           )}
                           <InputGroupButton
                             type="button"
-                            variant="default"
+                            variant="outline"
                             size="icon-sm"
+                            className="border-red-500/40 bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300"
                             onClick={() => void handleStop()}
                             aria-label="Stop"
                             title="Stop (Esc)"
@@ -5238,11 +5635,90 @@ export function App() {
               }}
               onTogglePin={handleTogglePin}
               onToggleUnread={handleToggleUnread}
-              onSplit={handleSplitChat}
+              onFork={(sessionId) => {
+                void (async () => {
+                  try {
+                    const res = await fetch('/api/chat/fork', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ sessionId }),
+                    });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (data?.session) {
+                      await loadChatSessions();
+                      void handleSelectChat(data.session.sessionId);
+                      emitSystemToast({
+                        title: 'Chat forked',
+                        description: data.session.title,
+                        variant: 'success',
+                      });
+                    }
+                  } catch {}
+                })();
+              }}
+              onCopyChat={(chat, mode) => void handleCopyChat(chat, mode)}
               onArchive={(sessionId) => void handleArchiveTask(sessionId)}
             />
           );
         })()}
+        <MissionControlDrawer
+          open={missionControlOpen}
+          onClose={() => setMissionControlOpen(false)}
+          activities={islandActivities}
+          onSelectActivity={handleSelectTask}
+          onApproveActivity={handleApproveActivity}
+          onPopOutPip={() => {
+            setMissionControlOpen(false);
+            const tauriInvoke = (window as any)?.__TAURI_INTERNALS__?.invoke;
+            if (typeof tauriInvoke === 'function') {
+              void Promise.resolve(tauriInvoke('toggle_mission_pip', { open: true })).catch(() => {
+                setPipOpen(true);
+              });
+            } else {
+              setPipOpen(true);
+            }
+          }}
+          onStopActivity={(runId) => {
+            fetch('/api/cancel', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ runId }),
+            })
+              .then(() => {
+                if (runId === activeRunId) setIsExecuting(false);
+                void loadRecentTasks();
+              })
+              .catch(() => {});
+          }}
+        />
+        {pipOpen && !isPipMode && (
+          <div className="fixed bottom-4 right-4 z-[120]">
+            <MissionControlPip
+              embedded
+              activities={islandActivities}
+              onSelectActivity={handleSelectTask}
+              onApproveActivity={handleApproveActivity}
+              onStopActivity={(runId) => {
+                fetch('/api/cancel', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ runId }),
+                })
+                  .then(() => {
+                    if (runId === activeRunId) setIsExecuting(false);
+                    void loadRecentTasks();
+                  })
+                  .catch(() => {});
+              }}
+              onExpandToMain={() => {
+                setPipOpen(false);
+                setMissionControlOpen(true);
+              }}
+              onClose={() => setPipOpen(false)}
+            />
+          </div>
+        )}
         <SystemToastViewport />
       </div>
     </MessageScrollerProvider>

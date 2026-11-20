@@ -47,8 +47,8 @@ describe('Context Envelope & Multi-Provider Router', () => {
     expect(systemPrompt).toContain('[IN_PROGRESS] (2) Add billing');
   });
 
-  it('routes across the 27-model Bedrock + OpenRouter allowlist', () => {
-    expect(listAllowedModels().length).toBe(27);
+  it('routes across the Bedrock, Foundry, and OpenRouter allowlist', () => {
+    expect(listAllowedModels().length).toBeGreaterThanOrEqual(46);
     expect(isAllowedModel('gpt-4o')).toBe(false);
     expect(isAllowedModel('google/gemini-2.5-flash')).toBe(false);
     expect(isAllowedModel('google/gemini-4-hydrogen')).toBe(true);

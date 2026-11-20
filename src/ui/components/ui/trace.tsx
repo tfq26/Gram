@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 
 export function Trace({ children }: { children: React.ReactNode }) {
   return (
@@ -65,8 +65,8 @@ export function TraceCollapsibleTrigger({ children }: { children: React.ReactNod
       }}
     >
       {children}
-      <span style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center' }}>
-        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+      <span className="gram-chevron" data-open={open ? 'true' : 'false'}>
+        <ChevronRight size={13} />
       </span>
     </button>
   );
@@ -82,22 +82,33 @@ export function TraceCollapsibleContent({
   keepMounted?: boolean;
 }) {
   const { open } = useContext(TraceCollapsibleContext);
-  if (!open && !keepMounted) return null;
+  const [hasOpened, setHasOpened] = useState(open);
+  if (open && !hasOpened) {
+    setHasOpened(true);
+  }
+  const shouldRenderInner = open || keepMounted || hasOpened;
 
   return (
-    <div
-      className={className}
-      hidden={!open}
-      style={{
-        marginLeft: '8px',
-        paddingLeft: '12px',
-        borderLeft: '1px solid var(--border-color)',
-        color: 'var(--text-muted)',
-        fontSize: '12px',
-        lineHeight: 1.5,
-      }}
-    >
-      {children}
+    <div className="gram-collapsible-grid" data-open={open ? 'true' : 'false'}>
+      <div className="gram-collapsible-inner">
+        {shouldRenderInner && (
+          <div
+            className={className}
+            style={{
+              marginLeft: '8px',
+              paddingLeft: '12px',
+              paddingTop: '2px',
+              paddingBottom: '4px',
+              borderLeft: '1px solid var(--border-color)',
+              color: 'var(--text-muted)',
+              fontSize: '12px',
+              lineHeight: 1.5,
+            }}
+          >
+            {children}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

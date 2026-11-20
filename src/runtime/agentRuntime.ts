@@ -37,7 +37,7 @@ import {
   type LlmMessage,
 } from '../providers/llmClient';
 import { redactSecretText } from '../providers/secretGuard';
-import { getActivePrivacyMode, MODEL_REGISTRY, selectOptimalModel } from '../providers/router';
+import { getActivePrivacyMode, markModelUnavailable, MODEL_REGISTRY, selectOptimalModel } from '../providers/router';
 import {
   AGENT_TOOLS,
   detectWorkspaceToolchain,
@@ -215,6 +215,18 @@ export class GramAgentRuntime extends EventEmitter {
 
   public signOutUserSession(token: string | undefined): void {
     this.authStore.signOutUserSession(token);
+  }
+
+  public cacheHubSession(token: string | undefined, user: { id: string; name: string; email: string }): void {
+    this.authStore.cacheHubSession(token, user);
+  }
+
+  public getCachedHubSession(token: string | undefined) {
+    return this.authStore.getCachedHubSession(token);
+  }
+
+  public invalidateCachedHubSession(token: string | undefined): void {
+    this.authStore.invalidateCachedHubSession(token);
   }
 
   public listProjects() {
@@ -487,6 +499,18 @@ export class GramAgentRuntime extends EventEmitter {
     return this.chatStore.getChatSession(sessionId);
   }
 
+  public forkChatSession(params: {
+    sourceSessionId: string;
+    newSessionId?: string;
+    messageId?: string;
+    targetModelId?: string;
+    targetMode?: 'chat' | 'code';
+    title?: string;
+    baseCheckpointRunId?: string;
+  }) {
+    return this.chatStore.forkChatSession(params);
+  }
+
   public listChatSessions(limit = 50, mode?: 'chat' | 'code') {
     return this.chatStore.listChatSessions(limit, mode);
   }
@@ -595,16 +619,31 @@ export class GramAgentRuntime extends EventEmitter {
   }
 
   /**
-   * Cancels an active run.
+   * Cancels an active run (or marks a persisted executing/paused checkpoint as stopped).
    */
   public cancelRun(runId: string): boolean {
+    if (!runId) return false;
+    let stopped = false;
     const controller = this.activeControllers.get(runId);
     if (controller) {
-      controller.abort();
+      controller.abort('cancelled_by_user');
       this.activeControllers.delete(runId);
-      return true;
+      stopped = true;
     }
-    return false;
+
+    const recent = this.chatStore.listRecentTasks(100, (id) => this.isRunActive(id));
+    const match = recent.find((t) => t.runId === runId);
+    if (match) {
+      const checkpoint = this.getCheckpoint(match.sessionId, runId);
+      if (checkpoint && (checkpoint.stage === 'executing' || checkpoint.stage === 'paused')) {
+        checkpoint.stage = 'failed';
+        checkpoint.pendingApproval = undefined;
+        checkpoint.output = checkpoint.output || 'Stopped by user.';
+        this.saveCheckpoint(checkpoint);
+        stopped = true;
+      }
+    }
+    return stopped;
   }
 
   public isRunActive(runId: string): boolean {
@@ -1131,12 +1170,13 @@ export class GramAgentRuntime extends EventEmitter {
               }
             } catch {}
             return [
-              `You are Gram in **Plan Mode** (read-only requirements engineering and architectural planning in "${activeWorkspaceRoot}"). Today's date is ${todayIso}.`,
-              'PLAN MODE BOUNDARY: You are strictly read-only. Inspect the workspace with `list_files`, `read_file`, `search_code`, `git_status`, `git_diff`, and `git_log` BEFORE asking questions or proposing architecture—never ask questions the codebase already answers, and never claim to have edited files or run shell commands.',
-              'ANTI-SYCOPHANCY, FIRST PRINCIPLES & YAGNI: Never blindly agree with the user. Reason from first principles (actual problem, constraints, failure modes, maintenance cost). Actively push back on over-engineering, premature abstractions, or unnecessary scope, and propose simpler alternatives. Every plan MUST include an explicit `### Non-Goals (Deferred)` section cutting what is not needed for v1.',
-              'ANTI-BIAS STACK EVALUATION: Never default to a "comfort stack" (such as Python + Flask + SQLite) out of training-prior habit. Evaluate tech choices holistically across stability, scalability, concurrency, type safety, existing ecosystem/user preferences, and deployment target. For greenfield or major architecture decisions, compare 2–3 viable options with honest tradeoffs and use `search_web` when current framework versions matter.',
+              `You are Gram in **Plan Mode** (read-only experience & architectural planning in "${activeWorkspaceRoot}"). Today's date is ${todayIso}.`,
+              'PLAN MODE BOUNDARY: You are strictly read-only. Inspect the workspace with `list_files`, `read_file`, `search_code`, `git_status`, `git_diff`, and `git_log` BEFORE asking questions or proposing architecture—never cite file paths, symbols, or behavior you did not read, and never claim to have edited files or run shell commands.',
+              'EXPERIENCE-FIRST DESIGN PHILOSOPHY (Apple HIG — Work Backwards from Experience): Start with the human experience and work backwards to the technology—never start with tech/schemas and figure out the UI later. Every feature must optimize for:\n- **Clarity:** Every screen, action, and label is unmistakable without a manual.\n- **Deference:** Chrome and controls stay out of the way so the user\'s content/task takes center stage.\n- **Depth & Flow:** Natural hierarchy, progressive disclosure, and zero dead ends or friction.',
+              'ANTI-SYCOPHANCY, FIRST PRINCIPLES & YAGNI: Reason from first principles (actual user friction, constraints, failure modes, maintenance cost). Push back on over-engineering or unrequested extras (auth, Docker, analytics, TanStack Query/c8 when plain fetch and `bun test` suffice), and include an explicit `### Non-Goals (Deferred)` section.',
+              'STRICT NO-CODE RULE UNTIL APPROVED: NEVER output fenced code blocks for implementation—NO SQL DDL, NO TypeScript/JavaScript functions, NO Zod schemas, NO React hooks, NO CSS, and NO test code snippets (the ONLY allowed fenced blocks are `mermaid` diagrams and compact JSON payload shapes). Do NOT invent speculative 15-file folder trees, contradictory `create vite` commands, or unverified npm package names. Describe data models, API contracts, and file responsibilities concisely in prose/bullets only.',
               ADAPTIVE_RESPONSE_GUIDANCE,
-              'EARS REQUIREMENTS & DESIGN WORKFLOW:\n1. If requirements, constraints, or stack choices are ambiguous, ask 2–4 tough, high-leverage clarifying questions with recommended defaults BEFORE locking the spec.\n2. When producing a plan, structure it cleanly with:\n   - `## Requirements` using EARS notation (`WHEN <trigger/condition> THE SYSTEM SHALL <observable behavior>`) plus `### Non-Goals (Deferred)`\n   - `## Design` covering architecture, a Mermaid diagram (`flowchart` / `sequenceDiagram` / `erDiagram`) where helpful, exact files to create/modify, data/API contracts, and failure handling\n   - `## Tasks` with dependency-ordered steps where each task specifies how it will be verified\n3. Do NOT dump full implementation code blocks in Plan mode—keep focus on decisions, contracts, and structure.',
+              'PLAN ARTIFACT WORKFLOW:\n1. If the user already specified the core stack or behavior (even in an empty workspace), DO NOT stall with clarifying questions—pick obvious standard defaults (single-repo layout, FTS5, file-based SQLite for local-first), state those assumptions briefly in the plan, and generate `<gram_plan>...</gram_plan>` immediately. ONLY ask 2–3 clarifying questions if the request is genuinely vague (missing product goals, target users, or unspecified stack).\n2. SELF-CHECK BEFORE EMITTING `<gram_plan>`: Ask yourself: "Do I have all clarifying answers needed, and can an engineer build what the user is asking for directly from this plan?" If NO, do NOT emit `<gram_plan>`—just ask your clarifying questions concisely in chat.\n3. Wrap the entire formal plan inside `<gram_plan>...</gram_plan>` tags so Gram saves it to `.gram/plans/` and opens it in the dedicated Plan panel (keeping the chat clean):\n   - `## Experience & User Flow` — what the user sees, feels, and accomplishes step-by-step (zero technical jargon)\n   - `## Requirements` — EARS notation (`WHEN <trigger> THE SYSTEM SHALL <behavior>`) + `### Non-Goals (Deferred)`\n   - `## Design` — concise architecture, Mermaid diagram where helpful, `[NEW]`/`[MODIFY]` files (1-sentence responsibility each), and key API/data contracts (signatures only, no code bodies)\n   - `## Tasks` — dependency-ordered checklist (`- [ ] ...`)\n   - `## Verification Plan` — exact automated tests and manual checks to run after approval\n3. Outside `<gram_plan>...</gram_plan>`, write ONLY a 2–3 sentence conversational summary pointing the user to review and approve the plan.',
               existingPlanBlock,
               registeredProjectsSummary,
               userContextPromptBlock,
@@ -1329,27 +1369,129 @@ export class GramAgentRuntime extends EventEmitter {
         }
         options.onEvent?.({ type: 'context_update', usage: { ...usageStats } });
 
+        const SPECULATIVE_READ_ONLY_TOOLS = new Set([
+          'read_file',
+          'list_files',
+          'search_code',
+          'find_symbol_definition',
+          'search_web',
+          'fetch_web_content',
+          'git_status',
+          'git_diff',
+          'git_log',
+        ]);
+        const speculativeToolPromises = new Map<string, Promise<{ output: string; isError?: boolean }>>();
+
+        const runSingleTool = (tc: { id: string; name: string; input: Record<string, unknown> }) =>
+          executeAgentTool({
+            name: tc.name,
+            input: tc.input,
+            workspaceRoot: activeWorkspaceRoot,
+            gramfs: activeGramfs,
+            layerId,
+            requireApproval: options.requireApproval,
+            authToken: options.authToken,
+            signal: controller.signal,
+            graph: this.graph,
+            novelTools: this.tools,
+            rememberRule: (rule) => this.rememberWorkspaceRule(rule),
+            refreshSymbols: () => this.indexWorkspaceSymbols(layerId),
+            knowledge: {
+              remember: (insight) => {
+                const { node, created } = this.knowledge.recordInsight({
+                  ...insight,
+                  projectId: options.projectId,
+                  sourceModel: profile.id,
+                });
+                return { id: node.id, created, title: node.title, scope: node.scope };
+              },
+            },
+            userContext: {
+              remember: (item) => this.userContext.rememberFromConversation(item),
+            },
+            sessionId: options.sessionId,
+            sourceUserMessage: options.prompt,
+            pinnedFacts: envelope.state.pinnedFacts,
+            lyra: options.lyra,
+          });
+
         currentPhase = 'llm_turn';
-        const turnResult = await streamLlmTurn({
-          model: profile,
-          systemPrompt: baseSystemPrompt,
-          messages,
-          tools: activeTools,
-          sessionId: options.sessionId,
-          mode: runMode,
-          effort: options.effort || 'medium',
-          authToken: options.authToken,
-          signal: controller.signal,
-          callbacks: {
-            onThinkingDelta: (delta) => {
-              options.onEvent?.({ type: 'thinking_delta', delta });
-            },
-            onTextDelta: (delta) => {
-              options.onChunk?.(delta);
-              options.onEvent?.({ type: 'text_delta', delta });
-            },
-          },
-        });
+        let turnResult: Awaited<ReturnType<typeof streamLlmTurn>> | undefined;
+        let attemptProfile = profile;
+        let lastTurnErr: unknown;
+        for (let modelAttempt = 0; modelAttempt < 3; modelAttempt++) {
+          let turnStreamedChars = 0;
+          try {
+            turnResult = await streamLlmTurn({
+              model: attemptProfile,
+              systemPrompt: baseSystemPrompt,
+              messages,
+              tools: activeTools,
+              sessionId: options.sessionId,
+              mode: runMode,
+              effort: options.effort || 'medium',
+              authToken: options.authToken,
+              signal: controller.signal,
+              callbacks: {
+                onThinkingDelta: (delta) => {
+                  turnStreamedChars += delta.length;
+                  options.onEvent?.({ type: 'thinking_delta', delta });
+                },
+                onTextDelta: (delta) => {
+                  turnStreamedChars += delta.length;
+                  options.onChunk?.(delta);
+                  options.onEvent?.({ type: 'text_delta', delta });
+                },
+                onToolCallReady: (tc) => {
+                  if (!SPECULATIVE_READ_ONLY_TOOLS.has(tc.name) || speculativeToolPromises.has(tc.id)) return;
+                  const sig = `${tc.name}:${JSON.stringify(tc.input ?? {})}`;
+                  if (seenToolSignatures.has(sig)) return;
+                  speculativeToolPromises.set(
+                    tc.id,
+                    runSingleTool(tc).catch((err) => ({
+                      output: err instanceof Error ? err.message : String(err),
+                      isError: true,
+                    }))
+                  );
+                },
+              },
+            });
+            break;
+          } catch (err: any) {
+            lastTurnErr = err;
+            const errMsg = String(err?.message || '');
+            const errName = String(err?.name || '');
+            const gwDiag = err?.diagnostics?.gatewayDiagnostics as Record<string, unknown> | undefined;
+            const httpStatus = Number(gwDiag?.httpStatusCode ?? err?.diagnostics?.httpStatus ?? 0);
+            const isRecoverableModelError =
+              /model identifier is invalid|invalid model|not available for this account|not authorized|model.*not found|end of life|throttl|rate.?limit|too many requests|capacity|overloaded|service unavailable/i.test(
+                `${errName} ${String(gwDiag?.errorName || '')} ${errMsg}`
+              ) ||
+              httpStatus === 400 ||
+              httpStatus === 403 ||
+              httpStatus === 404 ||
+              httpStatus === 429 ||
+              httpStatus === 502 ||
+              httpStatus === 503 ||
+              httpStatus === 529;
+            const canFailover =
+              turnStreamedChars === 0 &&
+              !controller.signal.aborted &&
+              modelAttempt < 4 &&
+              isRecoverableModelError &&
+              !(attemptProfile as { byokConfig?: unknown }).byokConfig;
+            if (!canFailover) throw err;
+
+            const failedUpstreamId = typeof gwDiag?.model === 'string' ? gwDiag.model : attemptProfile.id;
+            markModelUnavailable(attemptProfile.id);
+            if (failedUpstreamId) markModelUnavailable(failedUpstreamId);
+            attemptProfile = selectOptimalModel({
+              taskComplexity: runMode === 'plan' ? 'architecture' : 'moderate',
+              priority: runMode === 'chat' ? 'cost' : runMode === 'plan' ? 'planning' : 'balanced',
+            });
+          }
+        }
+        if (!turnResult) throw lastTurnErr;
         if (turnResult.resolvedModelId) {
           checkpoint.modelId = turnResult.resolvedModelId;
         }
@@ -1493,39 +1635,6 @@ export class GramAgentRuntime extends EventEmitter {
           return tc.name.replace(/_/g, ' ');
         };
 
-        const runSingleTool = (tc: (typeof turnResult.toolCalls)[number]) =>
-          executeAgentTool({
-            name: tc.name,
-            input: tc.input,
-            workspaceRoot: activeWorkspaceRoot,
-            gramfs: activeGramfs,
-            layerId,
-            requireApproval: options.requireApproval,
-            authToken: options.authToken,
-            signal: controller.signal,
-            graph: this.graph,
-            novelTools: this.tools,
-            rememberRule: (rule) => this.rememberWorkspaceRule(rule),
-            refreshSymbols: () => this.indexWorkspaceSymbols(layerId),
-            knowledge: {
-              remember: (insight) => {
-                const { node, created } = this.knowledge.recordInsight({
-                  ...insight,
-                  projectId: options.projectId,
-                  sourceModel: profile.id,
-                });
-                return { id: node.id, created, title: node.title, scope: node.scope };
-              },
-            },
-            userContext: {
-              remember: (item) => this.userContext.rememberFromConversation(item),
-            },
-            sessionId: options.sessionId,
-            sourceUserMessage: options.prompt,
-            pinnedFacts: envelope.state.pinnedFacts,
-            lyra: options.lyra,
-          });
-
         let tcIdx = 0;
         while (tcIdx < turnResult.toolCalls.length) {
           const firstTc = turnResult.toolCalls[tcIdx];
@@ -1560,7 +1669,7 @@ export class GramAgentRuntime extends EventEmitter {
               batch.map((item) =>
                 item.dupMsg
                   ? Promise.resolve({ output: item.dupMsg, isError: false } as const)
-                  : runSingleTool(item.tc)
+                  : speculativeToolPromises.get(item.tc.id) ?? runSingleTool(item.tc)
               )
             );
 
@@ -1814,10 +1923,24 @@ export class GramAgentRuntime extends EventEmitter {
         }
       }
 
-      const trimmedPlanOutput = finalOutput.trim();
-      const hasStructuredPlanSections = /##\s+(?:Requirements|Design|Tasks)\b/i.test(trimmedPlanOutput);
-      if (trimmedPlanOutput && (runMode === 'plan' || hasStructuredPlanSections)) {
-        const tasksSectionMatch = trimmedPlanOutput.match(/##\s+Tasks\b[\s\S]*?(?=\n##\s+|$)/i);
+      const rawOutput = finalOutput.trim();
+      const planTagMatch = rawOutput.match(/<gram_plan>([\s\S]*?)<\/gram_plan>/i);
+      const extractedPlanMarkdown = planTagMatch ? planTagMatch[1]!.trim() : rawOutput;
+      const looksLikeQuestionsOnly =
+        !planTagMatch &&
+        /\b(?:critical questions|please answer|what would you like to lock in|before drafting the full plan)\b/i.test(
+          extractedPlanMarkdown
+        );
+      const hasStructuredPlanSections =
+        !looksLikeQuestionsOnly &&
+        (Boolean(planTagMatch) ||
+          (/##\s+(?:Experience|Core\s+Requirements|Requirements|Design|Architecture|Tasks)\b/i.test(
+            extractedPlanMarkdown
+          ) &&
+            /##\s+Tasks\b/i.test(extractedPlanMarkdown)));
+
+      if (extractedPlanMarkdown && (runMode === 'plan' || hasStructuredPlanSections)) {
+        const tasksSectionMatch = extractedPlanMarkdown.match(/##\s+Tasks\b[\s\S]*?(?=\n##\s+|$)/i);
         const taskLines = (tasksSectionMatch ? tasksSectionMatch[0] : '')
           .split('\n')
           .map((l) => l.trim())
@@ -1832,20 +1955,32 @@ export class GramAgentRuntime extends EventEmitter {
             dependencies: idx > 0 ? [`plan-task-${idx}`] : [],
           }));
         }
+        const safePlanId = String(options.sessionId || 'default').replace(/[^a-zA-Z0-9._-]+/g, '_');
+        const planFilePath = path.resolve(this.workspaceRoot, '.gram', 'plans', `${safePlanId}.md`);
         if (process.env.NODE_ENV !== 'test' && hasStructuredPlanSections) {
           try {
-            const safePlanId = String(options.sessionId || 'default').replace(/[^a-zA-Z0-9._-]+/g, '_');
-            const plansDir = path.resolve(this.workspaceRoot, '.gram', 'plans');
+            const plansDir = path.dirname(planFilePath);
             fs.mkdirSync(plansDir, { recursive: true });
-            fs.writeFileSync(path.join(plansDir, `${safePlanId}.md`), trimmedPlanOutput, 'utf8');
+            fs.writeFileSync(planFilePath, extractedPlanMarkdown, 'utf8');
           } catch {}
         }
         if (hasStructuredPlanSections) {
           options.onEvent?.({
             type: 'plan_updated',
             sessionId: options.sessionId,
-            markdown: trimmedPlanOutput,
+            markdown: extractedPlanMarkdown,
           });
+          // Keep chat clean: replace the inline plan wall with a concise summary + file link
+          const outsidePlan = planTagMatch
+            ? rawOutput.replace(/<gram_plan>[\s\S]*?<\/gram_plan>/i, '').trim()
+            : '';
+          const taskNote = taskLines.length > 0 ? ` (${taskLines.length} tasks)` : '';
+          finalOutput = [
+            outsidePlan,
+            `Plan written to [${safePlanId}.md](file://${planFilePath})${taskNote}. Open the **Plan** panel to review, edit, or click **Approve & Build**.`,
+          ]
+            .filter(Boolean)
+            .join('\n\n');
         }
       }
 

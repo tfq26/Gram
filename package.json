@@ -8,8 +8,9 @@
     "gram": "./src/cli/index.ts"
   },
   "scripts": {
-    "dev": "concurrently -n \"DAEMON,STUDIO\" -c \"emerald,cyan\" \"bun --watch src/server/index.ts\" \"vite\"",
-    "dev:server": "bun --watch src/server/index.ts",
+    "dev": "concurrently -n \"DAEMON,STUDIO\" -c \"emerald,cyan\" \"bun run src/server/index.ts\" \"vite\"",
+    "dev:server": "bun run src/server/index.ts",
+    "dev:server:watch": "bun --watch src/server/index.ts",
     "dev:studio": "vite",
     "cli": "bun run src/cli/index.ts",
     "doctor": "bun run src/cli/index.ts doctor",

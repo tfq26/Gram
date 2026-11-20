@@ -12,6 +12,19 @@
   border-width: 0 !important;
 }
 
+.gram-markdown [data-streamdown="table-wrapper"],
+.gram-markdown [data-streamdown="table-wrapper"] > div {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.gram-markdown [data-streamdown="table-wrapper"] [data-streamdown="table-controls"],
+.gram-markdown [data-streamdown="table-wrapper"] button {
+  display: none !important;
+}
+
 @theme inline {
   --color-background: var(--bg-body, #050505);
   --color-foreground: var(--text-primary, #f4f4f5);
@@ -281,6 +294,87 @@ html:active-view-transition-type(backward)::view-transition-new(root) {
 }
 
 .gram-markdown th {
-  background: var(--bg-panel-subtle);
+  background: transparent;
   font-weight: 600;
+}
+
+/* Hardware-Accelerated GPU Compositing & 120Hz Smooth Motion */
+.gram-gpu-surface {
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}
+
+.gram-scroll-smooth {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.gram-message-turn {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 128px;
+  contain: layout style;
+}
+
+.gram-message-turn--streaming {
+  content-visibility: visible;
+  contain: layout style;
+}
+
+@keyframes gram-msg-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.gram-msg-enter {
+  animation: gram-msg-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.gram-collapsible-grid {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translate3d(0, -3px, 0);
+  transition:
+    grid-template-rows 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease-out,
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.gram-collapsible-grid[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.gram-collapsible-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.gram-chevron {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  transform: rotate(0deg) translateZ(0);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), color 0.15s ease;
+}
+
+.gram-chevron[data-open="true"] {
+  transform: rotate(90deg) translateZ(0);
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gram-msg-enter,
+  .gram-collapsible-grid,
+  .gram-chevron {
+    animation: none !important;
+    transition: none !important;
+  }
 }

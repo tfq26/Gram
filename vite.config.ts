@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src/ui'),
+      '@': path.resolve(import.meta.dirname, 'src/ui'),
     },
   },
   server: {
@@ -28,5 +28,17 @@ export default defineConfig({
   build: {
     outDir: 'dist/studio',
     emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'vendor-react', test: /node_modules\/(react|react-dom|scheduler)\// },
+            { name: 'vendor-markdown', test: /node_modules\/(streamdown|@streamdown|react-markdown|remark-|rehype-|unified|mdast-|hast-|micromark|shiki)\// },
+            { name: 'vendor-radix', test: /node_modules\/(radix-ui|@radix-ui)\// },
+            { name: 'vendor-icons', test: /node_modules\/lucide-react\// },
+          ],
+        },
+      },
+    },
   },
 });

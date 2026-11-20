@@ -22,3 +22,15 @@ Follow these rules whenever using tools in Gram:
 - Use `browser_navigate` to open a local dev server (e.g. `http://localhost:3000`, `http://localhost:7337`) or public page in headless Chromium.
 - Use `browser_snapshot` to inspect rendered DOM text, interactive elements, and console/page errors.
 - Use `browser_click` and `browser_type` to test user flows, and `browser_screenshot` / `browser_close` when visual checks are complete.
+
+## 5. Orchestration & Protocol Discipline (Anti-Token-Burn Rules)
+Choose the lightest execution path that solves the task — never stack protocols unnecessarily:
+- **Direct Execution (Default):** 1–3 files or a clear single-threaded task. Do **not** invoke A2A subagents, Model Council, or Autopilot.
+- **A2A Subagents (`pentest`, `test-writer`, `refactor`, `docs`, `research`):** Use **only** for independent, parallelizable specialist work (e.g., running a security/pentest audit alongside feature edits, or writing tests for multiple modules in parallel). Runs on fast/cheap worker models with a hard concurrency cap (3).
+- **Model Council:** Use **only** for high-stakes architectural trade-offs, security design decisions, or genuine uncertainty where cross-family consensus prevents costly mistakes. **Never** use for routine implementation.
+- **Autopilot (Issue → Draft PR):** Use for approved multi-file plans or background work that should run asynchronously in an isolated worktree with Proof Contract verification.
+
+## 6. Codebase Stability & Anti-Band-Aid Invariants
+- **Fix root causes, never layer band-aids:** If you see a failing constraint, type error, or race condition, fix the underlying schema/type/lifecycle invariant rather than wrapping it in an empty `catch {}` or regex workaround.
+- **Invariant-only comments:** Document *why* an architectural invariant exists (e.g., CSS theme tokens, PRAGMA schema checks, memoization boundaries); delete stale `HACK` / workaround comments once fixed.
+- **Keep `tsc --noEmit` at 0 errors:** Never leave type errors behind; treat a zero-error compiler baseline as non-negotiable.

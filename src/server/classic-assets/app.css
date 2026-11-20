@@ -322,6 +322,7 @@ html, body {
 
 /* Top Navbar */
 .topbar {
+  position: relative;
   height: 48px;
   background-color: var(--bg-panel);
   border-bottom: 1px solid var(--border-color);
@@ -329,7 +330,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  z-index: 10;
+  z-index: 60;
   flex-shrink: 0;
 }
 

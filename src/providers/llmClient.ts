@@ -43,6 +43,7 @@ export interface LlmToolCall {
 export interface LlmStreamCallbacks {
   onThinkingDelta?: (delta: string) => void;
   onTextDelta?: (delta: string) => void;
+  onToolCallReady?: (toolCall: LlmToolCall) => void;
 }
 
 export interface LlmTurnResult {
@@ -335,6 +336,20 @@ async function streamBedrockTurn(params: {
           if (entry) {
             entry.inputJson += delta.toolUse.input;
           }
+        }
+      }
+
+      if (event.contentBlockStop) {
+        const idx = event.contentBlockStop.contentBlockIndex ?? -1;
+        const entry = toolUseByIndex.get(idx);
+        if (entry) {
+          let parsed: Record<string, unknown> = {};
+          try {
+            parsed = entry.inputJson.trim() ? JSON.parse(entry.inputJson) : {};
+          } catch {
+            parsed = { raw: entry.inputJson };
+          }
+          params.callbacks?.onToolCallReady?.({ id: entry.id, name: entry.name, input: parsed });
         }
       }
 
@@ -756,6 +771,8 @@ async function streamLyraGatewayTurn(params: {
         } else if (event.type === 'thinking_delta' && typeof event.delta === 'string') {
           thinkingCharsReceived += event.delta.length;
           params.callbacks?.onThinkingDelta?.(event.delta);
+        } else if (event.type === 'tool_use' && event.toolCall) {
+          params.callbacks?.onToolCallReady?.(event.toolCall as LlmToolCall);
         } else if (event.type === 'done' && event.result) {
           finalResult = event.result as LlmTurnResult;
         } else if (event.type === 'error') {

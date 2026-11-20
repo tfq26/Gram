@@ -4,6 +4,7 @@ import {
   ClipboardListIcon,
   GitCompareIcon,
   GlobeIcon,
+  LayersIcon,
   MessageSquareDashedIcon,
   MonitorIcon,
   TerminalIcon,
@@ -15,7 +16,7 @@ import {
   TooltipTrigger,
 } from '../../components/ui/tooltip';
 
-export type DockSurface = 'plan' | 'preview' | 'diff' | 'terminal' | 'side-question';
+export type DockSurface = 'plan' | 'agents' | 'preview' | 'diff' | 'terminal' | 'side-question';
 
 export interface DockDeviceItem {
   deviceId: string;
@@ -27,6 +28,8 @@ interface WorkspaceDockProps {
   activeSurface: DockSurface | null;
   onToggleSurface: (surface: DockSurface) => void;
   hasPlan?: boolean;
+  attentionCount?: number;
+  missionControlOpen?: boolean;
   processCount?: number;
   devices?: DockDeviceItem[];
   activeDeviceId?: string;
@@ -39,6 +42,7 @@ const DOCK_ITEMS: Array<{
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
 }> = [
   { id: 'plan', label: 'Plan', icon: ClipboardListIcon },
+  { id: 'agents', label: 'Mission Control', icon: LayersIcon },
   { id: 'preview', label: 'Preview', icon: GlobeIcon },
   { id: 'diff', label: 'Diff', icon: GitCompareIcon },
   { id: 'terminal', label: 'Terminal', icon: TerminalIcon },
@@ -61,6 +65,8 @@ export function WorkspaceDock({
   activeSurface,
   onToggleSurface,
   hasPlan = false,
+  attentionCount = 0,
+  missionControlOpen = false,
   processCount = 0,
   devices = [],
   activeDeviceId,
@@ -152,12 +158,16 @@ export function WorkspaceDock({
 
         {DOCK_ITEMS.map((item) => {
           const Icon = item.icon;
-          const isEnabled = item.id === 'plan';
-          const active = isEnabled && activeSurface === item.id;
+          const isEnabled = item.id === 'plan' || item.id === 'agents';
+          const active =
+            (item.id === 'plan' && activeSurface === 'plan') ||
+            (item.id === 'agents' && missionControlOpen);
           const badge =
             item.id === 'plan' && hasPlan
               ? '•'
-              : null;
+              : item.id === 'agents' && attentionCount > 0
+                ? String(attentionCount)
+                : null;
           return (
             <Tooltip key={item.id}>
               <TooltipTrigger asChild>

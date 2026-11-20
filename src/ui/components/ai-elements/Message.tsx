@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { createMermaidPlugin } from '@streamdown/mermaid';
 import { Check, Copy } from 'lucide-react';
@@ -192,46 +192,47 @@ export function normalizeMarkdownFences(markdown: string): string {
   return out.join('\n');
 }
 
-export function MessageResponse({
+const STREAMDOWN_PLUGINS = { mermaid: mermaidPlugin };
+const SHIKI_THEME: [string, string] = ['github-dark', 'github-dark'];
+const STREAMDOWN_ANIMATED = {
+  animation: 'fadeIn' as const,
+  duration: 110,
+  easing: 'ease-out' as const,
+  stagger: 10,
+  sep: 'word' as const,
+  maxBacklogMs: 140,
+};
+const STREAMDOWN_COMPONENTS = {
+  p({ children: pChildren }: { children?: React.ReactNode }) {
+    return <p style={{ margin: '0 0 8px 0' }}>{pChildren}</p>;
+  },
+  ul({ children: ulChildren }: { children?: React.ReactNode }) {
+    return <ul style={{ margin: '0 0 8px 0', paddingLeft: '18px' }}>{ulChildren}</ul>;
+  },
+  ol({ children: olChildren }: { children?: React.ReactNode }) {
+    return <ol style={{ margin: '0 0 8px 0', paddingLeft: '18px' }}>{olChildren}</ol>;
+  },
+};
+
+export const MessageResponse = React.memo(function MessageResponse({
   children,
   isStreaming = false,
 }: {
   children: string;
   isStreaming?: boolean;
 }) {
-  const normalized = normalizeMarkdownFences(children);
+  const normalized = useMemo(() => normalizeMarkdownFences(children), [children]);
   return (
     <div className="gram-markdown" style={{ fontSize: '13px', lineHeight: 1.6 }}>
       <Streamdown
-        plugins={{ mermaid: mermaidPlugin }}
+        plugins={STREAMDOWN_PLUGINS}
         isAnimating={isStreaming}
-        animated={
-          isStreaming
-            ? {
-                animation: 'fadeIn',
-                duration: 120,
-                easing: 'ease-out',
-                stagger: 12,
-                sep: 'word',
-                maxBacklogMs: 180,
-              }
-            : false
-        }
-        shikiTheme={['github-dark', 'github-dark']}
-        components={{
-          p({ children: pChildren }) {
-            return <p style={{ margin: '0 0 8px 0' }}>{pChildren}</p>;
-          },
-          ul({ children: ulChildren }) {
-            return <ul style={{ margin: '0 0 8px 0', paddingLeft: '18px' }}>{ulChildren}</ul>;
-          },
-          ol({ children: olChildren }) {
-            return <ol style={{ margin: '0 0 8px 0', paddingLeft: '18px' }}>{olChildren}</ol>;
-          },
-        }}
+        animated={isStreaming ? STREAMDOWN_ANIMATED : false}
+        shikiTheme={SHIKI_THEME}
+        components={STREAMDOWN_COMPONENTS}
       >
         {normalized}
       </Streamdown>
     </div>
   );
-}
+});

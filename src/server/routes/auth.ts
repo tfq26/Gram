@@ -208,6 +208,13 @@ export async function handleAuthRoutes(
         : body.returnTo || `${origin}/`;
       const hubUrl = getLyraHubUrl();
       const providers = await fetchLyraAuthProviders();
+      if (!providers.reachable) {
+        if (hid) pendingDesktopHandoffs.delete(hid);
+        return errorResponse(
+          `Unable to reach Lyra Hub (${hubUrl}): ${providers.error || 'connection failed'}. Check your network or VPN.`,
+          503
+        );
+      }
       if (!providers.googleEnabled) {
         if (hid) pendingDesktopHandoffs.delete(hid);
         return errorResponse('Google sign-in is not configured on Lyra Hub.', 400);
@@ -238,6 +245,7 @@ export async function handleAuthRoutes(
       if (!state.connected || !state.authenticated || !state.user) {
         return errorResponse('Invalid or expired Lyra session token.', 401);
       }
+      runtime.cacheHubSession(token, state.user);
       if (hid && pendingDesktopHandoffs.has(hid)) {
         pendingDesktopHandoffs.set(hid, { token, createdAt: Date.now() });
         if (process.platform === 'darwin') {

@@ -9,6 +9,7 @@ import {
   XIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { ExecutionEnvironment, WorkerTelemetry } from '../../lib/types';
 
 export interface IslandActivity {
   runId: string;
@@ -20,7 +21,11 @@ export interface IslandActivity {
   projectId?: string;
   projectLabel?: string;
   kind?: 'agent' | 'swarm';
-  workers?: Array<{ id?: string; name?: string; status?: string }>;
+  environment?: ExecutionEnvironment;
+  modelId?: string;
+  stagedFileCount?: number;
+  reviewLayerId?: string;
+  workers?: WorkerTelemetry[];
   pendingApproval?: {
     id: string;
     title: string;
@@ -66,6 +71,14 @@ function getProgress(item: IslandActivity): { completed: number; total: number; 
     total: 1,
     percent: item.stage === 'completed' ? 100 : item.stage === 'executing' || item.isActive ? 45 : 20,
   };
+}
+
+function cleanTaskTitle(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .replace(/^["'“”‘’`]+|["'“”‘’`]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Untitled task';
 }
 
 function getStageLabel(item: IslandActivity): string {
@@ -116,6 +129,7 @@ export function DynamicIslandBar({
   onApproveActivity,
   onStopActivity,
   onContinueActivity,
+  onOpenMissionControl,
 }: {
   activities: IslandActivity[];
   activeSessionId: string;
@@ -123,6 +137,7 @@ export function DynamicIslandBar({
   onApproveActivity: (activity: IslandActivity, approved: boolean) => void;
   onStopActivity: (runId: string) => void;
   onContinueActivity?: (activity: IslandActivity, feedback: string) => Promise<void> | void;
+  onOpenMissionControl?: () => void;
 }) {
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -214,29 +229,45 @@ export function DynamicIslandBar({
         const progress = getProgress(item);
         const showProject = item.projectLabel && item.projectLabel !== 'Local workspace';
         const timeInfo = formatTaskTimestamp(item.updatedAt, now);
+        const displayTitle = cleanTaskTitle(item.title);
+        const showStepCount =
+          (isSwarm && Boolean(item.workers?.length)) ||
+          (isRunning && progress.total > 1);
 
         return (
           <div key={item.runId} className="relative flex items-center">
             <div
               className={cn(
-                'flex h-[30px] items-center gap-1.5 rounded-full border px-2.5 text-xs transition-all duration-200',
+                'relative flex h-[30px] items-center gap-1.5 overflow-hidden rounded-full border px-3 text-xs transition-all duration-200',
                 needsApproval
-                  ? 'border-[color-mix(in_srgb,var(--warning)_45%,var(--border-color))] bg-[var(--bg-body)]'
+                  ? 'border-[color-mix(in_srgb,var(--warning)_50%,var(--border-color))] bg-[var(--bg-panel)]'
                   : isRunning
-                    ? 'border-[color-mix(in_srgb,var(--accent)_45%,var(--border-color))] bg-[var(--bg-body)]'
+                    ? 'border-[color-mix(in_srgb,var(--accent)_45%,var(--border-color))] bg-[var(--bg-panel)]'
                     : isCurrentChat
                       ? 'border-[var(--border-focus)] bg-[var(--bg-panel-subtle)]'
-                      : 'border-[var(--border-color)] bg-[var(--bg-body)] hover:bg-[var(--bg-hover)]'
+                      : 'border-[var(--border-color)] bg-[var(--bg-panel)] hover:border-[var(--border-focus)] hover:bg-[var(--bg-hover)]'
               )}
             >
+              {isRunning && (
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] origin-left transition-transform duration-300 ease-out"
+                  style={{
+                    backgroundColor: 'var(--accent)',
+                    opacity: 0.75,
+                    transform: `scaleX(${Math.max(0.08, Math.min(1, progress.percent / 100))}) translateZ(0)`,
+                  }}
+                />
+              )}
+
               <button
                 type="button"
-                className="flex min-w-0 items-center gap-1.5 bg-transparent text-left focus:outline-none"
+                className="flex min-w-0 items-center gap-2 bg-transparent text-left focus:outline-none"
                 onClick={() => {
                   acknowledgeRun(item.runId);
                   onSelectActivity(item);
                 }}
-                title={`Open chat: ${item.title}`}
+                title={`${showProject ? `${item.projectLabel} · ` : ''}${displayTitle}${timeInfo ? ` (${timeInfo.relative})` : ''}`}
               >
                 {needsApproval ? (
                   <span
@@ -259,30 +290,21 @@ export function DynamicIslandBar({
                   />
                 )}
 
-                {showProject && (
-                  <span className="max-w-[76px] truncate text-[11px] text-[var(--text-muted)]">
+                <span className="max-w-[210px] truncate font-medium text-[var(--text-primary)]">
+                  {displayTitle}
+                </span>
+
+                {showProject && !isCurrentChat && (
+                  <span className="hidden max-w-[96px] truncate rounded-full bg-[var(--bg-panel-subtle)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] sm:inline-block">
                     {item.projectLabel}
                   </span>
                 )}
 
-                <span className="max-w-[130px] truncate font-medium text-[var(--text-primary)]">
-                  {item.title}
-                </span>
-
-                {(isRunning || isSwarm) && (
-                  <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-muted)]">
+                {showStepCount && (
+                  <span className="shrink-0 rounded-full bg-[var(--bg-panel-subtle)] px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-[var(--text-secondary)]">
                     {isSwarm && item.workers?.length
-                      ? `${item.workers.length}`
+                      ? `${item.workers.length}w`
                       : `${progress.completed}/${progress.total}`}
-                  </span>
-                )}
-
-                {timeInfo && (
-                  <span
-                    className="shrink-0 text-[10px] tabular-nums text-[var(--text-muted)]"
-                    title={timeInfo.exact}
-                  >
-                    {timeInfo.relative}
                   </span>
                 )}
               </button>
@@ -340,16 +362,17 @@ export function DynamicIslandBar({
 
             {isExpanded && (
               <div
-                className="absolute left-0 top-[calc(100%+8px)] z-[9999] w-[310px] rounded-2xl border border-[var(--border-color)] bg-[var(--bg-body)] p-3 shadow-2xl"
+                className="gram-msg-enter absolute left-0 top-[calc(100%+8px)] z-[200] w-[328px] rounded-2xl border border-[var(--border-focus)] bg-[var(--bg-panel)] p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.65)]"
+                style={{ backgroundColor: 'var(--bg-panel)' }}
                 data-slot="dynamic-island-widget"
               >
                 <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--text-muted)]">
-                  <span className="truncate font-medium text-[var(--text-secondary)]">
+                  <span className="min-w-0 flex-1 truncate font-medium text-[var(--text-secondary)]">
                     {item.projectLabel || 'Local workspace'}
                     {isSwarm ? ' · Swarm' : ''}
                   </span>
                   <span
-                    className="shrink-0 font-medium"
+                    className="shrink-0 whitespace-nowrap font-medium"
                     title={timeInfo?.exact}
                     style={{
                       color: needsApproval
@@ -367,7 +390,7 @@ export function DynamicIslandBar({
                 </div>
 
                 <div className="mt-1.5 line-clamp-2 text-xs font-medium leading-snug text-[var(--text-primary)]">
-                  {item.prompt || item.title}
+                  {displayTitle}
                 </div>
 
                 {(isRunning || needsApproval) && (
@@ -586,6 +609,18 @@ export function DynamicIslandBar({
                   </button>
                 );
               })}
+              {onOpenMissionControl && (
+                <button
+                  type="button"
+                  className="mt-1 border-t border-[var(--border-color)] px-2.5 pt-2 pb-1 text-left text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] cursor-pointer"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    onOpenMissionControl();
+                  }}
+                >
+                  Open Mission Control →
+                </button>
+              )}
             </div>
           )}
         </div>

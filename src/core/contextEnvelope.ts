@@ -39,6 +39,19 @@ export interface ContextEnvelopeState {
   headroomCompressedCount: number;
 }
 
+export interface HandoffCapsule {
+  sessionId: string;
+  fromModelId: string;
+  toModelId: string;
+  fromFamily: ModelFamily;
+  toFamily: ModelFamily;
+  reason: string;
+  pinnedFacts: Record<string, string>;
+  activePlan: PlanNode[];
+  recentTurns: TrajectoryStep[];
+  createdAt: string;
+}
+
 export class ContextEnvelope {
   public state: ContextEnvelopeState;
 
@@ -285,6 +298,40 @@ Rules:
         },
       },
     ];
+  }
+
+  /**
+   * Builds a provider-neutral HandoffCapsule to transfer session state cleanly
+   * to a different model/family without leaking provider-locked thinking blocks.
+   */
+  public buildHandoffCapsule(
+    targetModelId: string,
+    reason = 'user_handoff',
+    recentLimit = 6
+  ): HandoffCapsule {
+    const toFamily = ContextEnvelope.detectFamily(targetModelId);
+    const recentTurns = this.state.trajectory.slice(-Math.max(1, recentLimit)).map((step) => ({
+      sequence: step.sequence,
+      role: step.role,
+      content: step.content,
+      toolCalls: step.toolCalls,
+      timestamp: step.timestamp,
+    }));
+    const capsule: HandoffCapsule = {
+      sessionId: this.state.sessionId,
+      fromModelId: this.state.activeModel,
+      toModelId: targetModelId,
+      fromFamily: this.state.activeFamily,
+      toFamily,
+      reason,
+      pinnedFacts: { ...this.state.pinnedFacts },
+      activePlan: this.state.activePlan.map((p) => ({ ...p, dependencies: [...p.dependencies] })),
+      recentTurns,
+      createdAt: new Date().toISOString(),
+    };
+    this.state.activeModel = targetModelId;
+    this.state.activeFamily = toFamily;
+    return capsule;
   }
 
   /**

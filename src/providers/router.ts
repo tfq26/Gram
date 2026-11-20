@@ -6,11 +6,19 @@
  * - OpenRouter: Verified coding models (DeepSeek, Qwen, Mistral, GLM, Kimi, Gemini 4, Muse Spark, Grok)
  */
 
-export type ModelProvider = 'bedrock' | 'openrouter';
+export type ModelProvider = 'bedrock' | 'foundry' | 'openrouter';
 export type PrivacyMode = 'standard' | 'zdr' | 'local-only';
+export type WorkflowKind =
+  | 'coding'
+  | 'research'
+  | 'long-context'
+  | 'world-social'
+  | 'triage-routing'
+  | 'fast-utility';
 export type ModelFamily =
   | 'anthropic'
   | 'openai'
+  | 'microsoft'
   | 'amazon'
   | 'meta'
   | 'deepseek'
@@ -19,18 +27,23 @@ export type ModelFamily =
   | 'glm'
   | 'kimi'
   | 'gemini'
-  | 'xai';
+  | 'xai'
+  | 'minimax'
+  | 'nvidia'
+  | 'cohere';
 
 export interface ModelProfile {
   id: string;
   name: string;
   provider: ModelProvider;
   family: ModelFamily;
+  workflows?: WorkflowKind[];
   inputPricePerM: number;
   outputPricePerM: number;
   contextWindow: number;
   supportsPromptCaching: boolean;
   contributorWarning?: string;
+  autoEligible?: boolean;
   capabilities: {
     coding: number;
     reasoning: number;
@@ -75,16 +88,16 @@ export const MODEL_REGISTRY: Record<string, ModelProfile> = {
     supportsPromptCaching: false,
     capabilities: { coding: 85, reasoning: 84, speed: 88 },
   },
-  'us.amazon.nova-2-pro-v1:0': {
-    id: 'us.amazon.nova-2-pro-v1:0',
-    name: 'Amazon Nova 2 Pro',
+  'us.amazon.nova-pro-v1:0': {
+    id: 'us.amazon.nova-pro-v1:0',
+    name: 'Amazon Nova Pro',
     provider: 'bedrock',
     family: 'amazon',
     inputPricePerM: 0.8,
     outputPricePerM: 3.2,
     contextWindow: 300_000,
     supportsPromptCaching: true,
-    capabilities: { coding: 89, reasoning: 88, speed: 91 },
+    capabilities: { coding: 88, reasoning: 85, speed: 91 },
   },
   'us.openai.gpt-6-luna': {
     id: 'us.openai.gpt-6-luna',
@@ -336,17 +349,292 @@ export const MODEL_REGISTRY: Record<string, ModelProfile> = {
     name: 'Kimi K3.1 Pro',
     provider: 'openrouter',
     family: 'kimi',
+    workflows: ['long-context', 'coding', 'research'],
     inputPricePerM: 1.5,
     outputPricePerM: 9.0,
     contextWindow: 262_144,
     supportsPromptCaching: false,
     capabilities: { coding: 96, reasoning: 98, speed: 79 },
   },
+
+  // ── Microsoft Foundry (MAI, Phi, Azure OpenAI, xAI) ──────────────────────
+  'gpt-4o': {
+    id: 'gpt-4o',
+    name: 'GPT-4o',
+    provider: 'foundry',
+    family: 'openai',
+    workflows: ['coding', 'fast-utility', 'research'],
+    inputPricePerM: 2.5,
+    outputPricePerM: 10.0,
+    contextWindow: 128_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 90, reasoning: 90, speed: 94 },
+  },
+  'MAI-Code-1.1-Flash': {
+    id: 'MAI-Code-1.1-Flash',
+    name: 'MAI Code 1.1 Flash',
+    provider: 'foundry',
+    family: 'microsoft',
+    workflows: ['coding', 'fast-utility'],
+    inputPricePerM: 0.3,
+    outputPricePerM: 1.2,
+    contextWindow: 128_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 92, reasoning: 89, speed: 96 },
+  },
+  'MAI-Thinking-1': {
+    id: 'MAI-Thinking-1',
+    name: 'MAI Thinking 1',
+    provider: 'foundry',
+    family: 'microsoft',
+    workflows: ['research', 'coding'],
+    inputPricePerM: 0.8,
+    outputPricePerM: 3.2,
+    contextWindow: 128_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 90, reasoning: 94, speed: 88 },
+  },
+  'mai-code-2': {
+    id: 'mai-code-2',
+    name: 'MAI Code 2',
+    provider: 'foundry',
+    family: 'microsoft',
+    workflows: ['coding'],
+    inputPricePerM: 1.0,
+    outputPricePerM: 4.0,
+    contextWindow: 256_000,
+    supportsPromptCaching: false,
+    autoEligible: false,
+    capabilities: { coding: 97, reasoning: 95, speed: 92 },
+  },
+  'microsoft-decision-1.1': {
+    id: 'microsoft-decision-1.1',
+    name: 'Microsoft Decision 1.1',
+    provider: 'foundry',
+    family: 'microsoft',
+    workflows: ['triage-routing', 'fast-utility'],
+    inputPricePerM: 0.08,
+    outputPricePerM: 0.25,
+    contextWindow: 128_000,
+    supportsPromptCaching: false,
+    autoEligible: false,
+    capabilities: { coding: 82, reasoning: 86, speed: 99 },
+  },
+  'MAI-DS-R1': {
+    id: 'MAI-DS-R1',
+    name: 'MAI-DS-R1',
+    provider: 'foundry',
+    family: 'microsoft',
+    workflows: ['research', 'coding'],
+    inputPricePerM: 1.35,
+    outputPricePerM: 5.4,
+    contextWindow: 128_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 94, reasoning: 95, speed: 84 },
+  },
+  'MAI-1': {
+    id: 'MAI-1',
+    name: 'MAI-1',
+    provider: 'foundry',
+    family: 'microsoft',
+    workflows: ['fast-utility', 'research'],
+    inputPricePerM: 0.4,
+    outputPricePerM: 1.6,
+    contextWindow: 128_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 88, reasoning: 90, speed: 93 },
+  },
+  'Phi-4-reasoning': {
+    id: 'Phi-4-reasoning',
+    name: 'Phi-4 Reasoning',
+    provider: 'foundry',
+    family: 'microsoft',
+    workflows: ['fast-utility', 'triage-routing'],
+    inputPricePerM: 0.1,
+    outputPricePerM: 0.4,
+    contextWindow: 128_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 84, reasoning: 86, speed: 97 },
+  },
+
+  // ── Additional Live Bedrock Models (Inference Profile & On-Demand) ───────
+  'us.anthropic.claude-fable-5-2': {
+    id: 'us.anthropic.claude-fable-5-2',
+    name: 'Claude Fable 5.2',
+    provider: 'bedrock',
+    family: 'anthropic',
+    workflows: ['coding', 'research'],
+    inputPricePerM: 4.0,
+    outputPricePerM: 20.0,
+    contextWindow: 200_000,
+    supportsPromptCaching: true,
+    autoEligible: false,
+    capabilities: { coding: 98, reasoning: 98, speed: 86 },
+  },
+  'us.openai.gpt-6.2-sol': {
+    id: 'us.openai.gpt-6.2-sol',
+    name: 'GPT-6.2 Sol',
+    provider: 'bedrock',
+    family: 'openai',
+    workflows: ['coding', 'research'],
+    inputPricePerM: 3.5,
+    outputPricePerM: 14.0,
+    contextWindow: 400_000,
+    supportsPromptCaching: true,
+    autoEligible: false,
+    capabilities: { coding: 98, reasoning: 98, speed: 85 },
+  },
+  'us.openai.gpt-6.2-astra': {
+    id: 'us.openai.gpt-6.2-astra',
+    name: 'GPT-6.2 Astra',
+    provider: 'bedrock',
+    family: 'openai',
+    workflows: ['research', 'coding'],
+    inputPricePerM: 10.0,
+    outputPricePerM: 40.0,
+    contextWindow: 400_000,
+    supportsPromptCaching: true,
+    autoEligible: false,
+    capabilities: { coding: 99, reasoning: 100, speed: 75 },
+  },
+  'us.xai.grok-4.7': {
+    id: 'us.xai.grok-4.7',
+    name: 'Grok 4.7',
+    provider: 'bedrock',
+    family: 'xai',
+    workflows: ['world-social', 'research'],
+    inputPricePerM: 3.0,
+    outputPricePerM: 15.0,
+    contextWindow: 256_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 92, reasoning: 95, speed: 88 },
+  },
+  'us.xai.grok-4.6': {
+    id: 'us.xai.grok-4.6',
+    name: 'Grok 4.6',
+    provider: 'bedrock',
+    family: 'xai',
+    workflows: ['world-social', 'fast-utility'],
+    inputPricePerM: 1.5,
+    outputPricePerM: 7.5,
+    contextWindow: 256_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 89, reasoning: 91, speed: 92 },
+  },
+  'deepseek.v3.2': {
+    id: 'deepseek.v3.2',
+    name: 'DeepSeek V3.2',
+    provider: 'bedrock',
+    family: 'deepseek',
+    workflows: ['coding', 'fast-utility'],
+    inputPricePerM: 0.3,
+    outputPricePerM: 1.2,
+    contextWindow: 128_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 93, reasoning: 91, speed: 92 },
+  },
+  'us.moonshotai.kimi-k3.1': {
+    id: 'us.moonshotai.kimi-k3.1',
+    name: 'Kimi K3.1',
+    provider: 'bedrock',
+    family: 'kimi',
+    workflows: ['long-context', 'coding', 'research'],
+    inputPricePerM: 1.2,
+    outputPricePerM: 6.0,
+    contextWindow: 256_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 95, reasoning: 96, speed: 82 },
+  },
+  'us.zai.glm-5.3': {
+    id: 'us.zai.glm-5.3',
+    name: 'GLM 5.3',
+    provider: 'bedrock',
+    family: 'glm',
+    workflows: ['coding', 'fast-utility'],
+    inputPricePerM: 0.4,
+    outputPricePerM: 1.6,
+    contextWindow: 200_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 92, reasoning: 90, speed: 93 },
+  },
+  'qwen.qwen3-coder-next': {
+    id: 'qwen.qwen3-coder-next',
+    name: 'Qwen3 Coder Next',
+    provider: 'bedrock',
+    family: 'qwen',
+    workflows: ['coding'],
+    inputPricePerM: 0.35,
+    outputPricePerM: 1.4,
+    contextWindow: 256_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 94, reasoning: 90, speed: 92 },
+  },
+  'mistral.devstral-2-123b': {
+    id: 'mistral.devstral-2-123b',
+    name: 'Devstral 2 123B',
+    provider: 'bedrock',
+    family: 'mistral',
+    workflows: ['coding'],
+    inputPricePerM: 0.4,
+    outputPricePerM: 1.6,
+    contextWindow: 256_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 93, reasoning: 89, speed: 90 },
+  },
+  'mistral.mistral-large-3-675b-instruct': {
+    id: 'mistral.mistral-large-3-675b-instruct',
+    name: 'Mistral Large 3 (675B)',
+    provider: 'bedrock',
+    family: 'mistral',
+    workflows: ['research', 'coding'],
+    inputPricePerM: 2.0,
+    outputPricePerM: 6.0,
+    contextWindow: 256_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 91, reasoning: 93, speed: 84 },
+  },
+  'minimax.minimax-m2.5': {
+    id: 'minimax.minimax-m2.5',
+    name: 'MiniMax M2.5',
+    provider: 'bedrock',
+    family: 'minimax',
+    workflows: ['coding', 'fast-utility'],
+    inputPricePerM: 0.3,
+    outputPricePerM: 1.2,
+    contextWindow: 200_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 91, reasoning: 88, speed: 93 },
+  },
+  'nvidia.nemotron-super-3-120b': {
+    id: 'nvidia.nemotron-super-3-120b',
+    name: 'NVIDIA Nemotron 3 Super 120B',
+    provider: 'bedrock',
+    family: 'nvidia',
+    workflows: ['research', 'coding'],
+    inputPricePerM: 0.45,
+    outputPricePerM: 1.8,
+    contextWindow: 128_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 89, reasoning: 90, speed: 91 },
+  },
+  'openai.gpt-oss-120b-1:0': {
+    id: 'openai.gpt-oss-120b-1:0',
+    name: 'GPT OSS 120B',
+    provider: 'bedrock',
+    family: 'openai',
+    workflows: ['fast-utility', 'research'],
+    inputPricePerM: 0.25,
+    outputPricePerM: 1.0,
+    contextWindow: 128_000,
+    supportsPromptCaching: false,
+    capabilities: { coding: 87, reasoning: 88, speed: 94 },
+  },
 };
 
 export interface RouteRequest {
   taskComplexity: 'simple' | 'moderate' | 'complex' | 'architecture';
   priority: 'cost' | 'balanced' | 'speed' | 'frontier' | 'planning';
+  workflow?: WorkflowKind;
   pinnedModelId?: string;
 }
 
@@ -396,12 +684,26 @@ export function selectOptimalModel(request: RouteRequest & { privacyMode?: Priva
 
   const allModels = listAllowedModels();
   const hasOpenRouter = Boolean(process.env.OPENROUTER_API_KEY);
-  const providerFiltered = hasOpenRouter ? allModels : allModels.filter((m) => m.provider === 'bedrock');
+  const viaLyraGateway = process.env.GRAM_DIRECT_LLM !== 'true';
+  const hasFoundry =
+    viaLyraGateway ||
+    Boolean(process.env.AZURE_FOUNDRY_ENDPOINT || process.env.LYRA_MANAGED_FOUNDRY_ENDPOINT);
+  const providerFiltered = allModels.filter(
+    (m) =>
+      m.autoEligible !== false &&
+      (m.provider === 'bedrock' ||
+        (m.provider === 'openrouter' && hasOpenRouter) ||
+        (m.provider === 'foundry' && hasFoundry))
+  );
   const privacyFiltered = privacyMode === 'zdr'
     ? providerFiltered.filter((m) => !m.contributorWarning)
     : providerFiltered;
-  const availableModels = privacyFiltered.filter((m) => !unavailableModels.has(m.id));
-  const models = availableModels.length > 0 ? availableModels : privacyFiltered;
+  const workflowFiltered = request.workflow
+    ? privacyFiltered.filter((m) => m.workflows?.includes(request.workflow!))
+    : [];
+  const workflowPool = workflowFiltered.length > 0 ? workflowFiltered : privacyFiltered;
+  const availableModels = workflowPool.filter((m) => !unavailableModels.has(m.id));
+  const models = availableModels.length > 0 ? availableModels : workflowPool;
 
   if (request.priority === 'cost' || request.taskComplexity === 'simple') {
     return models

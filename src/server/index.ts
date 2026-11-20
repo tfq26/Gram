@@ -10,6 +10,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { GramAgentRuntime } from '../runtime/agentRuntime';
+import { ContextEnvelope } from '../core/contextEnvelope';
 import { formatUnifiedDiff } from '../runtime/agentTools';
 import { handleProjectRoutes } from './routes/projects';
 import { handleSystemRoutes } from './routes/processes';
@@ -24,7 +25,7 @@ import { GramConnectManager } from '../sync/connectPresence';
 import { AUTO_MODEL_ID, isAllowedModel, listAllowedModels, selectOptimalModel } from '../providers/router';
 import { streamLlmTurn } from '../providers/llmClient';
 import { extractCookieValue, fetchLyraAuthProviders, fetchLyraAuthState, proxyLyraJson } from './lyraClient';
-import { listElevenLabsVoices, readAudioBody, synthesizeSpeech, transcribeAudio } from './voice';
+import { listAvailableVoices, readAudioBody, synthesizeSpeech, transcribeAudio } from './voice';
 import { sharedProcessManager } from '../runtime/processManager';
 import { getAppHtml } from './classicShell';
 import { generateContextAwarePlanIdeas, type PlanIdeaMessage } from './planIdeas';
@@ -56,32 +57,40 @@ connect.recordHeartbeat({
   isExecutionHost: true,
 });
 
+let activeSyncPromise: Promise<{ synced: boolean; latestSeq: number }> | null = null;
+
 async function syncWithLyraHub(req?: Request): Promise<{ synced: boolean; latestSeq: number }> {
-  const dirty = runtime.getDirtySyncPayload();
-  try {
-    const res = await proxyLyraJson(
-      req || new Request('http://localhost/api/sync'),
-      '/api/ahp/sync',
-      { method: 'POST', body: dirty }
-    );
-    if (!res.ok) {
+  if (activeSyncPromise) return activeSyncPromise;
+  activeSyncPromise = (async () => {
+    const dirty = runtime.getDirtySyncPayload();
+    try {
+      const res = await proxyLyraJson(
+        req || new Request('http://localhost/api/sync'),
+        '/api/ahp/sync',
+        { method: 'POST', body: dirty }
+      );
+      if (!res.ok) {
+        return { synced: false, latestSeq: dirty.sinceSeq };
+      }
+      const delta = (await res.json()) as {
+        latestSeq: number;
+        chats?: any[];
+        tasks?: any[];
+        deletedChatIds?: string[];
+      };
+      runtime.applyRemoteSyncDelta({
+        ...delta,
+        pushedChats: dirty.chats.map((c) => ({ sessionId: c.sessionId, revision: c.revision })),
+        pushedRunKeys: dirty.tasks.map((t) => ({ sessionId: t.sessionId, runId: t.runId })),
+      });
+      return { synced: true, latestSeq: delta.latestSeq ?? dirty.sinceSeq };
+    } catch {
       return { synced: false, latestSeq: dirty.sinceSeq };
+    } finally {
+      activeSyncPromise = null;
     }
-    const delta = (await res.json()) as {
-      latestSeq: number;
-      chats?: any[];
-      tasks?: any[];
-      deletedChatIds?: string[];
-    };
-    runtime.applyRemoteSyncDelta({
-      ...delta,
-      pushedChats: dirty.chats.map((c) => ({ sessionId: c.sessionId, revision: c.revision })),
-      pushedRunKeys: dirty.tasks.map((t) => ({ sessionId: t.sessionId, runId: t.runId })),
-    });
-    return { synced: true, latestSeq: delta.latestSeq ?? dirty.sinceSeq };
-  } catch {
-    return { synced: false, latestSeq: dirty.sinceSeq };
-  }
+  })();
+  return activeSyncPromise;
 }
 
 function createLyraToolBridge(req: Request) {
@@ -347,6 +356,12 @@ async function handleRequest(req: Request): Promise<Response> {
         internetCheckPromise,
       ]);
       const localUser = runtime.getUserBySessionToken(localToken);
+      if (lyraState.connected && lyraState.authenticated && lyraState.user && lyraToken) {
+        runtime.cacheHubSession(lyraToken, lyraState.user);
+      } else if (lyraState.connected && !lyraState.authenticated && lyraToken) {
+        runtime.invalidateCachedHubSession(lyraToken);
+      }
+      const cachedHub = !lyraState.connected && lyraToken ? runtime.getCachedHubSession(lyraToken) : null;
       const auth =
         lyraState.connected && lyraState.authenticated && lyraState.user
           ? {
@@ -355,6 +370,16 @@ async function handleRequest(req: Request): Promise<Response> {
               user: lyraState.user,
               source: 'lyra',
               lyraConnected: true,
+              googleEnabled: providers.googleEnabled,
+              hubUrl: lyraState.hubUrl,
+            }
+          : cachedHub
+          ? {
+              connected: false,
+              authenticated: true,
+              user: cachedHub.user,
+              source: 'lyra-cached',
+              lyraConnected: false,
               googleEnabled: providers.googleEnabled,
               hubUrl: lyraState.hubUrl,
             }
@@ -413,9 +438,11 @@ async function handleRequest(req: Request): Promise<Response> {
           ok: auth.authenticated && !tokenExpired,
           message: tokenExpired
             ? 'Your login session token is expired or invalid. Please sign in again.'
-            : auth.authenticated
-              ? 'Signed in and session token is valid.'
-              : 'Not signed in. Cloud sync and Lyra Hub features require signing in.',
+            : auth.source === 'lyra-cached'
+              ? 'Signed in (offline cached session — will re-sync when Lyra Hub is reachable).'
+              : auth.authenticated
+                ? 'Signed in and session token is valid.'
+                : 'Not signed in. Cloud sync and Lyra Hub features require signing in.',
           action: 'signin' as const,
         },
         {
@@ -572,6 +599,91 @@ async function handleRequest(req: Request): Promise<Response> {
       return jsonResponse({ archived: true, sessionId: body.sessionId });
     }
 
+    if (url.pathname === '/api/chat/fork' && req.method === 'POST') {
+      try {
+        const body = (await req.json()) as {
+          sessionId?: string;
+          messageId?: string;
+          modelId?: string;
+          mode?: 'chat' | 'code';
+          title?: string;
+        };
+        if (!body.sessionId) return errorResponse('sessionId is required', 400);
+        const latestCheckpoint = runtime.listRecentTasks(50).find((cp) => cp.sessionId === body.sessionId);
+        const forked = runtime.forkChatSession({
+          sourceSessionId: String(body.sessionId),
+          messageId: body.messageId ? String(body.messageId) : undefined,
+          targetModelId: body.modelId ? String(body.modelId) : undefined,
+          targetMode: body.mode === 'code' || body.mode === 'chat' ? body.mode : undefined,
+          title: body.title ? String(body.title) : undefined,
+          baseCheckpointRunId: latestCheckpoint?.runId,
+        });
+        if (!forked) return errorResponse('Source chat session not found', 404);
+        void syncWithLyraHub(req);
+        return jsonResponse({ session: forked });
+      } catch (err: any) {
+        return errorResponse(err?.message || 'Could not fork chat session.', 400);
+      }
+    }
+
+    if (url.pathname === '/api/chat/handoff' && req.method === 'POST') {
+      try {
+        const body = (await req.json()) as {
+          sessionId?: string;
+          fromModelId?: string;
+          toModelId?: string;
+          reason?: string;
+          messages?: Array<{ role?: string; content?: string; id?: string }>;
+        };
+        if (!body.toModelId) return errorResponse('toModelId is required', 400);
+        const sessionId = body.sessionId ? String(body.sessionId) : `handoff-${Date.now()}`;
+        const saved = body.sessionId ? runtime.getChatSession(sessionId) : null;
+        const fromModelId = String(body.fromModelId || saved?.modelId || 'auto');
+        const envelope = new ContextEnvelope({
+          sessionId,
+          workspacePath: cwd,
+          activeModel: fromModelId,
+          activeFamily: ContextEnvelope.detectFamily(fromModelId),
+          pinnedFacts: runtime.getLatestPinnedFacts(body.sessionId ? sessionId : undefined),
+        });
+        const sourceMessages = Array.isArray(body.messages)
+          ? body.messages
+          : Array.isArray(saved?.messages)
+          ? (saved!.messages as Array<{ role?: string; content?: string }>)
+          : [];
+        for (const msg of sourceMessages.slice(-8)) {
+          if (msg && typeof msg.content === 'string' && msg.content.trim()) {
+            envelope.appendTurn({
+              role: msg.role === 'assistant' ? 'assistant' : 'user',
+              content: msg.content.trim().slice(0, 2000),
+            });
+          }
+        }
+        const capsule = envelope.buildHandoffCapsule(String(body.toModelId), body.reason || 'user_handoff');
+        if (saved) {
+          const handoffNotice = {
+            id: `handoff-${Date.now()}`,
+            role: 'assistant',
+            content: `Handed off from \`${capsule.fromModelId}\` to \`${capsule.toModelId}\` (${capsule.reason}).`,
+            handoff: capsule,
+          };
+          runtime.saveChatSession({
+            sessionId: saved.sessionId,
+            title: saved.title,
+            projectId: saved.projectId,
+            projectLabel: saved.projectLabel,
+            modelId: capsule.toModelId,
+            mode: saved.mode,
+            messages: [...saved.messages, handoffNotice],
+          });
+          void syncWithLyraHub(req);
+        }
+        return jsonResponse({ capsule });
+      } catch (err: any) {
+        return errorResponse(err?.message || 'Could not build model handoff.', 400);
+      }
+    }
+
     if (url.pathname === '/api/sync' && req.method === 'POST') {
       const syncResult = await syncWithLyraHub(req);
       return jsonResponse({
@@ -705,20 +817,22 @@ async function handleRequest(req: Request): Promise<Response> {
       }
       try {
         const audio = await readAudioBody(req);
-        const result = await transcribeAudio(audio, req.signal);
+        const provider = url.searchParams.get('provider') || req.headers.get('x-stt-provider') || undefined;
+        const result = await transcribeAudio(audio, req.signal, { provider });
         return jsonResponse(result);
       } catch (error: any) {
-        const status = error?.name === 'AbortError' ? 499 : error?.message?.includes('not configured') ? 503 : 502;
+        const status = error?.name === 'AbortError' ? 499 : /not configured|not available|not installed/i.test(String(error?.message || '')) ? 503 : 502;
         return errorResponse(error?.message || 'Transcription failed.', status);
       }
     }
 
     if (url.pathname === '/api/voice/voices' && req.method === 'GET') {
       try {
-        const result = await listElevenLabsVoices(req.signal);
+        const provider = url.searchParams.get('provider') || undefined;
+        const result = await listAvailableVoices(req.signal, provider);
         return jsonResponse(result);
       } catch (error: any) {
-        return errorResponse(error?.message || 'Could not load ElevenLabs voices.', 502);
+        return errorResponse(error?.message || 'Could not load voices.', 502);
       }
     }
 
@@ -726,6 +840,7 @@ async function handleRequest(req: Request): Promise<Response> {
       try {
         const body = (await req.json()) as {
           text?: string;
+          provider?: string;
           voiceId?: string;
           modelId?: string;
           stability?: number;
@@ -733,6 +848,7 @@ async function handleRequest(req: Request): Promise<Response> {
           speed?: number;
         };
         const response = await synthesizeSpeech(String(body.text || ''), req.signal, {
+          provider: body.provider,
           voiceId: body.voiceId,
           modelId: body.modelId,
           stability: body.stability,
@@ -743,7 +859,7 @@ async function handleRequest(req: Request): Promise<Response> {
           headers: { 'Content-Type': response.headers.get('content-type') || 'audio/mpeg', 'Cache-Control': 'no-store' },
         });
       } catch (error: any) {
-        const status = error?.name === 'AbortError' ? 499 : error?.message?.includes('must be configured') ? 503 : 502;
+        const status = error?.name === 'AbortError' ? 499 : /must be configured|not configured|not available|only available/i.test(String(error?.message || '')) ? 503 : 502;
         return errorResponse(error?.message || 'Speech generation failed.', status);
       }
     }
@@ -793,6 +909,57 @@ async function handleRequest(req: Request): Promise<Response> {
         }
       } catch (err: any) {
         return errorResponse(err?.message || 'Could not summarize chat handoff.', 400);
+      }
+    }
+
+    if (url.pathname === '/api/chat/summarize' && req.method === 'POST') {
+      try {
+        const body = (await req.json().catch(() => ({}))) as {
+          sessionId?: string;
+          messages?: Array<{ role?: string; content?: string }>;
+        };
+        let rawMessages = Array.isArray(body.messages) ? body.messages : [];
+        if (rawMessages.length === 0 && body.sessionId) {
+          const saved = runtime.getChatSession(String(body.sessionId));
+          if (saved && Array.isArray(saved.messages)) {
+            rawMessages = saved.messages as Array<{ role?: string; content?: string }>;
+          }
+        }
+        const transcript = rawMessages
+          .filter((m) => m && typeof m.content === 'string' && m.content.trim())
+          .slice(-24)
+          .map((m) => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content!.trim().slice(0, 1800)}`)
+          .join('\n\n');
+
+        if (!transcript) {
+          return jsonResponse({ summary: 'No messages to summarize in this chat yet.', source: 'empty' });
+        }
+
+        const fallbackSummary = rawMessages
+          .filter((m) => m && typeof m.content === 'string' && m.content.trim())
+          .slice(-6)
+          .map((m) => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content!.trim().slice(0, 320)}`)
+          .join('\n\n');
+
+        try {
+          const economyModel = selectOptimalModel({ taskComplexity: 'simple', priority: 'cost' });
+          const turn = await streamLlmTurn({
+            model: economyModel,
+            systemPrompt:
+              'Summarize the conversation details so far into a concise, clear summary (as long as needed, up to 5 paragraphs maximum). Cover the user goal, key decisions/findings, files or tools involved, and current state or next steps.',
+            messages: [{ role: 'user', content: transcript }],
+            tools: [],
+            effort: 'low',
+            authToken: extractRequestAuthToken(req),
+            signal: AbortSignal.timeout(12_000),
+          });
+          const summary = turn.text?.trim() || fallbackSummary;
+          return jsonResponse({ summary, modelId: economyModel.id, source: 'llm' });
+        } catch {
+          return jsonResponse({ summary: fallbackSummary, source: 'fallback' });
+        }
+      } catch (err: any) {
+        return errorResponse(err?.message || 'Could not summarize chat.', 400);
       }
     }
 

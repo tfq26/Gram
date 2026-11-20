@@ -54,6 +54,10 @@ export function initRuntimeSchema(db: Database): void {
     `ALTER TABLE chat_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'`,
     `ALTER TABLE chat_sessions ADD COLUMN revision INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE chat_sessions ADD COLUMN archived_at TEXT`,
+    `ALTER TABLE chat_sessions ADD COLUMN parent_session_id TEXT`,
+    `ALTER TABLE chat_sessions ADD COLUMN forked_from_message_id TEXT`,
+    `ALTER TABLE chat_sessions ADD COLUMN forked_at_sequence INTEGER`,
+    `ALTER TABLE chat_sessions ADD COLUMN base_checkpoint_run_id TEXT`,
   ]) {
     try {
       db.run(sql);
@@ -112,6 +116,16 @@ export function initRuntimeSchema(db: Database): void {
       token TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS cached_hub_sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      verified_at TEXT NOT NULL,
       expires_at TEXT NOT NULL
     );
   `);

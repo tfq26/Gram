@@ -93,4 +93,49 @@ export class AuthStore {
     if (!token) return;
     this.db.run(`DELETE FROM user_sessions WHERE token = ?`, [token]);
   }
+
+  private hashHubToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  public cacheHubSession(
+    token: string | undefined,
+    user: AuthUser,
+    ttlMs = 7 * 24 * 60 * 60 * 1000
+  ): void {
+    if (!token) return;
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+    this.db.run(
+      `INSERT INTO cached_hub_sessions (token_hash, user_id, name, email, verified_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(token_hash) DO UPDATE SET
+         user_id = excluded.user_id,
+         name = excluded.name,
+         email = excluded.email,
+         verified_at = excluded.verified_at,
+         expires_at = excluded.expires_at`,
+      [this.hashHubToken(token), user.id, user.name, user.email, now, expiresAt]
+    );
+  }
+
+  public getCachedHubSession(token: string | undefined): { user: AuthUser; verifiedAt: string } | null {
+    if (!token) return null;
+    const row = this.db.query<any, [string, string]>(
+      `SELECT user_id, name, email, verified_at
+       FROM cached_hub_sessions
+       WHERE token_hash = ? AND expires_at > ?
+       LIMIT 1`
+    ).get(this.hashHubToken(token), new Date().toISOString());
+    if (!row) return null;
+    return {
+      user: { id: row.user_id, name: row.name, email: row.email },
+      verifiedAt: row.verified_at,
+    };
+  }
+
+  public invalidateCachedHubSession(token: string | undefined): void {
+    if (!token) return;
+    this.db.run(`DELETE FROM cached_hub_sessions WHERE token_hash = ?`, [this.hashHubToken(token)]);
+  }
 }

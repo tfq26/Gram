@@ -133,6 +133,62 @@ export function SettingsView({
   }>>([]);
   const [clearConfirming, setClearConfirming] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [ttsProvider, setTtsProvider] = useState(() => readLocalSetting('ttsProvider', 'auto'));
+  const [ttsVoiceId, setTtsVoiceId] = useState(() =>
+    readLocalSetting('ttsVoiceId', readLocalSetting('elevenLabsVoiceId', ''))
+  );
+  const [voiceCatalog, setVoiceCatalog] = useState<{
+    providers: Array<{ id: string; label: string; available: boolean }>;
+    voices: Array<{ id: string; name: string; provider: string }>;
+  }>({ providers: [], voices: [] });
+  const [voiceTestStatus, setVoiceTestStatus] = useState<string>('');
+
+  async function refreshVoiceCatalog(providerOverride = ttsProvider) {
+    try {
+      const query = providerOverride && providerOverride !== 'auto' ? `?provider=${encodeURIComponent(providerOverride)}` : '';
+      const res = await fetch(`/api/voice/voices${query}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setVoiceCatalog({
+        providers: Array.isArray(data.providers) ? data.providers : [],
+        voices: Array.isArray(data.voices) ? data.voices : [],
+      });
+    } catch {}
+  }
+
+  async function handleTestVoice() {
+    setVoiceTestStatus('Playing...');
+    try {
+      const res = await fetch('/api/voice/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello! This is Gram testing your selected voice.',
+          provider: ttsProvider,
+          voiceId: ttsVoiceId || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        setVoiceTestStatus(err?.error || `Failed (${res.status})`);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        setVoiceTestStatus('');
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        setVoiceTestStatus('Playback failed');
+      };
+      await audio.play();
+    } catch (error: any) {
+      setVoiceTestStatus(error?.message || 'Test failed');
+    }
+  }
 
   async function refreshLiveData() {
     fetch('/api/skills')
@@ -159,6 +215,7 @@ export function SettingsView({
       .then((r) => r.json())
       .then((d) => setSyncConflicts(Array.isArray(d) ? d : []))
       .catch(() => {});
+    void refreshVoiceCatalog();
   }
 
   async function refreshPersonalContext() {
@@ -570,6 +627,58 @@ export function SettingsView({
                   >
                     <RefreshCwIcon size={12} className={syncStatus.loading ? 'animate-spin' : ''} />
                     <span>Sync Now</span>
+                  </Button>
+                </ItemActions>
+              </Item>
+
+              <Item className="rounded-none border-0 px-0 py-3.5">
+                <ItemContent>
+                  <ItemTitle>Voice &amp; text-to-speech</ItemTitle>
+                  <ItemDescription>
+                    Choose between macOS system speech and cloud TTS (ElevenLabs), then preview a voice.
+                    {voiceTestStatus ? ` (${voiceTestStatus})` : ''}
+                  </ItemDescription>
+                </ItemContent>
+                <ItemActions className="flex flex-wrap items-center gap-2">
+                  <select
+                    aria-label="TTS provider"
+                    value={ttsProvider}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setTtsProvider(next);
+                      writeLocalSetting('ttsProvider', next);
+                      setTtsVoiceId('');
+                      writeLocalSetting('ttsVoiceId', '');
+                      void refreshVoiceCatalog(next);
+                    }}
+                    className="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-1.5 text-xs text-[var(--text-primary)]"
+                  >
+                    <option value="auto">Auto</option>
+                    {voiceCatalog.providers.map((p) => (
+                      <option key={p.id} value={p.id} disabled={!p.available}>
+                        {p.label}{p.available ? '' : ' (unavailable)'}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="TTS voice"
+                    value={ttsVoiceId}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setTtsVoiceId(next);
+                      writeLocalSetting('ttsVoiceId', next);
+                    }}
+                    className="max-w-[180px] rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-1.5 text-xs text-[var(--text-primary)]"
+                  >
+                    <option value="">Default voice</option>
+                    {voiceCatalog.voices.map((v) => (
+                      <option key={`${v.provider}:${v.id}`} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button type="button" size="sm" variant="outline" onClick={() => void handleTestVoice()}>
+                    Test voice
                   </Button>
                 </ItemActions>
               </Item>

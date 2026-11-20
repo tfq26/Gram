@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capability for the main Gram desktop window.",
-  "windows": ["main"],
+  "windows": ["main", "mission-pip"],
   "permissions": [
     "core:default"
   ]

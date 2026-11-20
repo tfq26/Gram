@@ -2,13 +2,15 @@
 
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import {
+  externalServices,
+  type WebPageContent,
+  type WebPageFetcher,
+  type WebSearchProvider,
+  type WebSearchResult,
+} from '../services/externalContracts';
 
-export interface WebSearchResult {
-  title: string;
-  url: string;
-  snippet: string;
-  source: string;
-}
+export type { WebPageContent, WebSearchResult };
 
 const SEARCH_TIMEOUT_MS = 12_000;
 const FETCH_TIMEOUT_MS = 15_000;
@@ -232,6 +234,99 @@ function rankAndCleanResults(results: WebSearchResult[], query: string, count: n
   return unique.sort((a, b) => b.score - a.score || a.index - b.index).slice(0, count).map(({ result }) => result);
 }
 
+async function searchSearxng(query: string, count: number, signal?: AbortSignal): Promise<WebSearchResult[]> {
+  const baseUrl = process.env.SEARXNG_URL?.trim();
+  if (!baseUrl) return [];
+  const url = `${baseUrl.replace(/\/+$/, '')}/search?q=${encodeURIComponent(query)}&format=json`;
+  const response = await fetch(url, {
+    headers: { accept: 'application/json', 'user-agent': 'Gram-Assistant/1.0' },
+    signal: AbortSignal.any([AbortSignal.timeout(SEARCH_TIMEOUT_MS), ...(signal ? [signal] : [])]),
+  });
+  if (!response.ok) throw new Error(`SearXNG search returned HTTP ${response.status}.`);
+  const body = await response.json() as { results?: Array<{ title?: string; url?: string; content?: string }> };
+  return (body.results || []).flatMap((item) => {
+    const safeUrl = item.url ? safeHttpUrl(item.url) : null;
+    if (!safeUrl || !item.title) return [];
+    return [{ title: item.title, url: safeUrl, snippet: item.content || '', source: 'SearXNG' }];
+  }).slice(0, count);
+}
+
+export class SearxngSearchProvider implements WebSearchProvider {
+  public readonly id = 'searxng';
+  public readonly label = 'SearXNG';
+  public isAvailable(): boolean { return Boolean(process.env.SEARXNG_URL?.trim()); }
+  public search(query: string, count: number, signal?: AbortSignal): Promise<WebSearchResult[]> {
+    return searchSearxng(query, count, signal);
+  }
+}
+
+export class ParallelSearchProvider implements WebSearchProvider {
+  public readonly id = 'parallel';
+  public readonly label = 'Parallel';
+  public isAvailable(): boolean { return Boolean(process.env.PARALLEL_API_KEY?.trim()); }
+  public search(query: string, count: number, signal?: AbortSignal): Promise<WebSearchResult[]> {
+    return searchParallel(query, count, signal);
+  }
+}
+
+export class TavilySearchProvider implements WebSearchProvider {
+  public readonly id = 'tavily';
+  public readonly label = 'Tavily';
+  public isAvailable(): boolean { return Boolean(process.env.TAVILY_API_KEY?.trim()); }
+  public search(query: string, count: number, signal?: AbortSignal): Promise<WebSearchResult[]> {
+    return searchTavily(query, count, signal);
+  }
+}
+
+export class DuckDuckGoSearchProvider implements WebSearchProvider {
+  public readonly id = 'duckduckgo';
+  public readonly label = 'DuckDuckGo';
+  public isAvailable(): boolean { return true; }
+  public search(query: string, count: number, signal?: AbortSignal): Promise<WebSearchResult[]> {
+    return searchDuckDuckGo(query, count, signal);
+  }
+}
+
+export class GoogleNewsSearchProvider implements WebSearchProvider {
+  public readonly id = 'google-news';
+  public readonly label = 'Google News';
+  public isAvailable(query = ''): boolean {
+    return /\b(today|yesterday|latest|current|news|recent|this week|this month)\b/i.test(query);
+  }
+  public search(query: string, count: number, signal?: AbortSignal): Promise<WebSearchResult[]> {
+    return searchGoogleNews(query, count, signal);
+  }
+}
+
+export class WikipediaSearchProvider implements WebSearchProvider {
+  public readonly id = 'wikipedia';
+  public readonly label = 'Wikipedia';
+  public isAvailable(): boolean { return true; }
+  public search(query: string, count: number, signal?: AbortSignal): Promise<WebSearchResult[]> {
+    return searchWikipedia(query, count, signal);
+  }
+}
+
+export class DefaultWebPageFetcher implements WebPageFetcher {
+  public readonly id = 'default-http';
+  public fetchPage(url: string, signal?: AbortSignal): Promise<WebPageContent> {
+    return fetchWebContentDirect(url, signal);
+  }
+}
+
+export function registerDefaultWebProviders(): void {
+  externalServices.clearWebSearch();
+  externalServices.registerWebSearch(new SearxngSearchProvider());
+  externalServices.registerWebSearch(new ParallelSearchProvider());
+  externalServices.registerWebSearch(new TavilySearchProvider());
+  externalServices.registerWebSearch(new DuckDuckGoSearchProvider());
+  externalServices.registerWebSearch(new GoogleNewsSearchProvider());
+  externalServices.registerWebSearch(new WikipediaSearchProvider());
+  externalServices.setWebFetcher(new DefaultWebPageFetcher());
+}
+
+registerDefaultWebProviders();
+
 export async function searchWeb(query: string, resultCount = 8, signal?: AbortSignal): Promise<WebSearchResult[]> {
   const cleanQuery = query.trim().slice(0, 500);
   if (!cleanQuery) throw new Error('Search query is required.');
@@ -241,12 +336,10 @@ export async function searchWeb(query: string, resultCount = 8, signal?: AbortSi
   if (cached && cached.expiresAt > Date.now()) return cached.results;
 
   const errors: string[] = [];
-  const providers = [searchParallel, searchTavily, searchDuckDuckGo];
-  if (/\b(today|yesterday|latest|current|news|recent|this week|this month)\b/i.test(cleanQuery)) providers.push(searchGoogleNews);
-  providers.push(searchWikipedia);
+  const providers = externalServices.listWebSearch().filter((p) => p.isAvailable(cleanQuery));
   for (const provider of providers) {
     try {
-      const results = rankAndCleanResults(await provider(cleanQuery, count, signal), cleanQuery, count);
+      const results = rankAndCleanResults(await provider.search(cleanQuery, count, signal), cleanQuery, count);
       if (results.length) {
         searchCache.set(cacheKey, { expiresAt: Date.now() + 5 * 60_000, results });
         return results;
@@ -280,7 +373,7 @@ async function readLimited(response: Response): Promise<string> {
   return new TextDecoder().decode(bytes);
 }
 
-export async function fetchWebContent(rawUrl: string, signal?: AbortSignal): Promise<{ title: string; url: string; content: string }> {
+async function fetchWebContentDirect(rawUrl: string, signal?: AbortSignal): Promise<WebPageContent> {
   let url = await assertPublicHttpUrl(rawUrl);
   const visited = new Set<string>();
   for (let hop = 0; hop <= 4; hop++) {
@@ -312,5 +405,11 @@ export async function fetchWebContent(rawUrl: string, signal?: AbortSignal): Pro
     return { title: title || url.hostname, url: current, content };
   }
   throw new Error('The page redirected too many times.');
+}
+
+export async function fetchWebContent(rawUrl: string, signal?: AbortSignal): Promise<WebPageContent> {
+  const fetcher = externalServices.getWebFetcher();
+  if (fetcher) return fetcher.fetchPage(rawUrl, signal);
+  return fetchWebContentDirect(rawUrl, signal);
 }
 

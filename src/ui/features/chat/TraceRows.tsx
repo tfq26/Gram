@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   CircleAlertIcon,
   CircleCheckIcon,
+  FolderSearchIcon,
   LoaderCircleIcon,
   TerminalIcon,
 } from 'lucide-react';
@@ -32,7 +33,13 @@ function TaskStatusIcon({ status }: { status?: 'running' | 'error' }) {
   return status === 'error' ? <CircleAlertIcon size={13} /> : <CircleCheckIcon size={13} />;
 }
 
-export function TaskRow({ task, streaming }: { task: TaskItem; streaming: boolean }) {
+export const TaskRow = React.memo(function TaskRow({
+  task,
+  streaming,
+}: {
+  task: TaskItem;
+  streaming: boolean;
+}) {
   const [open, setOpen] = useState<boolean | undefined>(undefined);
   const steps = task.steps.map((step) => ({
     title: step.title,
@@ -65,9 +72,9 @@ export function TaskRow({ task, streaming }: { task: TaskItem; streaming: boolea
       </TraceCollapsibleContent>
     </TraceCollapsible>
   );
-}
+});
 
-function ReasoningRow({
+const ReasoningRow = React.memo(function ReasoningRow({
   text,
   running,
   durationSeconds,
@@ -104,9 +111,9 @@ function ReasoningRow({
       <TraceCollapsibleContent className="whitespace-pre-wrap">{text}</TraceCollapsibleContent>
     </TraceCollapsible>
   );
-}
+});
 
-function ToolRow({
+const ToolRow = React.memo(function ToolRow({
   command,
   state,
   output,
@@ -163,9 +170,9 @@ function ToolRow({
       </TraceTitle>
     </TraceLine>
   );
-}
+});
 
-export function StepRow({
+export const StepRow = React.memo(function StepRow({
   step,
   streaming,
   busy,
@@ -195,7 +202,91 @@ export function StepRow({
       defaultOpen={!streaming && step.state === 'output-error'}
     />
   );
+});
+
+const READ_ONLY_TOOL_RE =
+  /^(?:read_file|list_files|search_code|find_symbol_definition|git_status|git_diff|git_log|search_web|fetch_web_content|Read |Listed |Searched |Inspected )/i;
+
+function isCollapsibleReadStep(step: TraceStep): boolean {
+  return (
+    step.type === 'tool-runCommand' &&
+    step.state === 'output-available' &&
+    READ_ONLY_TOOL_RE.test((step.command || '').trim())
+  );
 }
+
+/**
+ * Memoized trace list that collapses 2+ consecutive completed read-only exploration
+ * steps into one smooth collapsible summary pill, reducing visual noise during multi-step turns.
+ */
+export const TraceStepList = React.memo(function TraceStepList({
+  steps,
+  streaming,
+  busy,
+}: {
+  steps: TraceStep[];
+  streaming: boolean;
+  busy?: boolean;
+}) {
+  const grouped = useMemo(() => {
+    const out: Array<
+      | { kind: 'single'; step: TraceStep; key: number }
+      | { kind: 'read-group'; steps: TraceStep[]; key: number }
+    > = [];
+
+    let i = 0;
+    while (i < steps.length) {
+      const current = steps[i]!;
+      if (isCollapsibleReadStep(current)) {
+        const batch: TraceStep[] = [current];
+        let j = i + 1;
+        while (j < steps.length && isCollapsibleReadStep(steps[j]!)) {
+          batch.push(steps[j]!);
+          j += 1;
+        }
+        if (batch.length >= 2) {
+          out.push({ kind: 'read-group', steps: batch, key: i });
+        } else {
+          out.push({ kind: 'single', step: current, key: i });
+        }
+        i = j;
+      } else {
+        out.push({ kind: 'single', step: current, key: i });
+        i += 1;
+      }
+    }
+    return out;
+  }, [steps]);
+
+  return (
+    <Trace>
+      {grouped.map((entry) => {
+        if (entry.kind === 'single') {
+          return <StepRow key={entry.key} step={entry.step} streaming={streaming} busy={busy} />;
+        }
+        return (
+          <TraceCollapsible key={`rg-${entry.key}`}>
+            <TraceCollapsibleTrigger>
+              <TraceLine>
+                <TraceIcon>
+                  <FolderSearchIcon size={13} />
+                </TraceIcon>
+                <TraceTitle>{`Explored ${entry.steps.length} workspace items`}</TraceTitle>
+              </TraceLine>
+            </TraceCollapsibleTrigger>
+            <TraceCollapsibleContent>
+              <Trace>
+                {entry.steps.map((s, idx) => (
+                  <StepRow key={idx} step={s} streaming={false} busy={false} />
+                ))}
+              </Trace>
+            </TraceCollapsibleContent>
+          </TraceCollapsible>
+        );
+      })}
+    </Trace>
+  );
+});
 
 export function checkpointInspectionSteps(checkpoint: any): TraceStep[] {
   return [

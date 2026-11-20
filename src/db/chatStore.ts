@@ -24,26 +24,75 @@ function messageTimestamp(message: any, fallbackOrder: number): number {
   return Number.MAX_SAFE_INTEGER - 1_000_000 + fallbackOrder;
 }
 
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => (item === undefined ? 'null' : canonicalJson(item))).join(',')}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
+}
+
+function stripSyncFields(message: Record<string, unknown>): Record<string, unknown> {
+  const copy = { ...message };
+  delete copy.id;
+  delete copy.syncConflictOf;
+  delete copy.syncConflictSource;
+  return copy;
+}
+
 /** Merge append-only chat messages from two device snapshots without dropping either side. */
 function mergeChatMessages(localMessages: unknown[], remoteMessages: unknown[]): unknown[] {
   const merged = new Map<string, { message: any; order: number }>();
   const add = (raw: unknown, order: number, source: 'local' | 'remote') => {
-    const message = raw && typeof raw === 'object' ? { ...(raw as Record<string, unknown>) } : { role: 'assistant', content: String(raw ?? '') };
+    const message: Record<string, any> =
+      raw && typeof raw === 'object'
+        ? { ...(raw as Record<string, unknown>) }
+        : { role: 'assistant', content: String(raw ?? '') };
     const id = stableMessageId(message, order);
     message.id = id;
     const existing = merged.get(id);
     if (!existing) {
       const conflictBase = typeof message.syncConflictOf === 'string' ? message.syncConflictOf : null;
       const baseMessage = conflictBase ? merged.get(conflictBase)?.message : undefined;
-      if (baseMessage && JSON.stringify({ ...baseMessage, id: undefined, syncConflictOf: undefined, syncConflictSource: undefined }) ===
-        JSON.stringify({ ...message, id: undefined, syncConflictOf: undefined, syncConflictSource: undefined })) return;
+      if (
+        baseMessage &&
+        (canonicalJson(stripSyncFields(baseMessage)) === canonicalJson(stripSyncFields(message)) ||
+          (String(baseMessage.role || '') === String(message.role || '') &&
+            String(baseMessage.content ?? '').trim() === String(message.content ?? '').trim()))
+      ) {
+        return;
+      }
       merged.set(id, { message, order });
       return;
     }
-    if (JSON.stringify(existing.message) === JSON.stringify(message)) return;
+    if (canonicalJson(existing.message) === canonicalJson(message)) return;
 
-    // Preserve a divergent edit as a visible second variant instead of choosing a writer silently.
-    const variantHash = crypto.createHash('sha256').update(JSON.stringify(message)).digest('hex').slice(0, 12);
+    const sameRole = String(existing.message.role || '') === String(message.role || '');
+    const sameText = String(existing.message.content ?? '').trim() === String(message.content ?? '').trim();
+    if (sameRole && sameText) {
+      // Content is identical (e.g. JSONB key reordering or metadata/steps update); merge metadata without forking.
+      const existingSteps = Array.isArray(existing.message.steps) ? existing.message.steps.length : 0;
+      const incomingSteps = Array.isArray(message.steps) ? message.steps.length : 0;
+      merged.set(id, {
+        message: {
+          ...existing.message,
+          ...message,
+          id,
+          steps: incomingSteps >= existingSteps ? message.steps : existing.message.steps,
+        },
+        order: existing.order,
+      });
+      return;
+    }
+
+    // Preserve a genuine text divergence as a visible second variant instead of choosing a writer silently.
+    const variantHash = crypto.createHash('sha256').update(canonicalJson(stripSyncFields(message))).digest('hex').slice(0, 12);
     const variantId = `${id}~sync-${variantHash}`;
     if (!merged.has(variantId)) {
       message.id = variantId;
@@ -207,9 +256,14 @@ export class ChatStore {
     mode: 'chat' | 'code';
     messages: unknown[];
     updatedAt: string;
+    parentSessionId?: string;
+    forkedFromMessageId?: string;
+    forkedAtSequence?: number;
+    baseCheckpointRunId?: string;
   } | null {
     const row = this.db.query<any, [string]>(
-      `SELECT session_id, title, project_id, project_label, model_id, mode, messages_json, updated_at
+      `SELECT session_id, title, project_id, project_label, model_id, mode, messages_json, updated_at,
+              parent_session_id, forked_from_message_id, forked_at_sequence, base_checkpoint_run_id
        FROM chat_sessions WHERE session_id = ? LIMIT 1`
     ).get(sessionId);
     if (!row) return null;
@@ -226,7 +280,65 @@ export class ChatStore {
       mode: row.mode === 'code' || row.project_id !== 'local' ? 'code' : 'chat',
       messages,
       updatedAt: row.updated_at,
+      ...(row.parent_session_id ? { parentSessionId: String(row.parent_session_id) } : {}),
+      ...(row.forked_from_message_id ? { forkedFromMessageId: String(row.forked_from_message_id) } : {}),
+      ...(typeof row.forked_at_sequence === 'number' ? { forkedAtSequence: row.forked_at_sequence } : {}),
+      ...(row.base_checkpoint_run_id ? { baseCheckpointRunId: String(row.base_checkpoint_run_id) } : {}),
     };
+  }
+
+  public forkChatSession(params: {
+    sourceSessionId: string;
+    newSessionId?: string;
+    messageId?: string;
+    targetModelId?: string;
+    targetMode?: 'chat' | 'code';
+    title?: string;
+    baseCheckpointRunId?: string;
+  }): ReturnType<ChatStore['getChatSession']> {
+    const source = this.getChatSession(params.sourceSessionId);
+    if (!source) return null;
+
+    let slicedMessages = source.messages;
+    if (params.messageId) {
+      const idx = source.messages.findIndex(
+        (m) => m && typeof m === 'object' && String((m as any).id || '') === params.messageId
+      );
+      if (idx >= 0) {
+        slicedMessages = source.messages.slice(0, idx + 1);
+      }
+    }
+
+    const newSessionId = params.newSessionId?.trim() || `fork-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const nextTitle = params.title?.trim() || `${source.title} (Fork)`;
+    const nextModelId = params.targetModelId?.trim() || source.modelId;
+    const nextMode = params.targetMode || source.mode;
+    const now = new Date().toISOString();
+    const forkedAtSequence = slicedMessages.length;
+
+    this.db.run(
+      `INSERT INTO chat_sessions (
+         session_id, title, project_id, project_label, model_id, mode, messages_json, updated_at,
+         dirty, parent_session_id, forked_from_message_id, forked_at_sequence, base_checkpoint_run_id
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+      [
+        newSessionId,
+        nextTitle,
+        source.projectId,
+        source.projectLabel,
+        nextModelId,
+        nextMode,
+        JSON.stringify(slicedMessages),
+        now,
+        source.sessionId,
+        params.messageId || null,
+        forkedAtSequence,
+        params.baseCheckpointRunId || null,
+      ]
+    );
+
+    return this.getChatSession(newSessionId);
   }
 
   public purgeExpiredArchivedChats(retentionDays = 30): number {
@@ -293,24 +405,30 @@ export class ChatStore {
     modelId: string;
     mode: 'chat' | 'code';
     updatedAt: string;
+    parentSessionId?: string;
+    forkedFromMessageId?: string;
+    forkedAtSequence?: number;
   }> {
     this.purgeExpiredArchivedChats(30);
     const rows = mode === 'code'
       ? this.db.query<any, [number]>(
-          `SELECT session_id, title, project_id, project_label, model_id, mode, updated_at
+          `SELECT session_id, title, project_id, project_label, model_id, mode, updated_at,
+                  parent_session_id, forked_from_message_id, forked_at_sequence
            FROM chat_sessions
            WHERE (mode = 'code' OR project_id != 'local') AND archived_at IS NULL
            ORDER BY updated_at DESC LIMIT ?`
         ).all(limit)
       : mode === 'chat'
       ? this.db.query<any, [number]>(
-          `SELECT session_id, title, project_id, project_label, model_id, mode, updated_at
+          `SELECT session_id, title, project_id, project_label, model_id, mode, updated_at,
+                  parent_session_id, forked_from_message_id, forked_at_sequence
            FROM chat_sessions
            WHERE mode = 'chat' AND project_id = 'local' AND archived_at IS NULL
            ORDER BY updated_at DESC LIMIT ?`
         ).all(limit)
       : this.db.query<any, [number]>(
-          `SELECT session_id, title, project_id, project_label, model_id, mode, updated_at
+          `SELECT session_id, title, project_id, project_label, model_id, mode, updated_at,
+                  parent_session_id, forked_from_message_id, forked_at_sequence
            FROM chat_sessions
            WHERE archived_at IS NULL
            ORDER BY updated_at DESC LIMIT ?`
@@ -323,6 +441,9 @@ export class ChatStore {
       modelId: r.model_id,
       mode: r.mode === 'code' || r.project_id !== 'local' ? 'code' : 'chat',
       updatedAt: r.updated_at,
+      ...(r.parent_session_id ? { parentSessionId: String(r.parent_session_id) } : {}),
+      ...(r.forked_from_message_id ? { forkedFromMessageId: String(r.forked_from_message_id) } : {}),
+      ...(typeof r.forked_at_sequence === 'number' ? { forkedAtSequence: r.forked_at_sequence } : {}),
     }));
   }
 

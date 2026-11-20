@@ -47,20 +47,38 @@ export function forwardAuthHeaders(req?: Request): Record<string, string> {
   return headers;
 }
 
-export async function fetchLyraAuthProviders(): Promise<{ googleEnabled: boolean; signUpEnabled: boolean }> {
+export async function fetchLyraAuthProviders(): Promise<{
+  googleEnabled: boolean;
+  signUpEnabled: boolean;
+  reachable: boolean;
+  error?: string;
+}> {
   const hubUrl = getLyraHubUrl();
   try {
     const res = await fetch(`${hubUrl}/api/auth/status`, {
-      signal: AbortSignal.timeout(2000),
+      signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return { googleEnabled: false, signUpEnabled: true };
+    if (!res.ok) {
+      return {
+        googleEnabled: false,
+        signUpEnabled: true,
+        reachable: false,
+        error: `Lyra Hub returned HTTP ${res.status}.`,
+      };
+    }
     const data = (await res.json()) as { googleEnabled?: boolean; signUpEnabled?: boolean };
     return {
       googleEnabled: Boolean(data?.googleEnabled),
       signUpEnabled: data?.signUpEnabled !== false,
+      reachable: true,
     };
-  } catch {
-    return { googleEnabled: false, signUpEnabled: true };
+  } catch (err: any) {
+    return {
+      googleEnabled: false,
+      signUpEnabled: true,
+      reachable: false,
+      error: err?.message || `Unable to reach ${hubUrl}.`,
+    };
   }
 }
 

@@ -11,7 +11,9 @@ if (rootEl) {
   createRoot(rootEl).render(
     <React.StrictMode>
       <AppErrorBoundary>
-        <App />
+        <React.Suspense fallback={null}>
+          <App />
+        </React.Suspense>
       </AppErrorBoundary>
     </React.StrictMode>
   );

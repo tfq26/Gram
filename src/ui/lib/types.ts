@@ -58,6 +58,23 @@ export interface ChatSessionSummary {
   modelId: string;
   mode?: 'chat' | 'code';
   updatedAt: string;
+  parentSessionId?: string;
+  forkedFromMessageId?: string;
+  forkedAtSequence?: number;
+}
+
+export type ExecutionEnvironment = 'local' | 'worktree' | 'cloud-lyra' | 'network';
+
+export interface WorkerTelemetry {
+  id?: string;
+  name?: string;
+  role?: string;
+  model?: string;
+  status?: string;
+  currentStep?: string;
+  ownedFiles?: string[];
+  layerId?: string;
+  elapsedMs?: number;
 }
 
 export interface ChatEntry {
@@ -68,11 +85,12 @@ export interface ChatEntry {
   remoteSessionId?: string;
   lane?: string;
   reviewLayerId?: string;
+  environment?: ExecutionEnvironment;
   replyTo?: ReplyReference;
   steps?: TraceStep[];
   tasks?: TaskItem[];
   approval?: ApprovalItem;
-  workers?: Array<{ id?: string; name?: string; status?: string }>;
+  workers?: WorkerTelemetry[];
   previewUrl?: string;
   originalPrompt?: string;
   codingHandoffPrompt?: string;
@@ -124,4 +142,8 @@ export interface AuthState {
   connected: boolean;
   authenticated: boolean;
   user: { id: string; name: string; email: string } | null;
+  lyraConnected?: boolean;
+  googleEnabled?: boolean;
+  hubUrl?: string;
+  source?: string;
 }
