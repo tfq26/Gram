@@ -328,6 +328,21 @@ export const AGENT_TOOLS: LlmToolDef[] = [
     },
   },
   {
+    name: 'update_plan',
+    description: 'Create or update the structured Plan document for this session (separate from conversational chat prose and clarifying questions).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        markdown: {
+          type: 'string',
+          description: 'Full structured Markdown plan with ## sections (e.g. ## Overview, ## Requirements, ## Design, ## Tasks).',
+        },
+        summary: { type: 'string', description: 'Short label for this plan update.' },
+      },
+      required: ['markdown'],
+    },
+  },
+  {
     name: 'remember_insight',
     description:
       'Persist a durable preference, correction, architectural invariant, workflow, or gotcha into Gram’s shared Knowledge Store so future models and projects inherit it.',
@@ -381,6 +396,25 @@ export const AGENT_TOOLS: LlmToolDef[] = [
       required: ['id'],
     },
   },
+  {
+    name: 'delegate_task',
+    description:
+      'Spawn a lightweight, read-only in-session sub-agent (optionally targeting a workflow group such as long-context, world-social, research, coding, or fast-utility) to investigate a focused sub-question and return a concise summary.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Focused question or investigation for the sub-agent.' },
+        workflow: {
+          type: 'string',
+          enum: ['coding', 'research', 'long-context', 'world-social', 'triage-routing', 'fast-utility'],
+          description: 'Optional workflow group to select the best specialist model.',
+        },
+        modelId: { type: 'string', description: 'Optional explicit model ID override.' },
+        maxTurns: { type: 'number', description: 'Optional max tool turns (1-6, default 4).' },
+      },
+      required: ['prompt'],
+    },
+  },
 ];
 
 export type ToolGroupName = 'diagnostics' | 'git' | 'browser' | 'web' | 'analysis' | 'swarm';
@@ -399,6 +433,7 @@ export const CORE_WARM_TOOL_NAMES = new Set<string>([
   'remember_user_context',
   'enable_tools',
   'retrieve_context',
+  'delegate_task',
 ]);
 
 export const TOOL_GROUP_MEMBERS: Record<ToolGroupName, string[]> = {
@@ -648,6 +683,12 @@ async function executeAgentToolRaw(params: {
     escalate: (payload: Record<string, unknown>) => Promise<unknown>;
     status: (runId: string, sessionId?: string) => Promise<unknown>;
   };
+  delegateTask?: (input: {
+    prompt: string;
+    workflow?: string;
+    modelId?: string;
+    maxTurns?: number;
+  }) => Promise<{ summary: string; modelId: string }>;
 }): Promise<ToolExecResult> {
   const { name, input, workspaceRoot, gramfs, layerId, requireApproval, signal, graph, novelTools, rememberRule, refreshSymbols, knowledge, userContext, sessionId, sourceUserMessage, pinnedFacts, lyra } = params;
 
@@ -1385,6 +1426,16 @@ async function executeAgentToolRaw(params: {
       };
     }
 
+    if (name === 'update_plan') {
+      const markdown = String(input.markdown || '').trim();
+      if (!markdown) return { output: 'Missing required "markdown" argument.', isError: true };
+      const safeId = String(sessionId || 'default').replace(/[^a-zA-Z0-9._-]+/g, '_');
+      const plansDir = path.resolve(workspaceRoot, '.gram', 'plans');
+      fs.mkdirSync(plansDir, { recursive: true });
+      fs.writeFileSync(path.join(plansDir, `${safeId}.md`), markdown, 'utf8');
+      return { output: `Updated Plan document (${markdown.length} chars).` };
+    }
+
     if (name === 'retrieve_context') {
       const id = String(input.id || '').trim();
       if (!id) return { output: 'Missing context blob id (e.g. ctx_...).', isError: true };
@@ -1426,6 +1477,23 @@ async function executeAgentToolRaw(params: {
       }
       const res = gramfs.commitToHost(layerId);
       return { output: JSON.stringify(res) };
+    }
+
+    if (name === 'delegate_task') {
+      const subPrompt = String(input.prompt || '').trim();
+      if (!subPrompt) return { output: 'delegate_task requires a non-empty prompt.', isError: true };
+      if (!params.delegateTask) {
+        return { output: 'Sub-agent delegation is unavailable in this runtime context.', isError: true };
+      }
+      const res = await params.delegateTask({
+        prompt: subPrompt,
+        workflow: typeof input.workflow === 'string' ? input.workflow : undefined,
+        modelId: typeof input.modelId === 'string' ? input.modelId : undefined,
+        maxTurns: typeof input.maxTurns === 'number' ? input.maxTurns : undefined,
+      });
+      return {
+        output: `[Sub-agent (${res.modelId})]\n${res.summary}`,
+      };
     }
 
     return { output: `Unknown tool: ${name}`, isError: true };

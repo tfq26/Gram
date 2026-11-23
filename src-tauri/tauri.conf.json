@@ -19,12 +19,26 @@
         "minWidth": 900,
         "minHeight": 620,
         "resizable": true,
+        "transparent": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "windowEffects": {
+          "effects": ["sidebar", "hudWindow"],
+          "state": "active"
+        },
         "backgroundColor": "#0a0a0c",
         "url": "http://127.0.0.1:7337"
       }
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["gram"]
+      }
     }
   },
   "bundle": {

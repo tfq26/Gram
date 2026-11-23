@@ -1,0 +1,35 @@
+# Gram
+
+Local-first coding workspace and agent runtime (Bun + TypeScript, React 19 / Vite / Tailwind 4 UI, Tauri 2 desktop shell, small Rust crate). Pairs with **Lyra** (separate repo, cloud auth + LLM gateway). See [README.md](README.md), [SETUP.md](SETUP.md), [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Commands
+```bash
+bun install
+bun run dev            # daemon (:7337) + Vite studio (:5174, /api proxied)
+bun run typecheck      # tsc --noEmit
+bun test               # all tests in tests/ and src/**/*.test.ts (~6s)
+bun test tests/x.test.ts   # single file
+bun run build          # typecheck + vite build -> dist/studio
+bun run tauri:dev      # desktop app
+./launch.sh --doctor   # check ports/runtime/env
+```
+Run typecheck and `bun test` after changes. Both are currently clean (108 tests).
+
+## Layout
+- `src/server/` – Bun HTTP/SSE daemon (`index.ts`, `routes/`, `voice.ts`, Lyra client).
+- `src/runtime/` – agent orchestrator (`agentRuntime.ts`), tools (`agentTools.ts`), web/browser tools, process manager.
+- `src/core/` – GramFS (SQLite copy-on-write overlay), Code Mode (Worker sandbox), semantic AST graph, context compaction, worktrees.
+- `src/providers/` – model registry/router (Bedrock, Foundry, OpenRouter), LLM client, BYOK, secret guard.
+- `src/db/` – SQLite stores. `src/sync/` – AHP/Oberon sync. `src/services/externalContracts.ts` – pluggable TTS/STT/web providers.
+- `src/ui/` – React app (`App.tsx` (~4.2k lines, still holds all state/handlers) renders `features/shell/` panels (Sidebar, ChatHeader, MessageList, Composer, ContextPanel) via props; other features under `features/`). Alias `@` = `src/ui`.
+- `src-tauri/` – Tauri shell; `crates/gram-core-rs/` – Rust hashing/patch.
+- `tests/` – integration-style tests; unit tests also live beside source.
+- `.gram/` – local runtime state (DBs, plans); not source.
+
+## Gotchas
+- Config via env (`.env.example`); `.env`/`.env.local` are gitignored. Key vars: `GRAM_PORT`, `LYRA_HUB_URL`, `GRAM_DIRECT_LLM`.
+- `gram.*` Code Mode SDK calls are async (RPC to a Worker). Scripts must `await` them; returning a Promise fails with "object can not be cloned".
+- Model allowlist lives in `MODEL_REGISTRY` in `src/providers/router.ts`; `/api/run` rejects ids not in it (or BYOK).
+- Voice/web providers are global singletons in `externalServices`. Tests that register mocks must reset via `registerDefaultVoiceProviders()` / `registerDefaultWebProviders()` (both clear first).
+- `docs/audits/technical_audit_2026-10-05.md` describes an older .NET codebase, not this one.
+- macOS `sed -i` needs `-i ''`.

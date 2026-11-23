@@ -49,7 +49,7 @@ describe('Context Envelope & Multi-Provider Router', () => {
 
   it('routes across the Bedrock, Foundry, and OpenRouter allowlist', () => {
     expect(listAllowedModels().length).toBeGreaterThanOrEqual(46);
-    expect(isAllowedModel('gpt-4o')).toBe(false);
+    expect(isAllowedModel('not-a-real-model')).toBe(false);
     expect(isAllowedModel('google/gemini-2.5-flash')).toBe(false);
     expect(isAllowedModel('google/gemini-4-hydrogen')).toBe(true);
     expect(isAllowedModel('us.openai.gpt-6-luna')).toBe(true);

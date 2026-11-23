@@ -10,6 +10,7 @@ import {
   XIcon,
 } from 'lucide-react';
 import { PlanArtifactCard } from './PlanArtifactCard';
+import { FileTree, type FileTreeNodeData } from './FileTree';
 import type { DockSurface } from './WorkspaceDock';
 
 export interface MiniChatMessage {
@@ -28,8 +29,18 @@ export interface ManagedProcessItem {
   recentLogs?: string[];
 }
 
+const STAGE_TABS: Array<{ id: Exclude<DockSurface, 'agents'>; label: string }> = [
+  { id: 'files', label: 'Files' },
+  { id: 'plan', label: 'Plan' },
+  { id: 'diff', label: 'Diff' },
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'preview', label: 'Preview' },
+  { id: 'side-question', label: 'Scratchpad' },
+];
+
 export function ContentStage({
   surface,
+  onSelectSurface,
   onClose,
   activeProjectId,
   planMarkdown,
@@ -44,6 +55,7 @@ export function ContentStage({
   onOpenExternal,
 }: {
   surface: DockSurface;
+  onSelectSurface?: (surface: DockSurface) => void;
   onClose: () => void;
   activeProjectId: string;
   planMarkdown: string;
@@ -65,6 +77,33 @@ export function ContentStage({
   const [sideLoading, setSideLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
   const [sideError, setSideError] = useState<string | null>(null);
+  const [fileTree, setFileTree] = useState<FileTreeNodeData[]>([]);
+  const [selectedFilePath, setSelectedFilePath] = useState<string>('');
+  const [selectedFileContent, setSelectedFileContent] = useState<string>('');
+  const [filesLoading, setFilesLoading] = useState(false);
+
+  async function loadFileTree() {
+    setFilesLoading(true);
+    try {
+      const res = await fetch('/api/files/tree');
+      if (!res.ok) return;
+      const data = await res.json();
+      setFileTree(Array.isArray(data) ? data : []);
+    } catch {
+    } finally {
+      setFilesLoading(false);
+    }
+  }
+
+  async function openFile(filePath: string) {
+    setSelectedFilePath(filePath);
+    try {
+      const res = await fetch(`/api/files/read?path=${encodeURIComponent(filePath)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setSelectedFileContent(typeof data?.content === 'string' ? data.content : '');
+    } catch {}
+  }
 
   const detectedUrls = Array.from(
     new Set(managedProcesses.flatMap((p) => p.urls || []))
@@ -88,6 +127,7 @@ export function ContentStage({
   }
 
   useEffect(() => {
+    if (surface === 'files') void loadFileTree();
     if (surface === 'diff') void loadDiff();
     if (surface === 'terminal') onRefreshProcesses();
   }, [surface, activeProjectId]);
@@ -165,31 +205,70 @@ export function ContentStage({
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[var(--bg-body)]">
-      <div className="flex items-center justify-between border-b border-[var(--border-color)] px-5 py-2.5">
-        <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)]">
-          <span>
-            {surface === 'plan'
-              ? 'Plan & Spec'
-              : surface === 'preview'
-                ? 'Live Preview'
-                : surface === 'diff'
-                  ? 'Changes & Diff'
-                  : surface === 'terminal'
-                    ? 'Terminal & Processes'
-                    : 'Side Question (Scratchpad)'}
-          </span>
+      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3">
+        <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
+          {STAGE_TABS.map((tab) => {
+            const active = surface === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onSelectSurface?.(tab.id)}
+                className={`shrink-0 rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors cursor-pointer ${
+                  active
+                    ? 'bg-[var(--bg-active)] text-[var(--text-primary)]'
+                    : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
+          title="Close stage"
+          aria-label="Close stage"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
         >
-          <XIcon size={12} />
-          <span>Back to chat</span>
+          <XIcon size={13} />
         </button>
       </div>
 
-      <div className="flex-1 overflow-auto p-5">
+      <div className="flex-1 overflow-auto p-4">
+        {surface === 'files' && (
+          <div className="grid h-full grid-cols-[200px_1fr] gap-3 overflow-hidden">
+            <div className="flex flex-col overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-2">
+              <div className="mb-1.5 flex items-center justify-between px-1">
+                <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
+                  Workspace
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void loadFileTree()}
+                  className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                  {filesLoading ? '...' : 'Refresh'}
+                </button>
+              </div>
+              <FileTree
+                data={fileTree}
+                selectedPath={selectedFilePath}
+                onSelect={(p) => void openFile(p)}
+              />
+            </div>
+            <div className="flex flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)]">
+              <div className="border-b border-[var(--border-color)] px-3 py-1.5 font-mono text-[11px] text-[var(--text-secondary)] truncate">
+                {selectedFilePath || 'Select a file to inspect'}
+              </div>
+              <pre className="flex-1 overflow-auto p-3 font-mono text-[11.5px] leading-relaxed text-[var(--text-primary)]">
+                {selectedFilePath ? selectedFileContent : 'Click any file in the tree to preview its contents.'}
+              </pre>
+            </div>
+          </div>
+        )}
+
         {surface === 'plan' && (
           <PlanArtifactCard
             variant="stage"

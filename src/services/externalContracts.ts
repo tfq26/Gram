@@ -109,6 +109,13 @@ export class ExternalServiceRegistry {
     return this.sttOrder.map((id) => this.sttProviders.get(id)!).filter(Boolean);
   }
 
+  public clearVoiceProviders(): void {
+    this.ttsProviders.clear();
+    this.ttsOrder = [];
+    this.sttProviders.clear();
+    this.sttOrder = [];
+  }
+
   public registerWebSearch(provider: WebSearchProvider, priority: 'append' | 'prepend' = 'append'): void {
     this.searchProviders.set(provider.id, provider);
     this.searchOrder = this.searchOrder.filter((id) => id !== provider.id);

@@ -31,7 +31,7 @@ describe('Gram Code Mode (Single-Turn Programmatic Execution)', () => {
 
   it('runs multi-step operations programmatically in 1 turn', async () => {
     const script = `
-      const file = gram.fs.read("math.ts");
+      const file = await gram.fs.read("math.ts");
       console.log("Read math.ts with length: " + file.length);
       
       const res = await gram.probe.evalFn("(a, b) => a + b", [10, 20]);
@@ -53,12 +53,12 @@ describe('Gram Code Mode (Single-Turn Programmatic Execution)', () => {
   it('surgically replaces symbols and verifies in-memory in 1 turn', async () => {
     const script = `
       const uri = "gram://math.ts#function:add";
-      const blast = gram.symbol.blastRadius(uri);
+      const blast = await gram.symbol.blastRadius(uri);
       
       const newCode = "export function add(a: number, b: number): number {\\n  // checked add\\n  return (a + b) | 0;\\n}";
-      gram.symbol.replace("math.ts", uri, newCode);
+      await gram.symbol.replace("math.ts", uri, newCode);
       
-      const updated = gram.fs.read("math.ts");
+      const updated = await gram.fs.read("math.ts");
       return { updated, blastSeverity: blast.severity };
     `;
 

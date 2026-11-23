@@ -1,47 +1,31 @@
-import React, { lazy, useEffect, useRef, useState } from 'react';
+import React, {
+  lazy,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
-  ArchiveIcon,
-  ArrowUpIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  ChevronsLeftIcon,
-  ChevronsRightIcon,
   CircleAlertIcon,
-  CircleCheckIcon,
-  Columns2Icon,
-  CopyIcon,
-  CornerDownRightIcon,
-  FileTextIcon,
-  FolderIcon,
-  FolderPlusIcon,
-  GlobeIcon,
-  LoaderCircleIcon,
-  MicIcon,
-  MessageCircleDashedIcon,
-  MessageSquareDotIcon,
-  MoreVerticalIcon,
-  PaperclipIcon,
-  PencilIcon,
-  PinIcon,
-  PlusIcon,
-  ReplyIcon,
-  RotateCcwIcon,
-  SettingsIcon,
-  SquareIcon,
-  TelescopeIcon,
-  TerminalIcon,
-  UploadIcon,
-  Volume2Icon,
-  Trash2Icon,
   XIcon,
 } from 'lucide-react';
-import { MessageResponse } from './components/ai-elements/Message';
-import { AppErrorScreen } from './components/ui/ErrorBoundary';
-import type { LayoutPreset } from './features/settings/SettingsView';
-import type { DockSurface } from './features/workspace/WorkspaceDock';
-import { MissionControlDrawer, splitAttentionActivities } from './features/workspace/MissionControlDrawer';
-import { AuthPage, GramMark } from './features/auth/AuthPage';
+
+import {
+  AppErrorScreen,
+} from './components/ui/ErrorBoundary';
+import type {
+  LayoutPreset,
+} from './features/settings/SettingsView';
+import type {
+  DockSurface,
+} from './features/workspace/WorkspaceDock';
+import {
+  MissionControlDrawer,
+  splitAttentionActivities,
+} from './features/workspace/MissionControlDrawer';
+import {
+  AuthPage,
+  GramMark,
+} from './features/auth/AuthPage';
 
 const ProjectDialog = lazy(() =>
   import('./features/workspace/ProjectDialog').then((m) => ({ default: m.ProjectDialog }))
@@ -55,8 +39,8 @@ const WorkspaceDock = lazy(() =>
 const MissionControlPip = lazy(() =>
   import('./features/workspace/MissionControlPip').then((m) => ({ default: m.MissionControlPip }))
 );
-const PlanArtifactCard = lazy(() =>
-  import('./features/workspace/PlanArtifactCard').then((m) => ({ default: m.PlanArtifactCard }))
+const QuickCaptureBar = lazy(() =>
+  import('./features/workspace/QuickCaptureBar').then((m) => ({ default: m.QuickCaptureBar }))
 );
 const OnboardingWizard = lazy(() =>
   import('./features/auth/OnboardingWizard').then((m) => ({ default: m.OnboardingWizard }))
@@ -64,9 +48,11 @@ const OnboardingWizard = lazy(() =>
 const ShortcutsDialog = lazy(() =>
   import('./features/chat/ShortcutsDialog').then((m) => ({ default: m.ShortcutsDialog }))
 );
-import { getModelLogoPath } from './lib/modelLogos';
-import { Bubble, BubbleContent, BubbleGroup } from './components/ui/bubble';
-import { Button } from './components/ui/button';
+
+
+import {
+  Button,
+} from './components/ui/button';
 import {
   Dialog,
   DialogClose,
@@ -76,47 +62,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from './components/ui/dialog';
-import { Field, FieldGroup } from './components/ui/field';
-import { Input } from './components/ui/input';
-import { Label } from './components/ui/label';
-import { DynamicIslandBar, type IslandActivity } from './components/ui/dynamic-island';
-import { DottedGlowBackground } from './components/ui/dotted-glow-background';
-import { SystemToastViewport, emitSystemToast } from './components/ui/toast';
+
+
+
 import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemMedia,
-  ItemTitle,
-} from './components/ui/item';
-import { Message, MessageContent } from './components/ui/message';
+  DynamicIslandBar,
+  type IslandActivity,
+} from './components/ui/dynamic-island';
+
 import {
-  MessageScroller,
-  MessageScrollerButton,
-  MessageScrollerContent,
-  MessageScrollerItem,
+  SystemToastViewport,
+  emitSystemToast,
+} from './components/ui/toast';
+
+
+import {
   MessageScrollerProvider,
-  MessageScrollerViewport,
 } from './components/ui/message-scroller';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from './components/ui/empty';
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupTextarea,
-} from './components/ui/input-group';
+
+
 import {
   Trace,
-  TraceIcon,
-  TraceLine,
-  TraceTitle,
 } from './components/ui/trace';
 
 import type {
@@ -130,12 +96,33 @@ import type {
   ModelItem,
   ProjectItem,
   ReplyReference,
-  TaskItem,
   TraceStep,
 } from './lib/types';
-import { checkpointInspectionSteps, StepRow, TaskRow, TraceStepList } from './features/chat/TraceRows';
-import { isCodingWorkPrompt } from './features/chat/chatHelpers';
-import { ChatContextMenu, type ChatCopyMode } from './features/chat/ChatContextMenu';
+import {
+  checkpointInspectionSteps,
+} from './features/chat/TraceRows';
+import {
+  isCodingWorkPrompt,
+} from './features/chat/chatHelpers';
+import {
+  ContextPanel,
+} from './features/shell/ContextPanel';
+import {
+  Composer,
+} from './features/shell/Composer';
+import {
+  MessageList,
+} from './features/shell/MessageList';
+import {
+  ChatHeader,
+} from './features/shell/ChatHeader';
+import {
+  Sidebar,
+} from './features/shell/Sidebar';
+import {
+  ChatContextMenu,
+  type ChatCopyMode,
+} from './features/chat/ChatContextMenu';
 
 function createChatMessageId(prefix: string): string {
   const unique = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 12);
@@ -413,6 +400,7 @@ export function App() {
   });
   const [isExecuting, setIsExecuting] = useState(false);
   const [managedProcesses, setManagedProcesses] = useState<ManagedProcessItem[]>([]);
+  const [stagePreviewUrl, setStagePreviewUrl] = useState('http://localhost:5173');
   const [processesOpen, setProcessesOpen] = useState(false);
   const [selectedProcessLogs, setSelectedProcessLogs] = useState<{ id: string; logs: string } | null>(null);
   const [isAppLoading, setIsAppLoading] = useState(true);
@@ -432,6 +420,8 @@ export function App() {
   const [pipOpen, setPipOpen] = useState(false);
   const isPipMode =
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pip') === '1';
+  const isCaptureMode =
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('capture') === '1';
 
   useEffect(() => {
     if (!isPipMode) return;
@@ -3500,6 +3490,25 @@ export function App() {
     );
   }
 
+  if (isCaptureMode) {
+    return (
+      <div className="app-shell h-screen w-screen overflow-hidden" data-theme={theme}>
+        <React.Suspense fallback={null}>
+          <QuickCaptureBar
+            onClose={() => {
+              const tauriInvoke = (window as any)?.__TAURI_INTERNALS__?.invoke;
+              if (typeof tauriInvoke === 'function') {
+                void Promise.resolve(tauriInvoke('toggle_quick_capture', { open: false })).catch(() => {});
+              } else {
+                window.close();
+              }
+            }}
+          />
+        </React.Suspense>
+      </div>
+    );
+  }
+
   if (isPipMode) {
     return (
       <div className="app-shell h-screen w-screen overflow-hidden" data-theme={theme}>
@@ -3739,413 +3748,42 @@ export function App() {
         ) : (
         <main className="page-frame">
           <div className={`workspace-panes ${sidebarOpen ? 'left-open' : 'left-closed'}`}>
-            <aside
-              className={`pane pane-left ${sidebarOpen ? 'open' : 'closed'}${isResizingSidebar ? ' resizing' : ''}`}
-              style={
-                sidebarOpen
-                  ? ({
-                      '--sidebar-width': `${sidebarWidth}px`,
-                      width: `${sidebarWidth}px`,
-                      minWidth: `${sidebarWidth}px`,
-                    } as React.CSSProperties)
-                  : undefined
-              }
-            >
-              <div className="pane-content" style={{ width: '100%', minWidth: 0 }}>
-                <div className="rail-header" style={{ gap: '8px' }}>
-                  <button
-                    className="btn-new-chat"
-                    type="button"
-                    style={{ margin: 0, flex: 1 }}
-                    onClick={() => openNewChatTab()}
-                  >
-                    {appMode === 'code' ? '+ New code' : '+ New chat'}
-                  </button>
-                  <button
-                    className="btn-pane-toggle"
-                    type="button"
-                    title={sidebarWidth >= 340 ? 'Restore sidebar width' : 'Expand sidebar'}
-                    aria-label={sidebarWidth >= 340 ? 'Restore sidebar width' : 'Expand sidebar'}
-                    onClick={toggleSidebarExpanded}
-                  >
-                    {sidebarWidth >= 340 ? <ChevronsLeftIcon size={14} /> : <ChevronsRightIcon size={14} />}
-                  </button>
-                  <button
-                    className="btn-pane-toggle"
-                    type="button"
-                    title="Close chats"
-                    onClick={() => setSidebarOpen(false)}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></svg>
-                  </button>
-                </div>
-                <div
-                  className="conversation-list"
-                  style={{ width: '100%', maxHeight: 'calc(100vh - 108px)', overflowY: 'auto' }}
-                >
-                  {(() => {
-                    const visibleChats = chatSessions
-                      .filter((c) =>
-                        !chatMeta.archived[c.sessionId] &&
-                        (c.mode || 'chat') === appMode &&
-                        (appMode === 'code' || !c.projectId || c.projectId === 'local')
-                      )
-                      .sort((a, b) => {
-                        const pinDiff = Number(Boolean(chatMeta.pinned[b.sessionId])) - Number(Boolean(chatMeta.pinned[a.sessionId]));
-                        if (pinDiff !== 0) return pinDiff;
-                        return (Date.parse(b.updatedAt || '') || 0) - (Date.parse(a.updatedAt || '') || 0);
-                      });
-
-                    const now = new Date();
-                    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-                    const startOfYesterday = startOfToday - 86_400_000;
-                    const startOfThisWeek = startOfToday - 6 * 86_400_000;
-
-                    const formatChatTimestamp = (iso?: string): string => {
-                      const ms = iso ? Date.parse(iso) : NaN;
-                      if (!Number.isFinite(ms)) return '';
-                      const d = new Date(ms);
-                      if (ms >= startOfToday) {
-                        return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-                      }
-                      if (ms >= startOfYesterday) return 'Yesterday';
-                      if (ms >= startOfThisWeek) {
-                        return d.toLocaleDateString([], { weekday: 'short' });
-                      }
-                      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-                    };
-
-                    const groupChatsByTime = (chats: ChatSessionSummary[]) => {
-                      const buckets: Array<{ label: string; items: ChatSessionSummary[] }> = [
-                        { label: 'Today', items: [] },
-                        { label: 'Yesterday', items: [] },
-                        { label: 'This Week', items: [] },
-                        { label: 'Older', items: [] },
-                      ];
-                      for (const chat of chats) {
-                        const ms = Date.parse(chat.updatedAt || '');
-                        if (!Number.isFinite(ms) || ms >= startOfToday) {
-                          buckets[0]!.items.push(chat);
-                        } else if (ms >= startOfYesterday) {
-                          buckets[1]!.items.push(chat);
-                        } else if (ms >= startOfThisWeek) {
-                          buckets[2]!.items.push(chat);
-                        } else {
-                          buckets[3]!.items.push(chat);
-                        }
-                      }
-                      return buckets.filter((b) => b.items.length > 0);
-                    };
-
-                    const renderChatRow = (c: ChatSessionSummary) => {
-                      const isActive = activeTab.sessionId === c.sessionId;
-                      const isUnread = Boolean(chatMeta.unread[c.sessionId]);
-                      const displayTitle = chatMeta.titles[c.sessionId] || c.title || c.sessionId;
-                      const timeLabel = formatChatTimestamp(c.updatedAt);
-                      const menuOpen = openChatMenu?.runId === c.sessionId;
-
-                      return (
-                        <div
-                          key={c.sessionId}
-                          className={`group/conv relative flex items-center rounded-lg transition-colors ${
-                            isActive
-                              ? 'bg-[var(--bg-active)] font-medium text-[var(--text-primary)]'
-                              : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-                          }`}
-                        >
-                          {renamingRunId === c.sessionId ? (
-                            <input
-                              type="text"
-                              autoFocus
-                              value={renameDraft}
-                              onChange={(e) => setRenameDraft(e.target.value)}
-                              onBlur={() => commitRename(c.sessionId)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  commitRename(c.sessionId);
-                                } else if (e.key === 'Escape') {
-                                  setRenamingRunId(null);
-                                }
-                              }}
-                              className="w-full rounded-[var(--radius-sm)] border border-[var(--border-focus)] bg-[var(--bg-panel)] px-2.5 py-1.5 text-[14.5px] text-[var(--text-primary)] focus:outline-none"
-                            />
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                className="flex min-w-0 flex-1 items-center gap-2.5 bg-transparent px-2.5 py-2 text-left text-[14.5px] leading-snug focus:outline-none"
-                                onClick={() => {
-                                  if (isUnread) {
-                                    updateChatMeta((prev) => ({
-                                      ...prev,
-                                      unread: { ...prev.unread, [c.sessionId]: false },
-                                    }));
-                                  }
-                                  handleSelectChat(c.sessionId);
-                                }}
-                              >
-                                {isUnread && (
-                                  <span
-                                    className="h-1.5 w-1.5 shrink-0 rounded-full"
-                                    style={{ backgroundColor: 'var(--accent-text)' }}
-                                  />
-                                )}
-                                <span className="truncate">{displayTitle}</span>
-                              </button>
-
-                              {timeLabel && (
-                                <span
-                                  className={`shrink-0 pr-2.5 text-xs tabular-nums text-[var(--text-muted)] ${
-                                    menuOpen ? 'hidden' : 'group-hover/conv:hidden'
-                                  }`}
-                                >
-                                  {timeLabel}
-                                </span>
-                              )}
-
-                              <div
-                                className={`shrink-0 items-center pr-1 ${
-                                  menuOpen
-                                    ? 'flex'
-                                    : 'hidden group-hover/conv:flex'
-                                }`}
-                              >
-                                <button
-                                  type="button"
-                                  title="More options"
-                                  aria-label="Conversation options"
-                                  className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)] ${
-                                    menuOpen ? 'text-[var(--text-primary)]' : ''
-                                  }`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    setOpenChatMenu((prev) =>
-                                      prev?.runId === c.sessionId
-                                        ? null
-                                        : { runId: c.sessionId, top: rect.bottom + 4, left: rect.left }
-                                    );
-                                  }}
-                                >
-                                  <MoreVerticalIcon size={13} />
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      );
-                    };
-
-                    if (appMode === 'code') {
-                      const pinnedChats = visibleChats.filter((c) => Boolean(chatMeta.pinned[c.sessionId]));
-                      const localChats = visibleChats.filter(
-                        (c) => (!c.projectId || c.projectId === 'local') && !chatMeta.pinned[c.sessionId]
-                      );
-                      return (
-                        <div className="flex flex-col gap-3">
-                          {pinnedChats.length > 0 && (
-                            <div className="flex flex-col gap-1">
-                              <div className="px-2 text-xs font-medium text-[var(--text-muted)]">Pinned</div>
-                              {pinnedChats.map(renderChatRow)}
-                            </div>
-                          )}
-                          <div className="flex flex-col gap-2">
-                            <div className="flex items-center justify-between px-2">
-                              <span className="text-xs font-medium text-[var(--text-muted)]">Projects</span>
-                              <button
-                                type="button"
-                                title="New project"
-                                className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                                onClick={() => openProjectHub()}
-                              >
-                                <PlusIcon size={12} />
-                              </button>
-                            </div>
-                            {projects
-                              .filter((p) => p.id !== 'local' && (!p.archived || showArchivedProjects))
-                              .map((proj) => {
-                              const projChats = visibleChats.filter(
-                                (c) => (c.projectId || 'local') === proj.id && !chatMeta.pinned[c.sessionId]
-                              );
-                              const expanded = Boolean(expandedProjects[proj.id]);
-                              const shown = expanded ? projChats : projChats.slice(0, 3);
-                              const isSelectedProj = activeProjectId === proj.id;
-                              const projActivities = islandActivities.filter((a) => (a.projectId || 'local') === proj.id);
-                              const projNeedsApproval = projActivities.some((a) => Boolean(a.pendingApproval) || a.stage === 'paused');
-                              const projRunning = projActivities.some((a) => a.stage === 'executing' || a.isActive);
-                              return (
-                                <div key={proj.id} className="flex flex-col gap-0.5">
-                                  <div
-                                    className={`group/proj flex items-center justify-between rounded-md px-2 py-1.5 text-[13.5px] transition-colors ${
-                                      isSelectedProj
-                                        ? 'bg-[var(--bg-active)] font-semibold text-[var(--text-primary)]'
-                                        : 'font-medium text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
-                                    }`}
-                                  >
-                                    <button
-                                      type="button"
-                                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                                      onClick={() => {
-                                        setActiveProjectId(proj.id);
-                                        if (activeMessages.length === 0) {
-                                          setTabs((prev) =>
-                                            prev.map((t) => (t.id === activeTab.id ? { ...t, projectId: proj.id } : t))
-                                          );
-                                        } else if (activeTab.projectId !== proj.id) {
-                                          openNewChatTab(proj.id);
-                                        }
-                                      }}
-                                    >
-                                      <FolderIcon
-                                        size={14}
-                                        className={`shrink-0 ${
-                                          isSelectedProj ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'
-                                        }`}
-                                      />
-                                      <span className="truncate">{proj.label}</span>
-                                      {projNeedsApproval ? (
-                                        <span
-                                          title="Agent waiting for approval"
-                                          className="h-2 w-2 shrink-0 rounded-full bg-amber-500"
-                                        />
-                                      ) : projRunning ? (
-                                        <span
-                                          title="Agent running"
-                                          className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500"
-                                        />
-                                      ) : null}
-                                      {proj.files && proj.files.length > 0 && (
-                                        <span className="rounded bg-[var(--bg-hover)] px-1 text-[10px] text-[var(--text-muted)]">
-                                          {proj.files.length}
-                                        </span>
-                                      )}
-                                    </button>
-                                    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/proj:opacity-100">
-                                      <button
-                                        type="button"
-                                        title="New coding chat in project"
-                                        className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)]"
-                                        onClick={() => openNewChatTab(proj.id)}
-                                      >
-                                        <PlusIcon size={11} />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        title="Project files & settings"
-                                        className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)]"
-                                        onClick={() => openProjectHub(proj)}
-                                      >
-                                        <SettingsIcon size={11} />
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <div className="flex flex-col gap-0.5 pl-4">
-                                    {shown.map(renderChatRow)}
-                                    {projChats.length > 3 && (
-                                      <button
-                                        type="button"
-                                        className="px-2 py-1 text-left text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                        onClick={() => setExpandedProjects((prev) => ({ ...prev, [proj.id]: !expanded }))}
-                                      >
-                                        {expanded ? 'Show less' : 'Show more'}
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            {localChats.length > 0 && (
-                              <div className="flex flex-col gap-1">
-                                <div className="px-2 text-xs font-medium text-[var(--text-muted)]">Local chats</div>
-                                {localChats.map(renderChatRow)}
-                              </div>
-                            )}
-                            {projects.some((p) => p.archived) && (
-                              <button
-                                type="button"
-                                className="px-2 py-1 text-left text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                onClick={() => setShowArchivedProjects((v) => !v)}
-                              >
-                                {showArchivedProjects
-                                  ? 'Hide archived projects'
-                                  : `Show archived (${projects.filter((p) => p.archived).length})`}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    const archivedInMode = archivedChats.filter((c) => (c.mode || 'chat') === appMode);
-                    const pinnedChats = visibleChats.filter((c) => Boolean(chatMeta.pinned[c.sessionId]));
-                    const unpinnedChats = visibleChats.filter((c) => !chatMeta.pinned[c.sessionId]);
-                    const timeGroups = groupChatsByTime(unpinnedChats);
-                    return (
-                      <>
-                        {visibleChats.length === 0 ? (
-                          <div className="sidebar-empty-state flex flex-1 items-center justify-center text-center text-xs text-[var(--text-muted)]">
-                            No recent chats
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-4">
-                            {pinnedChats.length > 0 && (
-                              <div className="flex flex-col gap-1">
-                                <div className="flex items-center gap-1.5 px-2.5 pb-1 text-xs font-medium text-[var(--text-muted)]">
-                                  <PinIcon size={12} />
-                                  <span>Pinned</span>
-                                </div>
-                                {pinnedChats.map(renderChatRow)}
-                              </div>
-                            )}
-                            {timeGroups.map((group) => (
-                              <div key={group.label} className="flex flex-col gap-1">
-                                <div className="px-2.5 pb-1 text-xs font-medium text-[var(--text-muted)]">
-                                  {group.label}
-                                </div>
-                                {group.items.map(renderChatRow)}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {archivedInMode.length > 0 && (
-                          <div className="mt-2 flex flex-col gap-1 border-t border-[var(--border-color)] pt-2">
-                            <button
-                              type="button"
-                              className="px-2 py-1 text-left text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-                              onClick={() => setShowArchivedChats((v) => !v)}
-                            >
-                              {showArchivedChats
-                                ? 'Hide archived chats'
-                                : `Show archived (${archivedInMode.length})`}
-                            </button>
-                            {showArchivedChats &&
-                              archivedInMode.map((ac) => (
-                                <div
-                                  key={ac.sessionId}
-                                  className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
-                                >
-                                  <span className="truncate">{ac.title || ac.sessionId}</span>
-                                  <div className="flex shrink-0 items-center gap-1.5">
-                                    <span className="text-[10px] opacity-75">{ac.daysRemaining}d</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleRestoreChat(ac.sessionId)}
-                                      className="rounded border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-active)] cursor-pointer"
-                                    >
-                                      Restore
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-            </aside>
+            <Sidebar
+              sidebarOpen={sidebarOpen}
+              isResizingSidebar={isResizingSidebar}
+              sidebarWidth={sidebarWidth}
+              openNewChatTab={openNewChatTab}
+              appMode={appMode}
+              toggleSidebarExpanded={toggleSidebarExpanded}
+              setSidebarOpen={setSidebarOpen}
+              chatSessions={chatSessions}
+              chatMeta={chatMeta}
+              activeTab={activeTab}
+              openChatMenu={openChatMenu}
+              renamingRunId={renamingRunId}
+              renameDraft={renameDraft}
+              setRenameDraft={setRenameDraft}
+              commitRename={commitRename}
+              setRenamingRunId={setRenamingRunId}
+              updateChatMeta={updateChatMeta}
+              handleSelectChat={handleSelectChat}
+              setOpenChatMenu={setOpenChatMenu}
+              openProjectHub={openProjectHub}
+              projects={projects}
+              showArchivedProjects={showArchivedProjects}
+              expandedProjects={expandedProjects}
+              activeProjectId={activeProjectId}
+              islandActivities={islandActivities}
+              setActiveProjectId={setActiveProjectId}
+              activeMessages={activeMessages}
+              setTabs={setTabs}
+              setExpandedProjects={setExpandedProjects}
+              setShowArchivedProjects={setShowArchivedProjects}
+              archivedChats={archivedChats}
+              setShowArchivedChats={setShowArchivedChats}
+              showArchivedChats={showArchivedChats}
+              handleRestoreChat={handleRestoreChat}
+            />
             {sidebarOpen && (
               <div
                 role="separator"
@@ -4168,11 +3806,11 @@ export function App() {
                 <WorkspaceDock
                   activeSurface={activeDockSurface}
                   onToggleSurface={(surface) => {
-                    if (surface === 'plan') {
-                      setActiveDockSurface((prev) => (prev === 'plan' ? null : 'plan'));
-                    } else if (surface === 'agents') {
+                    if (surface === 'agents') {
                       setMissionControlOpen((prev) => !prev);
+                      return;
                     }
+                    setActiveDockSurface((prev) => (prev === surface ? null : surface));
                   }}
                   hasPlan={Boolean(planBySession[activeTab.sessionId])}
                   attentionCount={splitAttentionActivities(islandActivities).attention.length}
@@ -4184,719 +3822,63 @@ export function App() {
                 />
               )}
             <main className="pane pane-center min-w-0 flex-1">
-              <header className="chat-header" style={{ position: 'relative' }}>
-                <div className="chat-header-left">
-                  {!sidebarOpen && (
-                    <button
-                      className="btn-pane-toggle"
-                      type="button"
-                      title="Show chats"
-                      onClick={() => setSidebarOpen(true)}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></svg>
-                    </button>
-                  )}
-                </div>
-                {appMode === 'code' && (isPlanMode || (activeMessages.length > 0 && activeProjectId !== 'local')) && (
-                  <div
-                    className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
-                    title={activeProjectLabel}
-                  >
-                    <FolderIcon size={13} />
-                    <span className="max-w-[200px] truncate">{activeProjectLabel}</span>
-                    {(() => {
-                      const activeDev = devices.find((d) => d.deviceId === activeDeviceId);
-                      const envLabel =
-                        activeDev?.kind === 'cloud'
-                          ? 'Cloud'
-                          : activeDev?.kind === 'network'
-                            ? 'Network'
-                            : 'Local';
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => setMissionControlOpen(true)}
-                          title="Open Mission Control"
-                          className="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10.5px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-                        >
-                          {envLabel}
-                        </button>
-                      );
-                    })()}
-                    {isPlanMode && (
-                      <button
-                        type="button"
-                        onClick={() => setActiveDockSurface(null)}
-                        title="Exit Plan mode (read-only)"
-                        className="rounded-md border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10.5px] font-medium text-sky-400 transition-colors hover:bg-sky-500/20 cursor-pointer"
-                      >
-                        Plan
-                      </button>
-                    )}
-                  </div>
-                )}
-                {appMode === 'code' && managedProcesses.length > 0 && (
-                  <div className="relative flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="btn-pane-toggle flex items-center gap-1.5 px-2.5 text-xs"
-                      onClick={() => {
-                        setProcessesOpen((v) => !v);
-                        void loadManagedProcesses();
-                      }}
-                      title="Managed background processes"
-                    >
-                      <span
-                        className={`inline-block h-2 w-2 rounded-full ${
-                          managedProcesses.some((p) => p.status === 'running')
-                            ? 'bg-emerald-400'
-                            : 'bg-[var(--text-muted)]'
-                        }`}
-                      />
-                      <span>
-                        Processes ({managedProcesses.filter((p) => p.status === 'running').length}/
-                        {managedProcesses.length})
-                      </span>
-                    </button>
-                    {processesOpen && (
-                      <div className="absolute right-0 top-full z-50 mt-2 w-[380px] rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3 shadow-xl">
-                        <div className="mb-2 flex items-center justify-between text-xs font-medium text-[var(--text-secondary)]">
-                          <span>Managed Processes</span>
-                          <button
-                            type="button"
-                            className="text-[11px] hover:text-[var(--text-primary)]"
-                            onClick={() => setProcessesOpen(false)}
-                          >
-                            Close
-                          </button>
-                        </div>
-                        <div className="flex max-h-56 flex-col gap-2 overflow-y-auto">
-                          {managedProcesses.map((proc) => (
-                            <div
-                              key={proc.id}
-                              className="rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] p-2 text-xs"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="truncate font-medium text-[var(--text-primary)]">
-                                  {proc.label}
-                                </span>
-                                <span
-                                  className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                                    proc.status === 'running'
-                                      ? 'bg-emerald-500/15 text-emerald-400'
-                                      : 'bg-[var(--bg-hover)] text-[var(--text-muted)]'
-                                  }`}
-                                >
-                                  {proc.status}
-                                </span>
-                              </div>
-                              <div className="mt-1 truncate font-mono text-[11px] text-[var(--text-muted)]">
-                                {proc.command} (pid {proc.pid})
-                              </div>
-                              <div className="mt-2 flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  className="rounded border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                                  onClick={() => void handleViewProcessLogs(proc.id)}
-                                >
-                                  Logs
-                                </button>
-                                {proc.status === 'running' && (
-                                  <button
-                                    type="button"
-                                    className="rounded border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] text-red-400 hover:bg-red-500/20"
-                                    onClick={() => void handleStopProcess(proc.id)}
-                                  >
-                                    Stop
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        {selectedProcessLogs && (
-                          <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-[var(--border)] bg-black/40 p-2 font-mono text-[11px] text-[var(--text-secondary)] whitespace-pre-wrap">
-                            {selectedProcessLogs.logs}
-                          </pre>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </header>
+              <ChatHeader
+                sidebarOpen={sidebarOpen}
+                setSidebarOpen={setSidebarOpen}
+                appMode={appMode}
+                isPlanMode={isPlanMode}
+                activeMessages={activeMessages}
+                activeProjectId={activeProjectId}
+                activeProjectLabel={activeProjectLabel}
+                devices={devices}
+                activeDeviceId={activeDeviceId}
+                setMissionControlOpen={setMissionControlOpen}
+                setActiveDockSurface={setActiveDockSurface}
+                managedProcesses={managedProcesses}
+                setProcessesOpen={setProcessesOpen}
+                loadManagedProcesses={loadManagedProcesses}
+                processesOpen={processesOpen}
+                handleViewProcessLogs={handleViewProcessLogs}
+                handleStopProcess={handleStopProcess}
+                selectedProcessLogs={selectedProcessLogs}
+              />
 
-              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                {isPlanMode ? (
-                  (() => {
-                    const lastMsg = activeMessages[activeMessages.length - 1];
-                    const lastPlanError = lastMsg?.isError ? lastMsg : null;
-                    const lastPlanUser = lastPlanError
-                      ? [...activeMessages].reverse().find((m) => m.role === 'user' && m.content.trim())
-                      : null;
-                    const latestAssistant = [...activeMessages]
-                      .reverse()
-                      .find((m) => m.role === 'assistant' && !m.isError && m.content.trim());
-                    return (
-                      <div className="relative flex w-full flex-1 flex-col justify-start gap-6 px-6 pt-10 pb-8 overflow-y-auto">
-                        <DottedGlowBackground
-                          className="pointer-events-none mask-radial-to-90% mask-radial-at-center opacity-55 [[data-theme=bone]_&]:opacity-35"
-                          opacity={0.8}
-                          gap={12}
-                          radius={1.5}
-                          colorLightVar="--color-neutral-500"
-                          glowColorLightVar="--color-neutral-600"
-                          colorDarkVar="--color-neutral-500"
-                          glowColorDarkVar="--color-sky-800"
-                          backgroundOpacity={0}
-                          speedMin={0.3}
-                          speedMax={1.4}
-                          speedScale={1}
-                        />
-                        <div className="relative z-10 mx-auto flex w-full max-w-[900px] flex-col gap-6">
-                          {!planBySession[activeTab.sessionId] && planBrainDumpBySession[activeTab.sessionId] ? (
-                            <div className="mx-auto flex w-full max-w-[720px] flex-col items-center gap-3 py-8 text-center">
-                              <h1 className="text-4xl font-semibold tracking-tight text-[var(--text-primary)]">
-                                What do you want to build?
-                              </h1>
-                              <p className="mt-1 max-w-[620px] text-lg leading-relaxed text-[var(--text-muted)]">
-                                Jot down your rough thoughts, goals, or features in the box below. I’ll break them into components, give feedback, and help shape a structured plan.
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setPlanBrainDumpBySession((prev) => ({ ...prev, [activeTab.sessionId]: false }))
-                                }
-                                className="mt-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-                              >
-                                ← Back to ideas
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="text-center">
-                                <h1 className="text-4xl font-semibold tracking-tight text-[var(--text-primary)]">
-                                  Plan mode
-                                </h1>
-                                <p className="mt-1.5 text-lg text-[var(--text-muted)]">
-                                  Read-only codebase inspection, architecture design, and step-by-step planning.
-                                </p>
-                              </div>
-                              {isExecuting && isPlanMode ? (
-                                <div className="mx-auto flex min-h-[180px] w-full max-w-[520px] flex-col items-center justify-center gap-2.5 text-center">
-                                  <LoaderCircleIcon size={20} className="animate-spin text-[var(--accent-text)]" />
-                                  <div className="text-sm font-medium text-[var(--text-primary)]">Planning…</div>
-                                  <div className="text-xs text-[var(--text-muted)]">
-                                    Designing the experience and compiling your plan document.
-                                  </div>
-                                </div>
-                              ) : planBySession[activeTab.sessionId] ? (
-                                <PlanArtifactCard
-                                  markdown={planBySession[activeTab.sessionId] || ''}
-                                  onChange={(nextMd) =>
-                                    setPlanBySession((prev) => ({ ...prev, [activeTab.sessionId]: nextMd }))
-                                  }
-                                  onSave={(md) => saveSessionPlan(activeTab.sessionId, md)}
-                                  onApproveAndBuild={handleApprovePlanAndBuild}
-                                />
-                              ) : latestAssistant && !lastPlanError ? (
-                                <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 py-2">
-                                  {(() => {
-                                    const latestUser = [...activeMessages]
-                                      .reverse()
-                                      .find((m) => m.role === 'user' && m.content.trim());
-                                    return latestUser ? (
-                                      <div className="border-l-2 border-[var(--border-color)] pl-3 text-xs text-[var(--text-muted)]">
-                                        {latestUser.content}
-                                      </div>
-                                    ) : null;
-                                  })()}
-                                  <div className="text-sm leading-relaxed text-[var(--text-primary)]">
-                                    <MessageResponse isStreaming={isExecuting}>
-                                      {latestAssistant.content}
-                                    </MessageResponse>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="mx-auto flex w-full max-w-[860px] flex-col gap-5 py-2">
-                                  <div className="text-center text-sm font-medium text-[var(--text-secondary)]">
-                                    Explore an idea for {activeProjectId !== 'local' ? activeProjectLabel : 'this workspace'}
-                                  </div>
-                                  <div className="grid gap-3.5 sm:grid-cols-3">
-                                    {currentPlanIdeas.map((idea) => (
-                                      <button
-                                        key={idea}
-                                        type="button"
-                                        onClick={() => {}}
-                                        className="flex items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--border-color)_45%,transparent)] bg-[var(--bg-panel)] px-4 py-3 text-center transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
-                                      >
-                                        <span className="truncate text-base font-medium text-[var(--text-primary)]">
-                                          {idea}
-                                        </span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                  <div className="flex justify-center pt-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setPlanBrainDumpBySession((prev) => ({ ...prev, [activeTab.sessionId]: true }));
-                                        requestAnimationFrame(() => textareaRef.current?.focus());
-                                      }}
-                                      className="rounded-lg border border-[var(--border-color)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-                                    >
-                                      Write from scratch
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </>
-                          )}
-                          {lastPlanError && (
-                            <div
-                              role="alert"
-                              className="mx-auto flex w-full max-w-[760px] items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/[0.05] px-4 py-3 text-xs text-[var(--text-primary)]"
-                            >
-                              <div className="flex min-w-0 items-center gap-2">
-                                <CircleAlertIcon size={14} className="shrink-0 text-red-500" />
-                                <span className="truncate">{lastPlanError.content || 'Planning request failed.'}</span>
-                              </div>
-                              {lastPlanUser && !isExecuting && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleRetryMessage(lastPlanUser)}
-                                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-red-500/12 px-2.5 py-1 text-[11px] font-medium text-red-500 hover:bg-red-500/20 cursor-pointer"
-                                >
-                                  <RotateCcwIcon size={11} />
-                                  <span>Retry</span>
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()
-                ) : activeMessages.length === 0 ? (
-                  <Empty>
-                    <EmptyHeader>
-                      <EmptyMedia variant="icon">
-                        <MessageCircleDashedIcon size={20} />
-                      </EmptyMedia>
-                      <EmptyTitle>
-                        {appMode === 'chat'
-                          ? chatEmptyCopy.title
-                          : activeProjectId !== 'local'
-                            ? `What should we build in ${activeProjectLabel}?`
-                            : 'What should we build?'}
-                      </EmptyTitle>
-                      <EmptyDescription>
-                        {appMode === 'chat'
-                          ? chatEmptyCopy.description
-                          : 'Ask the agent to read your code, run commands, and make changes.'}
-                      </EmptyDescription>
-                    </EmptyHeader>
-                  </Empty>
-                ) : (
-                  <MessageScroller>
-                    <MessageScrollerViewport>
-                      <MessageScrollerContent aria-busy={isExecuting}>
-                        {activeMessages
-                          .reduce<ChatEntry[][]>((groups, msg) => {
-                            const lastGroup = groups[groups.length - 1];
-                            if (lastGroup && lastGroup[0]?.role === msg.role) {
-                              lastGroup.push(msg);
-                            } else {
-                              groups.push([msg]);
-                            }
-                            return groups;
-                          }, [])
-                          .map((group) => {
-                            const firstMsg = group[0]!;
-                            const isUser = firstMsg.role === 'user';
-                            return (
-                              <MessageScrollerItem
-                                key={firstMsg.id}
-                                messageId={firstMsg.id}
-                                scrollAnchor={isUser}
-                              >
-                                <Message align={isUser ? 'end' : 'start'}>
-                                  <MessageContent>
-                                    <BubbleGroup className={isUser ? 'items-end' : 'items-start'}>
-                                      {group.map((msg) => {
-                                        const streaming =
-                                          !isUser &&
-                                          isExecuting &&
-                                          msg === activeMessages[activeMessages.length - 1];
-                                        const isCopied = copiedMessageId === msg.id;
-
-                                        return (
-                                          <div
-                                            key={msg.id}
-                                            className={`group/msg flex w-full flex-col gap-1.5 ${isUser ? 'items-end' : 'items-start'}`}
-                                          >
-                                            {msg.syncConflictOf && (
-                                              <div
-                                                role="status"
-                                                className="flex max-w-[85%] items-center gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/[0.06] px-2 py-1 text-[10px] text-[var(--text-muted)]"
-                                              >
-                                                <CircleAlertIcon size={11} className="shrink-0 text-amber-500" />
-                                                <span>Different text arrived from another device. This version is preserved alongside the original.</span>
-                                              </div>
-                                            )}
-                                            {isUser ? (
-                                              <Bubble align="end" variant="secondary">
-                                                <BubbleContent className="!bg-[var(--bg-panel-subtle)] !border-[var(--border-color)] text-[var(--text-primary)]">
-                                                  {msg.replyTo && (
-                                                    <div className="mb-1.5 border-l-2 border-border pl-2 text-xs text-muted-foreground">
-                                                      {msg.replyTo.content.slice(0, 120)}
-                                                      {msg.replyTo.content.length > 120 ? '...' : ''}
-                                                    </div>
-                                                  )}
-                                                  <div>{msg.content}</div>
-                                                </BubbleContent>
-                                              </Bubble>
-                                            ) : (
-                                              <div
-                                                className={`flex w-full flex-col gap-3 text-sm leading-relaxed text-[var(--text-primary)] ${
-                                                  streaming ? 'gram-message-turn--streaming' : 'gram-message-turn'
-                                                }`}
-                                              >
-                                                {msg.tasks && msg.tasks.length > 0 && (
-                                                  <Trace>
-                                                    {msg.tasks.map((taskItem) => (
-                                                      <TaskRow key={taskItem.id} task={taskItem} streaming={streaming} />
-                                                    ))}
-                                                  </Trace>
-                                                )}
-                                                {msg.steps && msg.steps.length > 0 && (
-                                                  <TraceStepList steps={msg.steps} streaming={streaming} busy={isExecuting} />
-                                                )}
-                                                {msg.approval && msg.approval.state === 'approval-requested' && (
-                                                  <Item variant="outline" size="sm">
-                                                    <ItemMedia variant="icon">
-                                                      <TerminalIcon size={14} />
-                                                    </ItemMedia>
-                                                    <ItemContent>
-                                                      <ItemTitle>Run {msg.approval.command}?</ItemTitle>
-                                                      <ItemDescription>
-                                                        {msg.approval.description || 'The command runs in this project.'}
-                                                      </ItemDescription>
-                                                    </ItemContent>
-                                                    <ItemActions>
-                                                      <Button
-                                                        type="button"
-                                                        size="sm"
-                                                        variant="outline"
-                                                        onClick={() =>
-                                                          handleApproveActivity(
-                                                            {
-                                                              runId: msg.approval!.runId,
-                                                              sessionId: msg.approval!.sessionId,
-                                                              title: msg.approval!.command,
-                                                              stage: 'paused',
-                                                            },
-                                                            false
-                                                          )
-                                                        }
-                                                      >
-                                                        Deny
-                                                      </Button>
-                                                      <Button
-                                                        type="button"
-                                                        size="sm"
-                                                        onClick={() =>
-                                                          handleApproveActivity(
-                                                            {
-                                                              runId: msg.approval!.runId,
-                                                              sessionId: msg.approval!.sessionId,
-                                                              title: msg.approval!.command,
-                                                              stage: 'paused',
-                                                            },
-                                                            true
-                                                          )
-                                                        }
-                                                      >
-                                                        Approve
-                                                      </Button>
-                                                    </ItemActions>
-                                                  </Item>
-                                                )}
-                                                {msg.approval && msg.approval.state === 'approval-responded' && (
-                                                  <Trace>
-                                                    <TraceLine>
-                                                      <TraceIcon>
-                                                        <TerminalIcon size={13} />
-                                                      </TraceIcon>
-                                                      <TraceTitle>
-                                                        {msg.approval.approved ? 'Ran' : 'Denied'} {msg.approval.command}
-                                                      </TraceTitle>
-                                                    </TraceLine>
-                                                  </Trace>
-                                                )}
-                                                 {msg.isError ? (
-                                                   <div
-                                                     role="alert"
-                                                     className="rounded-xl border border-red-500/20 bg-red-500/[0.05] px-4 py-3 text-sm text-[var(--text-primary)]"
-                                                   >
-                                                     <div className="flex items-center justify-between gap-3">
-                                                       <div className="flex items-center gap-2 text-xs font-medium text-red-500">
-                                                         <CircleAlertIcon size={14} className="shrink-0" />
-                                                         <span>Message failed</span>
-                                                       </div>
-                                                       {!isExecuting && (() => {
-                                                         const msgIdx = activeMessages.findIndex((m) => m.id === msg.id);
-                                                         const prevUser = msgIdx > 0
-                                                           ? [...activeMessages.slice(0, msgIdx)].reverse().find((m) => m.role === 'user' && m.content.trim())
-                                                           : undefined;
-                                                         return prevUser ? (
-                                                           <button
-                                                             type="button"
-                                                             onClick={() => handleRetryMessage(prevUser)}
-                                                             className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/12 px-2.5 py-1 text-[11px] font-medium text-red-500 transition-colors hover:bg-red-500/20 cursor-pointer"
-                                                           >
-                                                             <RotateCcwIcon size={11} />
-                                                             <span>Retry</span>
-                                                           </button>
-                                                         ) : null;
-                                                       })()}
-                                                     </div>
-                                                     <div className="mt-1.5 text-[13px] leading-relaxed">
-                                                       <MessageResponse isStreaming={false}>
-                                                         {msg.content || 'Execution failed.'}
-                                                       </MessageResponse>
-                                                     </div>
-                                                     {msg.diagnostics && (
-                                                       <details className="group mt-2.5 border-t border-red-500/12 pt-2 text-[11px]">
-                                                         <summary className="flex cursor-pointer list-none select-none items-center justify-between gap-2 text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]">
-                                                           <span className="inline-flex items-center gap-1.5 min-w-0">
-                                                             <ChevronRightIcon
-                                                               size={12}
-                                                               className="shrink-0 transition-transform duration-150 group-open:rotate-90"
-                                                             />
-                                                             <span className="font-medium text-[var(--text-secondary)]">Diagnostics</span>
-                                                             <span className="truncate opacity-80">
-                                                               {String((msg.diagnostics as any).requestedModelId || 'auto')} →{' '}
-                                                               {String((msg.diagnostics as any).resolvedModelId || 'unknown')}
-                                                               {(msg.diagnostics as any).phase ? ` · ${String((msg.diagnostics as any).phase)}` : ''}
-                                                               {(msg.diagnostics as any).elapsedMs !== undefined
-                                                                 ? ` · ${String((msg.diagnostics as any).elapsedMs)}ms`
-                                                                 : ''}
-                                                             </span>
-                                                           </span>
-                                                           <button
-                                                             type="button"
-                                                             onClick={(e) => {
-                                                               e.preventDefault();
-                                                               e.stopPropagation();
-                                                               void navigator.clipboard?.writeText(
-                                                                 JSON.stringify(msg.diagnostics, null, 2)
-                                                               );
-                                                             }}
-                                                             className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-red-500/10 hover:text-[var(--text-primary)] cursor-pointer"
-                                                           >
-                                                             <CopyIcon size={11} />
-                                                             <span>Copy JSON</span>
-                                                           </button>
-                                                         </summary>
-                                                         <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all font-mono text-[10.5px] leading-relaxed text-[var(--text-secondary)]">
-                                                           {JSON.stringify(msg.diagnostics, null, 2)}
-                                                         </pre>
-                                                       </details>
-                                                     )}
-                                                   </div>
-                                                 ) : msg.content ? (
-                                                   <MessageResponse isStreaming={false}>
-                                                     {msg.content}
-                                                   </MessageResponse>
-                                                 ) : streaming ? (
-                                                   <div className="flex w-full items-center justify-center py-6">
-                                                     <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-3.5 py-1.5 text-xs font-medium text-[var(--text-secondary)]">
-                                                       <LoaderCircleIcon size={13} className="animate-spin text-[var(--accent-text)]" />
-                                                       <span>{isPlanMode ? 'Planning…' : 'Thinking…'}</span>
-                                                     </div>
-                                                   </div>
-                                                 ) : null}
-                                                {!isUser &&
-                                                  !streaming &&
-                                                  !msg.isError &&
-                                                  msg.id === activeMessages[activeMessages.length - 1]?.id &&
-                                                  Boolean(planBySession[activeTab.sessionId]) &&
-                                                  /##\s+Tasks\b/i.test(planBySession[activeTab.sessionId] || '') &&
-                                                  !/\b(?:critical questions|please answer|what would you like to lock in)\b/i.test(
-                                                    msg.content || ''
-                                                  ) && (
-                                                    <div className="mt-2 flex w-full flex-col gap-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-3.5 text-xs">
-                                                      <div className="flex items-center justify-between gap-2">
-                                                        <span className="font-semibold text-[var(--text-primary)]">
-                                                          I&apos;ve compiled a plan — here&apos;s a summary
-                                                        </span>
-                                                        <button
-                                                          type="button"
-                                                          onClick={() => setActiveDockSurface('plan')}
-                                                          className="inline-flex items-center gap-1 rounded-md border border-[var(--border-color)] px-2 py-1 text-[11px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer"
-                                                        >
-                                                          <FileTextIcon size={12} />
-                                                          <span>View full doc</span>
-                                                        </button>
-                                                      </div>
-                                                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                                                        <Button
-                                                          type="button"
-                                                          size="sm"
-                                                          onClick={() =>
-                                                            handleApprovePlanAndBuild({
-                                                              markdown: planBySession[activeTab.sessionId] || '',
-                                                              isolateWorktree: false,
-                                                            })
-                                                          }
-                                                        >
-                                                          Yes, go ahead
-                                                        </Button>
-                                                        <Button
-                                                          type="button"
-                                                          size="sm"
-                                                          variant="outline"
-                                                          onClick={() => {
-                                                            requestAnimationFrame(() => textareaRef.current?.focus());
-                                                          }}
-                                                        >
-                                                          No, here&apos;s some more
-                                                        </Button>
-                                                      </div>
-                                                    </div>
-                                                  )}
-                                                {msg.workers && msg.workers.length > 0 && (
-                                                  <div className="cloud-progress-list">
-                                                    {msg.workers.map((w, idx) => (
-                                                      <div key={w.id || idx} className="cloud-progress-row">
-                                                        <span>{w.name || w.id}</span>
-                                                        <span className="status-text">{w.status || 'running'}</span>
-                                                      </div>
-                                                    ))}
-                                                  </div>
-                                                )}
-                                                {!isUser && appMode === 'chat' && msg.codingHandoffPrompt && (
-                                                  <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel-subtle)] px-3.5 py-2.5 text-xs">
-                                                    <div className="flex flex-col gap-0.5">
-                                                      <span className="font-semibold text-[var(--text-primary)]">Continue in a new coding chat?</span>
-                                                      <span className="text-[var(--text-secondary)]">Summarize this conversation and open a Code workspace with file, terminal, and browser tools.</span>
-                                                    </div>
-                                                    <button
-                                                      type="button"
-                                                      className="btn-new-chat shrink-0"
-                                                      style={{ margin: 0, width: 'auto', padding: '6px 12px', fontSize: '12px' }}
-                                                      disabled={handoffBusyId === msg.id}
-                                                      onClick={() => handleContinueInCode(msg)}
-                                                    >
-                                                      {handoffBusyId === msg.id ? 'Summarizing...' : 'Continue in Code →'}
-                                                    </button>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
-
-                                            <div
-                                              className={`result-actions flex items-center gap-1.5 ${isUser ? 'justify-end' : 'justify-start'}`}
-                                              style={{ marginTop: 0 }}
-                                            >
-                                              {!msg.isError && msg.content && (
-                                                <button
-                                                  className="message-action-btn"
-                                                  type="button"
-                                                  onClick={() => handleCopyMessage(msg)}
-                                                >
-                                                  {isCopied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-                                                  <span>{isCopied ? 'Copied' : 'Copy'}</span>
-                                                </button>
-                                              )}
-                                              {!msg.isError && (
-                                                <button
-                                                  className="message-action-btn"
-                                                  type="button"
-                                                  onClick={() => handleReplyMessage(msg)}
-                                                >
-                                                  <ReplyIcon size={12} />
-                                                  <span>Reply</span>
-                                                </button>
-                                              )}
-                                              {!isUser && !msg.isError && msg.content && (
-                                                <button
-                                                  className="message-action-btn"
-                                                  type="button"
-                                                  onClick={() => {
-                                                    if (speakingMessageId === msg.id) stopSpeechPlayback();
-                                                    else void speakSummary(msg.content, msg.id);
-                                                  }}
-                                                >
-                                                  <Volume2Icon size={12} />
-                                                  <span>{speakingMessageId === msg.id ? 'Stop' : 'Listen'}</span>
-                                                </button>
-                                              )}
-                                              {isUser && msg.content && (
-                                                <button
-                                                  className="message-action-btn"
-                                                  type="button"
-                                                  disabled={isExecuting}
-                                                  onClick={() => handleRetryMessage(msg)}
-                                                  title="Retry this prompt"
-                                                >
-                                                  <RotateCcwIcon size={12} />
-                                                  <span>Retry</span>
-                                                </button>
-                                              )}
-                                              {!isUser && msg.steps && msg.steps.length > 0 && (
-                                                <button
-                                                  className="message-action-btn"
-                                                  type="button"
-                                                  onClick={() => handleEscalate(msg.originalPrompt)}
-                                                >
-                                                  Escalate to swarm
-                                                </button>
-                                              )}
-                                              {!isUser && msg.previewUrl && (
-                                                <button
-                                                  className="message-action-btn"
-                                                  type="button"
-                                                  onClick={() => handleOpenPreview(msg.previewUrl!)}
-                                                >
-                                                  Open preview
-                                                </button>
-                                              )}
-                                              {!isUser && msg.runId && (msg.lane === 'full-swarm' || (msg.workers && msg.workers.length > 0)) && (
-                                                <button
-                                                  className="message-action-btn"
-                                                  type="button"
-                                                  onClick={() => void handlePullLyraPatch(msg.runId!, msg.remoteSessionId)}
-                                                >
-                                                  Pull swarm patch
-                                                </button>
-                                              )}
-                                              {!isUser && msg.reviewLayerId && (
-                                                <>
-                                                  <button className="message-action-btn" type="button" onClick={() => void handleCommitLyraLayer(msg)}>
-                                                    Commit to workspace
-                                                  </button>
-                                                  <button className="message-action-btn" type="button" onClick={() => void handleRollbackLyraLayer(msg)}>
-                                                    Discard overlay
-                                                  </button>
-                                                </>
-                                              )}
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </BubbleGroup>
-                                  </MessageContent>
-                                </Message>
-                              </MessageScrollerItem>
-                            );
-                          })}
-                      </MessageScrollerContent>
-                    </MessageScrollerViewport>
-                    <MessageScrollerButton />
-                  </MessageScroller>
-                )}
-              </div>
+              <MessageList
+                isPlanMode={isPlanMode}
+                activeMessages={activeMessages}
+                planBySession={planBySession}
+                activeTab={activeTab}
+                planBrainDumpBySession={planBrainDumpBySession}
+                setPlanBrainDumpBySession={setPlanBrainDumpBySession}
+                activeProjectId={activeProjectId}
+                activeProjectLabel={activeProjectLabel}
+                currentPlanIdeas={currentPlanIdeas}
+                setPrompt={setPrompt}
+                textareaRef={textareaRef}
+                appMode={appMode}
+                chatEmptyCopy={chatEmptyCopy}
+                isExecuting={isExecuting}
+                copiedMessageId={copiedMessageId}
+                handleApproveActivity={handleApproveActivity}
+                handleRetryMessage={handleRetryMessage}
+                setActiveDockSurface={setActiveDockSurface}
+                handleApprovePlanAndBuild={handleApprovePlanAndBuild}
+                handoffBusyId={handoffBusyId}
+                handleContinueInCode={handleContinueInCode}
+                handleCopyMessage={handleCopyMessage}
+                handleReplyMessage={handleReplyMessage}
+                speakingMessageId={speakingMessageId}
+                stopSpeechPlayback={stopSpeechPlayback}
+                speakSummary={speakSummary}
+                handleEscalate={handleEscalate}
+                handleOpenPreview={handleOpenPreview}
+                handlePullLyraPatch={handlePullLyraPatch}
+                handleCommitLyraLayer={handleCommitLyraLayer}
+                handleRollbackLyraLayer={handleRollbackLyraLayer}
+                planSectionRef={planSectionRef}
+                setPlanBySession={setPlanBySession}
+                saveSessionPlan={saveSessionPlan}
+              />
 
               {systemWarnings.length > 0 && !systemWarningsDismissed && (
                 <div className="mx-auto mb-2 w-full max-w-[836px] px-7">
@@ -4973,588 +3955,78 @@ export function App() {
                 </div>
               )}
 
-              <form ref={formRef} onSubmit={onSubmit} className="mx-auto w-full max-w-[836px] px-7 pb-4">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  hidden
-                  onChange={(e) => {
-                    const files = e.target.files;
-                    if (!files) return;
-                    setAttachments((prev) => [...prev, ...Array.from(files).map((f) => ({ name: f.name }))]);
-                  }}
-                />
-                {(() => {
-                  const tabQueue = messageQueue.filter((q) => q.tabId === activeTab.id);
-                  if (tabQueue.length === 0) return null;
-                  return (
-                    <div className="mb-2 rounded-xl border border-border bg-[var(--bg-panel)] px-3 py-2 text-xs">
-                      <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
-                        <span>Queued ({tabQueue.length})</span>
-                        <span>Runs in order · Steer interrupts current turn</span>
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        {tabQueue.map((item) => (
-                          <div
-                            key={item.id}
-                            className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-[var(--bg-panel-subtle)] px-2.5 py-1.5"
-                          >
-                            {editingQueueId === item.id ? (
-                              <div className="flex flex-1 items-center gap-1.5">
-                                <input
-                                  type="text"
-                                  value={editingQueueText}
-                                  autoFocus
-                                  onChange={(e) => setEditingQueueText(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
-                                      handleSaveQueuedEdit(item.id);
-                                    } else if (e.key === 'Escape') {
-                                      e.preventDefault();
-                                      setEditingQueueId(null);
-                                      setEditingQueueText('');
-                                    }
-                                  }}
-                                  className="min-w-0 flex-1 rounded border border-border bg-[var(--bg-panel)] px-2 py-1 text-xs text-foreground outline-none"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => handleSaveQueuedEdit(item.id)}
-                                  className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-[var(--bg-hover)]"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingQueueId(null);
-                                    setEditingQueueText('');
-                                  }}
-                                  className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <>
-                                <span className="min-w-0 flex-1 truncate text-foreground" title={item.content}>
-                                  {item.content}
-                                </span>
-                                <div className="flex shrink-0 items-center gap-1">
-                                  <button
-                                    type="button"
-                                    title="Steer now (interrupts current run and sends this)"
-                                    onClick={() => void handleSteerQueuedMessage(item)}
-                                    className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] text-foreground hover:bg-[var(--bg-hover)]"
-                                  >
-                                    <CornerDownRightIcon size={11} />
-                                    <span>Steer</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    title="Edit queued message"
-                                    aria-label="Edit queued message"
-                                    onClick={() => {
-                                      setEditingQueueId(item.id);
-                                      setEditingQueueText(item.content);
-                                    }}
-                                    className="rounded p-1 text-muted-foreground hover:text-foreground"
-                                  >
-                                    <PencilIcon size={11} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    title="Remove from queue"
-                                    aria-label="Remove from queue"
-                                    onClick={() => handleRemoveQueuedMessage(item.id)}
-                                    className="rounded p-1 text-muted-foreground hover:text-foreground"
-                                  >
-                                    <XIcon size={12} />
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
-                <InputGroup>
-                  {replyingTo && (
-                    <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
-                      <div className="min-w-0 truncate">
-                        Replying to {replyingTo.role === 'user' ? 'you' : 'assistant'}:{' '}
-                        <span className="text-foreground">{replyingTo.content.slice(0, 120)}</span>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label="Cancel reply"
-                        className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
-                        onClick={() => setReplyingTo(null)}
-                      >
-                        <XIcon size={12} />
-                      </button>
-                    </div>
-                  )}
-                  {attachments.length > 0 && (
-                    <InputGroupAddon align="block-start">
-                      {attachments.map((file, idx) => (
-                        <span
-                          key={`${file.name}-${idx}`}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel-subtle)] px-2 py-1 text-xs text-[var(--text-primary)]"
-                        >
-                          <FileTextIcon size={12} className="text-[var(--text-muted)]" />
-                          <span className="max-w-[160px] truncate">{file.name}</span>
-                          <button
-                            type="button"
-                            aria-label={`Remove ${file.name}`}
-                            className="rounded p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                            onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
-                          >
-                            <XIcon size={12} />
-                          </button>
-                        </span>
-                      ))}
-                    </InputGroupAddon>
-                  )}
-                  {voiceError && (
-                    <div className="px-3 pt-1 text-xs text-[var(--danger)]" role="status">{voiceError}</div>
-                  )}
-                  <InputGroupTextarea
-                    ref={textareaRef}
-                    value={prompt}
-                    onChange={(e) => {
-                      setPrompt(e.target.value);
-                      e.target.style.height = 'auto';
-                      e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
-                    }}
-                    placeholder={
-                      voiceRecording
-                        ? 'Listening... speak naturally'
-                        : isPlanMode && planBrainDumpBySession[activeTab.sessionId] && !planBySession[activeTab.sessionId]
-                          ? 'Jot down what you want to build — rough thoughts, features, goals...'
-                          : composerPlaceholder
-                    }
-                    aria-label="Message"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        formRef.current?.requestSubmit();
-                      }
-                    }}
-                  />
-                  <InputGroupAddon align="block-end">
-                    <div style={{ position: 'relative' }} data-popover-root="context">
-                      <InputGroupButton
-                        type="button"
-                        size="icon-sm"
-                        variant="outline"
-                        aria-label="Add context"
-                        onClick={() => setContextMenuOpen((v) => !v)}
-                      >
-                        <PlusIcon size={15} />
-                      </InputGroupButton>
-                      {contextMenuOpen && (
-                        <div
-                          className="user-profile-popover"
-                          style={{
-                            display: 'flex',
-                            position: 'absolute',
-                            left: 0,
-                            bottom: 'calc(100% + 6px)',
-                            width: '185px',
-                            background: 'var(--bg-panel)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: 'var(--radius-md)',
-                            padding: '4px',
-                            zIndex: 9999,
-                            flexDirection: 'column',
-                            gap: '2px',
-                          }}
-                        >
-                          <button
-                            type="button"
-                            className="shadcn-context-menu-item"
-                            onClick={() => {
-                              setContextMenuOpen(false);
-                              fileInputRef.current?.click();
-                            }}
-                          >
-                            <PaperclipIcon size={13} style={{ marginRight: '6px' }} />
-                            Add Photos & Files
-                          </button>
-                          <div className="shadcn-context-menu-separator" />
-                          <button
-                            type="button"
-                            className="shadcn-context-menu-item"
-                            onClick={() => {
-                              setContextMenuOpen(false);
-                              setPrompt((p) => (p ? `${p} ` : '') + '@research ');
-                            }}
-                          >
-                            <TelescopeIcon size={13} style={{ marginRight: '6px' }} />
-                            Deep Research
-                          </button>
-                          <button
-                            type="button"
-                            className="shadcn-context-menu-item"
-                            onClick={() => {
-                              setContextMenuOpen(false);
-                              setPrompt((p) => (p ? `${p} ` : '') + '@web ');
-                            }}
-                          >
-                            <GlobeIcon size={13} style={{ marginRight: '6px' }} />
-                            Web Search
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    <div className="ml-auto flex items-center gap-1.5">
-                      {appMode === 'code' && (
-                      <div style={{ position: 'relative' }} data-popover-root="composer-model">
-                        <InputGroupButton
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          aria-label={`Model: ${selectedModel.name}`}
-                          onClick={() => {
-                            setComposerModelOpen((v) => !v);
-                            setEffortMenuOpen(false);
-                            setContextMenuOpen(false);
-                          }}
-                        >
-                          <img
-                            src={getModelLogoPath(selectedModel.id, selectedModel.provider)}
-                            alt=""
-                            width={13}
-                            height={13}
-                            className="shrink-0"
-                          />
-                          <span className="max-w-[140px] truncate">{selectedModel.name}</span>
-                          <ChevronDownIcon size={12} />
-                        </InputGroupButton>
-                        {composerModelOpen && (
-                          <div
-                            className="user-profile-popover"
-                            style={{
-                              display: 'flex',
-                              position: 'absolute',
-                              right: 0,
-                              bottom: 'calc(100% + 6px)',
-                              width: '240px',
-                              maxHeight: '300px',
-                              overflowY: 'auto',
-                              background: 'var(--bg-panel)',
-                              border: '1px solid var(--border-color)',
-                              borderRadius: 'var(--radius-md)',
-                              padding: '4px',
-                              zIndex: 9999,
-                              flexDirection: 'column',
-                              gap: '2px',
-                            }}
-                          >
-                            <button
-                              key="auto"
-                              type="button"
-                              className="shadcn-context-menu-item justify-between gap-2"
-                              onClick={() => {
-                                selectModel('auto');
-                                setComposerModelOpen(false);
-                              }}
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                <img src={getModelLogoPath('auto', 'bedrock + openrouter')} alt="" width={13} height={13} className="shrink-0" />
-                                <span className="truncate">Auto</span>
-                              </span>
-                              {activeTab.modelId === 'auto' && <CheckIcon size={12} className="shrink-0" />}
-                            </button>
-
-                            {byokMenuModels.length > 0 && (
-                              <>
-                                <div className="my-1 border-t border-[var(--border-color)]" />
-                                <div className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
-                                  Your BYOK
-                                </div>
-                                {byokMenuModels.map((m) => (
-                                  <button
-                                    key={m.id}
-                                    type="button"
-                                    className="shadcn-context-menu-item justify-between gap-2"
-                                    onClick={() => {
-                                      selectModel(m.id);
-                                      setComposerModelOpen(false);
-                                    }}
-                                  >
-                                    <span className="flex min-w-0 items-center gap-2">
-                                      <img src={getModelLogoPath(m.id, m.provider)} alt="" width={13} height={13} className="shrink-0" />
-                                      <span className="truncate">{m.name}</span>
-                                    </span>
-                                    {m.id === activeTab.modelId && <CheckIcon size={12} className="shrink-0" />}
-                                  </button>
-                                ))}
-                              </>
-                            )}
-
-                            {openRouterMenuModels.length > 0 && (
-                              <>
-                                <div className="my-1 border-t border-[var(--border-color)]" />
-                                <div className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
-                                  OpenRouter
-                                </div>
-                                {openRouterMenuModels.map((m) => (
-                                  <button
-                                    key={m.id}
-                                    type="button"
-                                    className="shadcn-context-menu-item justify-between gap-2"
-                                    onClick={() => {
-                                      selectModel(m.id);
-                                      setComposerModelOpen(false);
-                                    }}
-                                  >
-                                    <span className="flex min-w-0 items-center gap-2">
-                                      <img src={getModelLogoPath(m.id, m.provider)} alt="" width={13} height={13} className="shrink-0" />
-                                      <span className="truncate">{m.name}</span>
-                                    </span>
-                                    {m.id === activeTab.modelId && <CheckIcon size={12} className="shrink-0" />}
-                                  </button>
-                                ))}
-                              </>
-                            )}
-
-                            {!hideBuiltinModels && builtinMenuModels.length > 0 && (
-                              <>
-                                <div className="my-1 border-t border-[var(--border-color)]" />
-                                <div className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
-                                  Gram / Lyra
-                                </div>
-                                {builtinMenuModels.map((m) => (
-                                  <button
-                                    key={m.id}
-                                    type="button"
-                                    className="shadcn-context-menu-item justify-between gap-2"
-                                    onClick={() => {
-                                      selectModel(m.id);
-                                      setComposerModelOpen(false);
-                                    }}
-                                  >
-                                    <span className="flex min-w-0 items-center gap-2">
-                                      <img src={getModelLogoPath(m.id, m.provider)} alt="" width={13} height={13} className="shrink-0" />
-                                      <span className="truncate">{m.name}</span>
-                                    </span>
-                                    {m.id === activeTab.modelId && <CheckIcon size={12} className="shrink-0" />}
-                                  </button>
-                                ))}
-                              </>
-                            )}
-
-                            <div className="my-1 border-t border-[var(--border-color)]" />
-                            <button
-                              type="button"
-                              className="shadcn-context-menu-item justify-between gap-2 text-[11px] text-[var(--text-muted)]"
-                              onClick={() => handleHideBuiltinModelsChange(!hideBuiltinModels)}
-                            >
-                              <span>{hideBuiltinModels ? 'Show Gram / Lyra models' : 'Hide Gram / Lyra models'}</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      )}
-
-                      <div style={{ position: 'relative' }} data-popover-root="effort">
-                        <InputGroupButton
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          title="Click for Effort & Permissions · ⌘+Click to cycle permission mode"
-                          aria-label={`Effort: ${effort}, Permissions: ${permissionMode}`}
-                          onClick={(e) => {
-                            if (e.metaKey || e.ctrlKey) {
-                              e.preventDefault();
-                              const order: Array<'autonomous' | 'safe' | 'ask'> = ['autonomous', 'safe', 'ask'];
-                              const next = order[(order.indexOf(permissionMode) + 1) % order.length]!;
-                              updatePermissionMode(next);
-                              return;
-                            }
-                            setEffortMenuOpen((v) => !v);
-                            setComposerModelOpen(false);
-                            setContextMenuOpen(false);
-                          }}
-                        >
-                          <span className="text-[var(--text-muted)]">Effort</span>
-                          <span className="capitalize">{effort}</span>
-                          {permissionMode !== 'autonomous' && (
-                            <span className="text-[10px] text-amber-400 capitalize">· {permissionMode}</span>
-                          )}
-                          <ChevronDownIcon size={12} />
-                        </InputGroupButton>
-                        {effortMenuOpen && (
-                          <div
-                            className="user-profile-popover"
-                            style={{
-                              display: 'flex',
-                              position: 'absolute',
-                              right: 0,
-                              bottom: 'calc(100% + 6px)',
-                              width: '188px',
-                              background: 'var(--bg-panel)',
-                              border: '1px solid var(--border-color)',
-                              borderRadius: 'var(--radius-md)',
-                              padding: '4px',
-                              zIndex: 9999,
-                              flexDirection: 'column',
-                              gap: '2px',
-                            }}
-                          >
-                            <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
-                              Effort
-                            </div>
-                            {(['low', 'medium', 'high'] as const).map((level) => (
-                              <button
-                                key={level}
-                                type="button"
-                                className="shadcn-context-menu-item justify-between capitalize"
-                                onClick={() => {
-                                  setEffort(level);
-                                  setEffortMenuOpen(false);
-                                }}
-                              >
-                                <span>{level}</span>
-                                {effort === level && <CheckIcon size={12} />}
-                              </button>
-                            ))}
-                            <div className="my-1 border-t border-[var(--border-color)]" />
-                            <div className="flex items-center justify-between px-2 py-1 text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
-                              <span>Permissions</span>
-                              <span className="font-mono text-[9px] opacity-70">⌘+Click</span>
-                            </div>
-                            {([
-                              { id: 'autonomous', label: 'Autonomous' },
-                              { id: 'safe', label: 'Safe' },
-                              { id: 'ask', label: 'Ask' },
-                            ] as const).map((perm) => (
-                              <button
-                                key={perm.id}
-                                type="button"
-                                className="shadcn-context-menu-item justify-between"
-                                onClick={() => {
-                                  updatePermissionMode(perm.id);
-                                  setEffortMenuOpen(false);
-                                }}
-                              >
-                                <span>{perm.label}</span>
-                                {permissionMode === perm.id && <CheckIcon size={12} />}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {(() => {
-                        const ctx = contextUsageBySession[activeTab.sessionId];
-                        if (!ctx || !ctx.contextWindow) return null;
-                        const fmtK = (n: number) =>
-                          n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-                        const pct = Math.min(100, Math.max(0, ctx.usagePercent || 0));
-                        const tone =
-                          pct >= 85
-                            ? 'border-red-500/35 text-red-400'
-                            : pct >= 70
-                              ? 'border-amber-500/35 text-amber-400'
-                              : 'border-[var(--border-color)] text-[var(--text-muted)]';
-                        const title = [
-                          `Context: ${ctx.estimatedContextTokens.toLocaleString()} / ${ctx.contextWindow.toLocaleString()} (${pct}%)`,
-                          `Input: ${ctx.inputTokens.toLocaleString()} · Output: ${ctx.outputTokens.toLocaleString()}`,
-                          ctx.cacheReadTokens > 0 ? `Cache read: ${ctx.cacheReadTokens.toLocaleString()}` : '',
-                          ctx.estimatedCostUsd > 0 ? `Est. cost: $${ctx.estimatedCostUsd.toFixed(4)}` : '',
-                          ctx.compactedCount > 0 ? `Compacted: ${ctx.compactedCount}x` : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' | ');
-                        return (
-                          <span
-                            title={title}
-                            className={`inline-flex h-7 items-center rounded-md border px-2 font-mono text-[11px] tabular-nums ${tone}`}
-                          >
-                            {fmtK(ctx.estimatedContextTokens)} / {fmtK(ctx.contextWindow)} ({pct}%)
-                          </span>
-                        );
-                      })()}
-
-                      <InputGroupButton
-                        type="button"
-                        size="icon-sm"
-                        variant={voiceMode ? 'default' : 'outline'}
-                        aria-label={voiceMode ? 'Turn voice responses off' : 'Turn voice responses on'}
-                        aria-pressed={voiceMode}
-                        onClick={() => {
-                          setVoiceMode((enabled) => {
-                            if (enabled) stopSpeechPlayback();
-                            return !enabled;
-                          });
-                          setVoiceError(null);
-                        }}
-                      >
-                        <Volume2Icon size={14} />
-                      </InputGroupButton>
-
-                      <InputGroupButton
-                        type="button"
-                        size="icon-sm"
-                        variant={voiceRecording ? 'default' : 'outline'}
-                        aria-label={voiceRecording ? 'Stop voice recording' : 'Record voice message'}
-                        aria-pressed={voiceRecording}
-                        onClick={() => void toggleVoiceRecording()}
-                      >
-                        <MicIcon size={14} />
-                      </InputGroupButton>
-
-                      {!isExecuting ? (
-                        <InputGroupButton
-                          type="submit"
-                          variant="default"
-                          size="icon-sm"
-                          disabled={!prompt.trim()}
-                          aria-label="Send"
-                        >
-                          <ArrowUpIcon size={14} />
-                        </InputGroupButton>
-                      ) : (
-                        <>
-                          {prompt.trim() && (
-                            <InputGroupButton
-                              type="submit"
-                              variant="outline"
-                              size="icon-sm"
-                              aria-label="Add to queue"
-                              title="Add to queue (Enter)"
-                            >
-                              <ArrowUpIcon size={14} />
-                            </InputGroupButton>
-                          )}
-                          <InputGroupButton
-                            type="button"
-                            variant="outline"
-                            size="icon-sm"
-                            className="border-red-500/40 bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300"
-                            onClick={() => void handleStop()}
-                            aria-label="Stop"
-                            title="Stop (Esc)"
-                          >
-                            <SquareIcon size={11} fill="currentColor" />
-                          </InputGroupButton>
-                        </>
-                      )}
-                    </div>
-                  </InputGroupAddon>
-                </InputGroup>
-              </form>
+              <Composer
+                formRef={formRef}
+                onSubmit={onSubmit}
+                fileInputRef={fileInputRef}
+                setAttachments={setAttachments}
+                messageQueue={messageQueue}
+                activeTab={activeTab}
+                editingQueueId={editingQueueId}
+                editingQueueText={editingQueueText}
+                setEditingQueueText={setEditingQueueText}
+                handleSaveQueuedEdit={handleSaveQueuedEdit}
+                setEditingQueueId={setEditingQueueId}
+                handleSteerQueuedMessage={handleSteerQueuedMessage}
+                handleRemoveQueuedMessage={handleRemoveQueuedMessage}
+                replyingTo={replyingTo}
+                setReplyingTo={setReplyingTo}
+                attachments={attachments}
+                voiceError={voiceError}
+                textareaRef={textareaRef}
+                prompt={prompt}
+                setPrompt={setPrompt}
+                voiceRecording={voiceRecording}
+                isPlanMode={isPlanMode}
+                planBrainDumpBySession={planBrainDumpBySession}
+                planBySession={planBySession}
+                composerPlaceholder={composerPlaceholder}
+                setContextMenuOpen={setContextMenuOpen}
+                contextMenuOpen={contextMenuOpen}
+                appMode={appMode}
+                selectedModel={selectedModel}
+                setComposerModelOpen={setComposerModelOpen}
+                setEffortMenuOpen={setEffortMenuOpen}
+                composerModelOpen={composerModelOpen}
+                selectModel={selectModel}
+                byokMenuModels={byokMenuModels}
+                openRouterMenuModels={openRouterMenuModels}
+                hideBuiltinModels={hideBuiltinModels}
+                builtinMenuModels={builtinMenuModels}
+                handleHideBuiltinModelsChange={handleHideBuiltinModelsChange}
+                effort={effort}
+                permissionMode={permissionMode}
+                updatePermissionMode={updatePermissionMode}
+                effortMenuOpen={effortMenuOpen}
+                setEffort={setEffort}
+                contextUsageBySession={contextUsageBySession}
+                voiceMode={voiceMode}
+                setVoiceMode={setVoiceMode}
+                stopSpeechPlayback={stopSpeechPlayback}
+                setVoiceError={setVoiceError}
+                toggleVoiceRecording={toggleVoiceRecording}
+                isExecuting={isExecuting}
+                handleStop={handleStop}
+              />
               <p className="mx-auto -mt-2 mb-2 w-full max-w-[836px] px-7 text-center text-[11px] text-[var(--text-muted)]">
                 Models can make mistakes. Check important info.
               </p>
             </main>
+            {appMode === 'code' && activeDockSurface && activeDockSurface !== 'agents' && (
+              <ContextPanel
+                activeDockSurface={activeDockSurface}
+                setActiveDockSurface={setActiveDockSurface}
+                activeProjectId={activeProjectId}
+                planBySession={planBySession}
+                activeTab={activeTab}
+                setPlanBySession={setPlanBySession}
+                handleApprovePlanAndBuild={handleApprovePlanAndBuild}
+                stagePreviewUrl={stagePreviewUrl}
+                setStagePreviewUrl={setStagePreviewUrl}
+                managedProcesses={managedProcesses}
+                setManagedProcesses={setManagedProcesses}
+              />
+            )}
             </div>
           </div>
         </main>

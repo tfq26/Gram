@@ -37,7 +37,14 @@ import {
   type LlmMessage,
 } from '../providers/llmClient';
 import { redactSecretText } from '../providers/secretGuard';
-import { getActivePrivacyMode, markModelUnavailable, MODEL_REGISTRY, selectOptimalModel } from '../providers/router';
+import {
+  getActivePrivacyMode,
+  isAllowedModel,
+  markModelUnavailable,
+  MODEL_REGISTRY,
+  selectOptimalModel,
+  type WorkflowKind,
+} from '../providers/router';
 import {
   AGENT_TOOLS,
   detectWorkspaceToolchain,
@@ -653,6 +660,121 @@ export class GramAgentRuntime extends EventEmitter {
   /**
    * Executes a turn or plan synchronously or asynchronously.
    */
+  private async runDelegatedSubagent(params: {
+    prompt: string;
+    workflow?: string;
+    modelId?: string;
+    maxTurns?: number;
+    workspaceRoot: string;
+    gramfs: GramFS;
+    layerId: string;
+    authToken?: string;
+    signal: AbortSignal;
+    pinnedFacts: Record<string, string>;
+  }): Promise<{ summary: string; modelId: string }> {
+    const validWorkflows: WorkflowKind[] = [
+      'coding',
+      'research',
+      'long-context',
+      'world-social',
+      'triage-routing',
+      'fast-utility',
+    ];
+    const workflow = validWorkflows.includes(params.workflow as WorkflowKind)
+      ? (params.workflow as WorkflowKind)
+      : undefined;
+    const model = selectOptimalModel({
+      taskComplexity: 'moderate',
+      priority: 'balanced',
+      workflow,
+      pinnedModelId: params.modelId && isAllowedModel(params.modelId) ? params.modelId : undefined,
+    });
+    const readOnlyGroups = new Set<'web' | 'analysis' | 'git'>(['web', 'analysis', 'git']);
+    const allowedReadOnly = new Set([
+      'read_file',
+      'list_files',
+      'search_code',
+      'find_symbol_definition',
+      'search_web',
+      'fetch_web_content',
+      'git_status',
+      'git_diff',
+      'git_log',
+    ]);
+    const subTools = getActiveToolsForGroups(readOnlyGroups).filter((t) => allowedReadOnly.has(t.name));
+    const maxTurns = Math.min(6, Math.max(1, Math.floor(params.maxTurns || 4)));
+    const messages: LlmMessage[] = [{ role: 'user', content: params.prompt }];
+    const factsBlock = Object.entries(params.pinnedFacts)
+      .slice(0, 12)
+      .map(([k, v]) => `- ${k}: ${v}`)
+      .join('\n');
+    const systemPrompt = [
+      'You are a focused read-only sub-agent inside Gram.',
+      'Investigate the assigned sub-question using your read-only tools and return a concise, factual summary for the parent agent.',
+      factsBlock ? `Pinned facts:\n${factsBlock}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    let lastText = '';
+    for (let turn = 0; turn < maxTurns; turn++) {
+      const res = await streamLlmTurn({
+        model,
+        systemPrompt,
+        messages,
+        tools: subTools,
+        effort: 'medium',
+        authToken: params.authToken,
+        signal: params.signal,
+      });
+      if (res.text.trim()) lastText = res.text.trim();
+      if (res.toolCalls.length === 0) {
+        return { summary: lastText || 'Sub-agent completed with no output.', modelId: model.id };
+      }
+      const assistantBlocks: LlmContentBlock[] = [];
+      if (res.text) assistantBlocks.push({ type: 'text', text: res.text });
+      for (const tc of res.toolCalls) {
+        assistantBlocks.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.input });
+      }
+      messages.push({ role: 'assistant', content: assistantBlocks });
+
+      const toolResults = await Promise.all(
+        res.toolCalls.map(async (tc) => {
+          if (!allowedReadOnly.has(tc.name)) {
+            return {
+              type: 'tool_result' as const,
+              toolUseId: tc.id,
+              content: `Tool "${tc.name}" is disabled in read-only sub-agents.`,
+              isError: true,
+            };
+          }
+          const exec = await executeAgentTool({
+            name: tc.name,
+            input: tc.input,
+            workspaceRoot: params.workspaceRoot,
+            gramfs: params.gramfs,
+            layerId: params.layerId,
+            authToken: params.authToken,
+            signal: params.signal,
+            graph: this.graph,
+            novelTools: this.tools,
+          });
+          return {
+            type: 'tool_result' as const,
+            toolUseId: tc.id,
+            content: exec.output,
+            isError: exec.isError,
+          };
+        })
+      );
+      messages.push({ role: 'user', content: toolResults });
+    }
+    return {
+      summary: lastText || 'Sub-agent reached max turns without a final summary.',
+      modelId: model.id,
+    };
+  }
+
   public async executeRun(options: AgentRunOptions): Promise<{
     runId: string;
     completed: boolean;
@@ -1083,7 +1205,7 @@ export class GramAgentRuntime extends EventEmitter {
 
     const hasWorkspaceContext = runMode === 'code' || Boolean(options.projectId && options.projectId !== 'local');
     const CHAT_SAFE_TOOLS = new Set(['search_web', 'fetch_web_content', 'retrieve_context', 'remember_user_context']);
-    const PLAN_READONLY_TOOLS = new Set(['search_web', 'fetch_web_content', 'retrieve_context']);
+    const PLAN_READONLY_TOOLS = new Set(['search_web', 'fetch_web_content', 'retrieve_context', 'update_plan']);
     const CHAT_WORKSPACE_TOOLS = new Set([
       'read_file',
       'list_files',
@@ -1176,7 +1298,7 @@ export class GramAgentRuntime extends EventEmitter {
               'ANTI-SYCOPHANCY, FIRST PRINCIPLES & YAGNI: Reason from first principles (actual user friction, constraints, failure modes, maintenance cost). Push back on over-engineering or unrequested extras (auth, Docker, analytics, TanStack Query/c8 when plain fetch and `bun test` suffice), and include an explicit `### Non-Goals (Deferred)` section.',
               'STRICT NO-CODE RULE UNTIL APPROVED: NEVER output fenced code blocks for implementation—NO SQL DDL, NO TypeScript/JavaScript functions, NO Zod schemas, NO React hooks, NO CSS, and NO test code snippets (the ONLY allowed fenced blocks are `mermaid` diagrams and compact JSON payload shapes). Do NOT invent speculative 15-file folder trees, contradictory `create vite` commands, or unverified npm package names. Describe data models, API contracts, and file responsibilities concisely in prose/bullets only.',
               ADAPTIVE_RESPONSE_GUIDANCE,
-              'PLAN ARTIFACT WORKFLOW:\n1. If the user already specified the core stack or behavior (even in an empty workspace), DO NOT stall with clarifying questions—pick obvious standard defaults (single-repo layout, FTS5, file-based SQLite for local-first), state those assumptions briefly in the plan, and generate `<gram_plan>...</gram_plan>` immediately. ONLY ask 2–3 clarifying questions if the request is genuinely vague (missing product goals, target users, or unspecified stack).\n2. SELF-CHECK BEFORE EMITTING `<gram_plan>`: Ask yourself: "Do I have all clarifying answers needed, and can an engineer build what the user is asking for directly from this plan?" If NO, do NOT emit `<gram_plan>`—just ask your clarifying questions concisely in chat.\n3. Wrap the entire formal plan inside `<gram_plan>...</gram_plan>` tags so Gram saves it to `.gram/plans/` and opens it in the dedicated Plan panel (keeping the chat clean):\n   - `## Experience & User Flow` — what the user sees, feels, and accomplishes step-by-step (zero technical jargon)\n   - `## Requirements` — EARS notation (`WHEN <trigger> THE SYSTEM SHALL <behavior>`) + `### Non-Goals (Deferred)`\n   - `## Design` — concise architecture, Mermaid diagram where helpful, `[NEW]`/`[MODIFY]` files (1-sentence responsibility each), and key API/data contracts (signatures only, no code bodies)\n   - `## Tasks` — dependency-ordered checklist (`- [ ] ...`)\n   - `## Verification Plan` — exact automated tests and manual checks to run after approval\n3. Outside `<gram_plan>...</gram_plan>`, write ONLY a 2–3 sentence conversational summary pointing the user to review and approve the plan.',
+              'PLAN ARTIFACT WORKFLOW:\n1. When the user shares rough or brain-dumped ideas, first reflect back what you understood in plain language, break the idea into logical components, give honest feedback/tradeoffs, and ask 2–3 focused clarifying questions if the goal or stack is genuinely ambiguous. If the user already specified the core stack or behavior, proceed directly to the plan.\n2. Call the `update_plan` tool with the complete Markdown document (or wrap it in `<gram_plan>...</gram_plan>`) so Gram saves it to `.gram/plans/` and renders it in the Plan Document view:\n   - `## Experience & User Flow` — what the user sees, feels, and accomplishes step-by-step (zero technical jargon)\n   - `## Requirements` — EARS notation (`WHEN <trigger> THE SYSTEM SHALL <behavior>`) + `### Non-Goals (Deferred)`\n   - `## Design` — concise architecture, Mermaid diagram where helpful, `[NEW]`/`[MODIFY]` files (1-sentence responsibility each), and key API/data contracts (signatures only, no code bodies)\n   - `## Tasks` — dependency-ordered checklist (`- [ ] ...`)\n   - `## Verification Plan` — exact automated tests and manual checks to run after approval\n3. In your chat reply, keep ONLY a concise 2–3 sentence summary or clarifying questions—do not duplicate the entire plan prose.',
               existingPlanBlock,
               registeredProjectsSummary,
               userContextPromptBlock,
@@ -1413,6 +1535,16 @@ export class GramAgentRuntime extends EventEmitter {
             sourceUserMessage: options.prompt,
             pinnedFacts: envelope.state.pinnedFacts,
             lyra: options.lyra,
+            delegateTask: (sub) =>
+              this.runDelegatedSubagent({
+                ...sub,
+                workspaceRoot: activeWorkspaceRoot,
+                gramfs: activeGramfs,
+                layerId,
+                authToken: options.authToken,
+                signal: controller.signal,
+                pinnedFacts: envelope.state.pinnedFacts,
+              }),
           });
 
         currentPhase = 'llm_turn';
@@ -1585,6 +1717,7 @@ export class GramAgentRuntime extends EventEmitter {
           'git_status',
           'git_diff',
           'git_log',
+          'delegate_task',
         ]);
         const DEDUP_READ_ONLY_TOOLS = new Set([
           'list_files',
@@ -1783,6 +1916,13 @@ export class GramAgentRuntime extends EventEmitter {
                   (tool) => allowPersonalContextCapture || tool.name !== 'remember_user_context'
                 );
               }
+            } else if (tc.name === 'update_plan' && typeof tc.input.markdown === 'string' && tc.input.markdown.trim()) {
+              const planMd = tc.input.markdown.trim();
+              options.onEvent?.({
+                type: 'plan_updated',
+                sessionId: options.sessionId,
+                markdown: planMd,
+              });
             } else if (tc.name === 'write_file' || tc.name === 'edit_file' || tc.name === 'delete_file') {
               const p = String(tc.input.path || '').trim();
               if (p) {

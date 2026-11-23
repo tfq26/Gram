@@ -80,7 +80,7 @@ describe('Gram v2 Web Interface Redesign (3-Step Developer Environment)', () => 
       new Request('http://localhost/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, modelId: 'us.amazon.nova-2-pro-v1:0' }),
+        body: JSON.stringify({ prompt, modelId: 'us.amazon.nova-pro-v1:0' }),
       })
     );
     expect(runRes.status).toBe(200);
@@ -156,7 +156,7 @@ describe('Gram v2 Web Interface Redesign (3-Step Developer Environment)', () => 
         method: 'POST', headers: { 'Content-Type': 'audio/webm' }, body: new Uint8Array([1, 2, 3]),
       }));
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ text: 'Hello Gram.' });
+      expect(await response.json()).toEqual({ text: 'Hello Gram.', provider: 'assemblyai' });
       expect(fetchSpy).toHaveBeenCalledTimes(3);
     } finally {
       fetchSpy.mockRestore();

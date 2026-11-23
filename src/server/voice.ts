@@ -399,6 +399,7 @@ export class LocalWhisperSpeechTranscriber implements SpeechTranscriber {
 }
 
 export function registerDefaultVoiceProviders(): void {
+  externalServices.clearVoiceProviders();
   externalServices.registerTts(new ElevenLabsSpeechSynthesizer());
   externalServices.registerTts(new MacOsSaySpeechSynthesizer());
   externalServices.registerStt(new AssemblyAiSpeechTranscriber());

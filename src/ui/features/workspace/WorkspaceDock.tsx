@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   CheckIcon,
   ClipboardListIcon,
+  FolderTreeIcon,
   GitCompareIcon,
   GlobeIcon,
   LayersIcon,
@@ -16,7 +17,7 @@ import {
   TooltipTrigger,
 } from '../../components/ui/tooltip';
 
-export type DockSurface = 'plan' | 'agents' | 'preview' | 'diff' | 'terminal' | 'side-question';
+export type DockSurface = 'plan' | 'agents' | 'files' | 'preview' | 'diff' | 'terminal' | 'side-question';
 
 export interface DockDeviceItem {
   deviceId: string;
@@ -41,6 +42,7 @@ const DOCK_ITEMS: Array<{
   label: string;
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
 }> = [
+  { id: 'files', label: 'Files', icon: FolderTreeIcon },
   { id: 'plan', label: 'Plan', icon: ClipboardListIcon },
   { id: 'agents', label: 'Mission Control', icon: LayersIcon },
   { id: 'preview', label: 'Preview', icon: GlobeIcon },

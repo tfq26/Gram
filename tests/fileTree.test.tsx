@@ -42,6 +42,6 @@ describe('shadcn/ui FileTree Component', () => {
     expect(html).toContain('gramfs.ts');
     expect(html).toContain('index.ts');
     // Modified status badge
-    expect(html).toContain('M');
+    expect(html).toContain('modified');
   });
 });
