@@ -31,5 +31,5 @@ Run typecheck and `bun test` after changes. Both are currently clean (108 tests)
 - `gram.*` Code Mode SDK calls are async (RPC to a Worker). Scripts must `await` them; returning a Promise fails with "object can not be cloned".
 - Model allowlist lives in `MODEL_REGISTRY` in `src/providers/router.ts`; `/api/run` rejects ids not in it (or BYOK).
 - Voice/web providers are global singletons in `externalServices`. Tests that register mocks must reset via `registerDefaultVoiceProviders()` / `registerDefaultWebProviders()` (both clear first).
-- `docs/audits/technical_audit_2026-10-05.md` describes an older .NET codebase, not this one.
+- `docs/archive/` holds docs for the older .NET codebase (e.g. the 2026-10-05 audit); they do not describe this repo.
 - macOS `sed -i` needs `-i ''`.
