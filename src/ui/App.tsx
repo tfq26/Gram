@@ -124,77 +124,29 @@ import {
   type ChatCopyMode,
 } from './features/chat/ChatContextMenu';
 
+import {
+  useLayoutState,
+} from './hooks/useLayoutState';
+
+import {
+  useVoice,
+} from './hooks/useVoice';
+
+import {
+  useProjectHub,
+} from './hooks/useProjectHub';
+
+import {
+  useSystemChecks,
+} from './hooks/useSystemChecks';
+
 function createChatMessageId(prefix: string): string {
   const unique = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 12);
   return `${prefix}-${Date.now()}-${unique}`;
 }
 
 export function App() {
-  const [layoutPreset, setLayoutPreset] = useState<LayoutPreset>(() => {
-    try {
-      const saved = localStorage.getItem('gram.settings.layoutPreset');
-      return saved === 'mid' || saved === 'power' ? saved : 'beginner';
-    } catch {
-      return 'beginner';
-    }
-  });
-  const [hideBuiltinModels, setHideBuiltinModels] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('gram.settings.hideBuiltinModels') === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const [sidebarOpen, setSidebarOpen] = useState(() => layoutPreset === 'beginner');
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
-    try {
-      const saved = Number(localStorage.getItem('gram.sidebarWidth'));
-      if (Number.isFinite(saved) && saved >= 220 && saved <= 520) return saved;
-    } catch {}
-    return 260;
-  });
-  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
-
-  const startSidebarResize = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!sidebarOpen) return;
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = sidebarWidth;
-    setIsResizingSidebar(true);
-    let latestWidth = startWidth;
-    const prevCursor = document.body.style.cursor;
-    const prevSelect = document.body.style.userSelect;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const next = Math.min(520, Math.max(220, Math.round(startWidth + (moveEvent.clientX - startX))));
-      latestWidth = next;
-      setSidebarWidth(next);
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      document.body.style.cursor = prevCursor;
-      document.body.style.userSelect = prevSelect;
-      setIsResizingSidebar(false);
-      try {
-        localStorage.setItem('gram.sidebarWidth', String(latestWidth));
-      } catch {}
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  };
-
-  const toggleSidebarExpanded = () => {
-    const next = sidebarWidth >= 340 ? 260 : 380;
-    setSidebarWidth(next);
-    try {
-      localStorage.setItem('gram.sidebarWidth', String(next));
-    } catch {}
-  };
+  const { hideBuiltinModels, setHideBuiltinModels, setLayoutPreset, setSidebarOpen, layoutPreset, sidebarOpen, isResizingSidebar, sidebarWidth, toggleSidebarExpanded, startSidebarResize } = useLayoutState();
   const [activePage, setActivePage] = useState<'chat' | 'settings' | 'auth' | 'onboarding'>(() => {
     if (typeof window === 'undefined') return 'chat';
     const p = window.location.pathname;
@@ -258,29 +210,10 @@ export function App() {
     ];
   });
   const [activeDeviceId, setActiveDeviceId] = useState('studio-local');
-  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
-  const [projectHubId, setProjectHubId] = useState<string | null>(null);
-  const [projectHubTab, setProjectHubTab] = useState<'general' | 'git' | 'settings'>('general');
-  const [projectGitInfo, setProjectGitInfo] = useState<{
-    loading: boolean;
-    isGitRepo: boolean;
-    branch?: string;
-    lastCommit?: string;
-    hasGramGuide?: boolean;
-    remotes: Array<{ name: string; rawUrl: string; webUrl: string | null }>;
-  }>({ loading: false, isGitRepo: false, remotes: [] });
-  const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
-  const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   const [archivedChats, setArchivedChats] = useState<
     Array<{ sessionId: string; title: string; mode: 'chat' | 'code'; daysRemaining: number }>
   >([]);
   const [showArchivedChats, setShowArchivedChats] = useState(false);
-  const [projectDraft, setProjectDraft] = useState<{ id?: string; label: string; workspacePath: string; instructions: string }>({
-    label: '',
-    workspacePath: '',
-    instructions: '',
-  });
-  const [pickingFolder, setPickingFolder] = useState(false);
   const [authState, setAuthState] = useState<AuthState>(() => {
     try {
       const raw = localStorage.getItem('gram.cache.authState');
@@ -416,7 +349,6 @@ export function App() {
   >([]);
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
   const [editingQueueText, setEditingQueueText] = useState('');
-  const [voiceMode, setVoiceMode] = useState(false);
   const [pipOpen, setPipOpen] = useState(false);
   const isPipMode =
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pip') === '1';
@@ -430,21 +362,6 @@ export function App() {
     }, 1500);
     return () => window.clearInterval(id);
   }, [isPipMode]);
-  const [voiceRecording, setVoiceRecording] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [bootError, setBootError] = useState<{ title: string; message: string; details?: string } | null>(null);
-  const [actionError, setActionError] = useState<{ message: string; details?: string } | null>(null);
-  const [systemWarnings, setSystemWarnings] = useState<
-    Array<{
-      id: string;
-      label: string;
-      severity: 'critical' | 'warning';
-      ok: boolean;
-      message: string;
-      action?: 'retry' | 'signin' | 'settings';
-    }>
-  >([]);
-  const [systemWarningsDismissed, setSystemWarningsDismissed] = useState(false);
 
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>(() =>
     typeof window !== 'undefined' && window.location.pathname === '/signup' ? 'signup' : 'signin'
@@ -458,16 +375,6 @@ export function App() {
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeRequestRef = useRef<AbortController | null>(null);
-  const speechRequestRef = useRef<AbortController | null>(null);
-  const speechAudioRef = useRef<HTMLAudioElement | null>(null);
-  const speechUrlRef = useRef<string | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const speechRecognitionRef = useRef<any>(null);
-  const voiceDraftBaseRef = useRef<string>('');
-  const voiceSilenceTimerRef = useRef<number | null>(null);
-  const voiceStreamRef = useRef<MediaStream | null>(null);
-  const voiceChunksRef = useRef<Blob[]>([]);
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const messagesByTabRef = useRef(messagesByTab);
   messagesByTabRef.current = messagesByTab;
   const chatSaveQueuesRef = useRef(new Map<string, Promise<void>>());
@@ -492,277 +399,7 @@ export function App() {
     projectHubId: string | null;
   } | null>(null);
 
-  function stopSpeechPlayback() {
-    speechRequestRef.current?.abort();
-    speechRequestRef.current = null;
-    if (speechAudioRef.current) {
-      speechAudioRef.current.pause();
-      speechAudioRef.current.src = '';
-      speechAudioRef.current = null;
-    }
-    if (speechUrlRef.current) {
-      URL.revokeObjectURL(speechUrlRef.current);
-      speechUrlRef.current = null;
-    }
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch {}
-    }
-    setSpeakingMessageId(null);
-  }
-
-  function cancelActiveTurnForBargeIn() {
-    stopSpeechPlayback();
-    activeRequestRef.current?.abort();
-    activeRequestRef.current = null;
-    if (activeRunId) {
-      void fetch('/api/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runId: activeRunId }),
-      }).catch(() => {});
-    }
-    setIsExecuting(false);
-  }
-
-  function speechSummary(raw: string): string {
-    let summary = raw
-      .replace(/<thinking>[\s\S]*?<\/thinking>/gi, ' ')
-      .replace(/```[\s\S]*?```/g, ' ')
-      .replace(/`[^`]*`/g, ' ')
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-      .replace(/^\s*(?:diff --git|index |--- |\+\+\+ |@@ ).*$/gm, ' ')
-      .replace(/^\s*[+-](?=\S).*$/gm, ' ')
-      .replace(/^\s*#{1,6}\s*/gm, '')
-      .replace(/[>*_~]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (summary.length > 1100) {
-      summary = summary.slice(0, 1050).replace(/\s+\S*$/, '') + '. I can show the full response in the chat.';
-    }
-    return summary;
-  }
-
-  function playVoiceChime() {
-    try {
-      if (localStorage.getItem('gram.settings.playVoiceChime') !== 'true') return;
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const context = new AudioCtx();
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.frequency.value = 660;
-      gain.gain.value = 0.035;
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.07);
-      oscillator.onended = () => {
-        void context.close().catch(() => {});
-      };
-    } catch {}
-  }
-
-  async function speakSummary(text: string, messageId?: string) {
-    const summary = speechSummary(text);
-    if (!summary) return;
-    stopSpeechPlayback();
-    setSpeakingMessageId(messageId || '__auto__');
-    const controller = new AbortController();
-    speechRequestRef.current = controller;
-    let provider: string | undefined;
-    let voiceId: string | undefined;
-    let speed: number | undefined;
-    try {
-      provider = localStorage.getItem('gram.settings.ttsProvider') || undefined;
-      voiceId = localStorage.getItem('gram.settings.ttsVoiceId') || localStorage.getItem('gram.settings.elevenLabsVoiceId') || undefined;
-      const rawSpeed = Number(localStorage.getItem('gram.settings.elevenLabsSpeed'));
-      if (Number.isFinite(rawSpeed) && rawSpeed > 0) speed = rawSpeed;
-    } catch {}
-    try {
-      const response = await fetch('/api/voice/speak', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: summary, provider, voiceId, speed }),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        if (response.status === 503 && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          const utterance = new SpeechSynthesisUtterance(summary);
-          utterance.onend = () => setSpeakingMessageId(null);
-          utterance.onerror = () => setSpeakingMessageId(null);
-          window.speechSynthesis.speak(utterance);
-          return;
-        }
-        throw new Error((await response.json().catch(() => null))?.error || `Speech request failed (${response.status}).`);
-      }
-      const audioBlob = await response.blob();
-      if (controller.signal.aborted) return;
-      const url = URL.createObjectURL(audioBlob);
-      speechUrlRef.current = url;
-      const audio = new Audio(url);
-      speechAudioRef.current = audio;
-      audio.onended = () => stopSpeechPlayback();
-      await audio.play();
-    } catch (error: any) {
-      if (error?.name !== 'AbortError') {
-        setSpeakingMessageId(null);
-        const msg = error?.message || 'Could not play voice response.';
-        setVoiceError(msg);
-        emitSystemToast({ title: 'Voice playback failed', description: msg, variant: 'error' });
-      }
-    }
-  }
-
-  function stopLiveDictation() {
-    if (voiceSilenceTimerRef.current) {
-      window.clearTimeout(voiceSilenceTimerRef.current);
-      voiceSilenceTimerRef.current = null;
-    }
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.onend = null;
-        speechRecognitionRef.current.stop();
-      } catch {}
-      speechRecognitionRef.current = null;
-    }
-    if (recorderRef.current?.state === 'recording') {
-      recorderRef.current.stop();
-    }
-    setVoiceRecording(false);
-  }
-
-  async function toggleVoiceRecording() {
-    setVoiceError(null);
-    if (voiceRecording || speechRecognitionRef.current || recorderRef.current?.state === 'recording') {
-      stopLiveDictation();
-      playVoiceChime();
-      return;
-    }
-    cancelActiveTurnForBargeIn();
-    voiceDraftBaseRef.current = prompt.trim();
-
-    const startMediaRecorderFallback = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        voiceStreamRef.current = stream;
-        voiceChunksRef.current = [];
-        const recorder = new MediaRecorder(stream);
-        recorderRef.current = recorder;
-        recorder.ondataavailable = (event) => { if (event.data.size) voiceChunksRef.current.push(event.data); };
-        recorder.onstop = async () => {
-          stream.getTracks().forEach((track) => track.stop());
-          voiceStreamRef.current = null;
-          recorderRef.current = null;
-          setVoiceRecording(false);
-          const audio = new Blob(voiceChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-          voiceChunksRef.current = [];
-          if (!audio.size) return;
-          const controller = new AbortController();
-          try {
-            const response = await fetch('/api/voice/transcribe', { method: 'POST', headers: { 'Content-Type': audio.type }, body: audio, signal: controller.signal });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || `Transcription failed (${response.status}).`);
-            const transcript = String(data.text || '').trim();
-            if (transcript) {
-              setPrompt([voiceDraftBaseRef.current, transcript].filter(Boolean).join(' '));
-            }
-            textareaRef.current?.focus();
-          } catch (error: any) {
-            if (error?.name !== 'AbortError') {
-              const msg = error?.message || 'Transcription failed.';
-              setVoiceError(msg);
-              emitSystemToast({ title: 'Transcription failed', description: msg, variant: 'error' });
-            }
-          }
-        };
-        recorder.start();
-        setVoiceRecording(true);
-        playVoiceChime();
-      } catch (error: any) {
-        setVoiceRecording(false);
-        const msg = error?.message || 'Microphone access is unavailable.';
-        setVoiceError(msg);
-        emitSystemToast({ title: 'Microphone unavailable', description: msg, variant: 'error' });
-      }
-    };
-
-    const SpeechRec =
-      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: any }).webkitSpeechRecognition;
-
-    if (SpeechRec) {
-      try {
-        const recognition = new SpeechRec();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = navigator.language || 'en-US';
-        speechRecognitionRef.current = recognition;
-        setVoiceRecording(true);
-        playVoiceChime();
-        textareaRef.current?.focus();
-
-        recognition.onresult = (event: any) => {
-          let finalPart = '';
-          let interimPart = '';
-          for (let i = 0; i < event.results.length; i++) {
-            const segment = String(event.results[i]?.[0]?.transcript || '');
-            if (event.results[i]?.isFinal) finalPart += segment;
-            else interimPart += segment;
-          }
-          const spoken = `${finalPart}${interimPart}`.trim();
-          setPrompt([voiceDraftBaseRef.current, spoken].filter(Boolean).join(' '));
-
-          let autoSend = false;
-          try {
-            autoSend = localStorage.getItem('gram.settings.autoSendVoice') === 'true';
-          } catch {}
-          if (autoSend && finalPart.trim()) {
-            if (voiceSilenceTimerRef.current) window.clearTimeout(voiceSilenceTimerRef.current);
-            voiceSilenceTimerRef.current = window.setTimeout(() => {
-              stopLiveDictation();
-              formRef.current?.requestSubmit();
-            }, 1300);
-          }
-        };
-
-        recognition.onerror = (event: any) => {
-          const code = String(event?.error || '');
-          if (code === 'network' || code === 'service-not-allowed' || code === 'audio-capture') {
-            stopLiveDictation();
-            void startMediaRecorderFallback();
-          } else if (code !== 'aborted' && code !== 'no-speech') {
-            stopLiveDictation();
-            setVoiceError(`Speech recognition error: ${code}`);
-          }
-        };
-
-        recognition.onend = () => {
-          if (speechRecognitionRef.current === recognition) {
-            try {
-              recognition.start();
-            } catch {
-              stopLiveDictation();
-            }
-          }
-        };
-
-        recognition.start();
-        return;
-      } catch {
-        speechRecognitionRef.current = null;
-      }
-    }
-
-    await startMediaRecorderFallback();
-  }
-
-  useEffect(() => () => {
-    activeRequestRef.current?.abort();
-    stopSpeechPlayback();
-    stopLiveDictation();
-    voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
-  }, []);
+  const { voiceMode, speakSummary, stopSpeechPlayback, speakingMessageId, voiceError, voiceRecording, setVoiceMode, setVoiceError, toggleVoiceRecording } = useVoice({ activeRequestRef, activeRunId, setIsExecuting, prompt, setPrompt, textareaRef, formRef });
 
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0]!;
   const activeMessages = messagesByTab[activeTab.id] || [];
@@ -1280,42 +917,7 @@ export function App() {
     }
   }, [theme]);
 
-  function applySystemChecks(rawChecks: any[]) {
-    const checks = rawChecks.map((c: any) =>
-      c.id === 'internet_connection' && typeof navigator !== 'undefined' && navigator.onLine === false
-        ? { ...c, ok: false, message: 'Browser reports no internet connection. Cloud models and sync may not work.' }
-        : c
-    );
-    const criticalFailures = checks.filter((c: any) => c.severity === 'critical' && !c.ok);
-    const warningFailures = checks.filter((c: any) => c.severity === 'warning' && !c.ok);
-    if (criticalFailures.length > 0) {
-      setBootError({
-        title: criticalFailures[0].label || 'System check failed',
-        message: criticalFailures.map((c: any) => c.message).join(' '),
-        details: criticalFailures.map((c: any) => `[${c.id}] ${c.message}`).join('\n'),
-      });
-    } else {
-      setBootError(null);
-    }
-    setSystemWarnings((prev) => {
-      const prevIds = new Set(prev.map((w) => w.id));
-      const hasNewWarning = warningFailures.some((w: any) => !prevIds.has(w.id));
-      if (hasNewWarning) setSystemWarningsDismissed(false);
-      return warningFailures;
-    });
-  }
-
-  async function refreshSystemChecks() {
-    try {
-      const res = await fetch('/api/system/checks');
-      if (!res.ok) return;
-      const data = await res.json().catch(() => null);
-      if (data?.auth) setAuthState(data.auth as AuthState);
-      if (Array.isArray(data?.systemChecks)) {
-        applySystemChecks(data.systemChecks);
-      }
-    } catch {}
-  }
+  const { setBootError, applySystemChecks, setSystemWarnings, actionError, setActionError, systemWarnings, bootError, refreshSystemChecks, setSystemWarningsDismissed, systemWarningsDismissed } = useSystemChecks({ setAuthState });
 
   useEffect(() => {
     if (authState.authenticated) {
@@ -2071,169 +1673,7 @@ export function App() {
     });
   }
 
-  async function loadProjectGitInfo(projectId: string) {
-    setProjectGitInfo({ loading: true, isGitRepo: false, remotes: [] });
-    try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git`);
-      const data = await res.json().catch(() => ({}));
-      setProjectGitInfo({
-        loading: false,
-        isGitRepo: Boolean(data?.isGitRepo),
-        branch: data?.branch,
-        lastCommit: data?.lastCommit,
-        hasGramGuide: Boolean(data?.hasGramGuide),
-        remotes: Array.isArray(data?.remotes) ? data.remotes : [],
-      });
-    } catch {
-      setProjectGitInfo({ loading: false, isGitRepo: false, remotes: [] });
-    }
-  }
-
-  async function handleArchiveProject(projectId: string, archived: boolean) {
-    try {
-      const res = await fetch('/api/projects/archive', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: projectId, archived }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || `Could not update project (${res.status}).`);
-      if (data?.projects) setProjects(data.projects);
-      if (archived && activeProjectId === projectId) {
-        setActiveProjectId('local');
-      }
-      emitSystemToast({
-        title: archived ? 'Project archived' : 'Project restored',
-        variant: 'info',
-      });
-    } catch (err: any) {
-      const msg = err?.message || 'Could not archive project.';
-      setActionError({ message: msg });
-      emitSystemToast({ title: 'Project update failed', description: msg, variant: 'error' });
-    }
-  }
-
-  async function handleDeleteProject(projectId: string) {
-    try {
-      const res = await fetch('/api/projects/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: projectId }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || `Could not delete project (${res.status}).`);
-      if (data?.projects) setProjects(data.projects);
-      if (activeProjectId === projectId) {
-        setActiveProjectId('local');
-      }
-      setConfirmDeleteProject(false);
-      setProjectHubId(null);
-      emitSystemToast({ title: 'Project deleted', variant: 'info' });
-    } catch (err: any) {
-      const msg = err?.message || 'Could not delete project.';
-      setActionError({ message: msg });
-      emitSystemToast({ title: 'Could not delete project', description: msg, variant: 'error' });
-    }
-  }
-
-  function openProjectHub(project?: ProjectItem) {
-    setProjectHubTab('general');
-    setConfirmDeleteProject(false);
-    if (project) {
-      setProjectHubId(project.id);
-      setProjectDraft({
-        id: project.id,
-        label: project.label,
-        workspacePath: project.workspacePath || '',
-        instructions: project.instructions || '',
-      });
-      void loadProjectGitInfo(project.id);
-    } else {
-      setProjectHubId('__new__');
-      setProjectDraft({ label: '', workspacePath: '', instructions: '' });
-      setProjectGitInfo({ loading: false, isGitRepo: false, remotes: [] });
-    }
-  }
-
-  async function saveProjectHub(e: React.FormEvent) {
-    e.preventDefault();
-    if (!projectDraft.label.trim()) {
-      setActionError({ message: 'Project name is required.' });
-      return;
-    }
-    const isCreating = !projectDraft.id || projectHubId === '__new__';
-    try {
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(projectDraft),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || `Could not save project (${res.status}).`);
-      if (data?.projects) setProjects(data.projects);
-      if (data?.project?.id) {
-        setActiveProjectId(data.project.id);
-        setProjectHubId(isCreating ? null : data.project.id);
-      }
-      emitSystemToast({
-        title: isCreating ? 'Project created' : 'Project settings saved',
-        description: data?.project?.label || projectDraft.label.trim(),
-        variant: 'success',
-      });
-    } catch (err: any) {
-      const msg = err?.message || 'Could not save project.';
-      setActionError({ message: msg });
-      emitSystemToast({ title: 'Could not save project', description: msg, variant: 'error' });
-    }
-  }
-
-  async function handleUploadProjectFiles(projectId: string, fileList: FileList | null) {
-    if (!fileList || fileList.length === 0) return;
-    try {
-      for (const file of Array.from(fileList)) {
-        const contentText = await file.text().catch(() => '');
-        const res = await fetch('/api/projects/files', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            projectId,
-            filename: file.name,
-            mimeType: file.type || 'text/plain',
-            contentText,
-          }),
-        });
-        const data = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(data?.error || `Could not upload ${file.name} (${res.status}).`);
-        if (data?.projects) setProjects(data.projects);
-      }
-      emitSystemToast({
-        title: `Uploaded ${fileList.length} project file${fileList.length === 1 ? '' : 's'}`,
-        variant: 'success',
-      });
-    } catch (err: any) {
-      const msg = err?.message || 'Could not upload project file.';
-      setActionError({ message: msg });
-      emitSystemToast({ title: 'Upload failed', description: msg, variant: 'error' });
-    }
-  }
-
-  async function handleDeleteProjectFile(fileId: string) {
-    try {
-      const res = await fetch('/api/projects/files/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || `Could not delete project file (${res.status}).`);
-      if (data?.projects) setProjects(data.projects);
-      emitSystemToast({ title: 'Project file removed', variant: 'info' });
-    } catch (err: any) {
-      const msg = err?.message || 'Could not delete project file.';
-      setActionError({ message: msg });
-      emitSystemToast({ title: 'Could not remove file', description: msg, variant: 'error' });
-    }
-  }
+  const { projectHubId, openProjectHub, showArchivedProjects, expandedProjects, setExpandedProjects, setShowArchivedProjects, setProjectHubId, projectDraft, setProjectDraft, projectHubTab, setProjectHubTab, projectGitInfo, pickingFolder, setPickingFolder, confirmDeleteProject, setConfirmDeleteProject, saveProjectHub, loadProjectGitInfo, handleArchiveProject, handleDeleteProject } = useProjectHub({ setProjects, activeProjectId, setActiveProjectId, setActionError });
 
   async function handleSelectTask(task: IslandActivity) {
     if (task.projectId && task.projectId !== activeProjectId) {

@@ -21,7 +21,7 @@ Run typecheck and `bun test` after changes. Both are currently clean (108 tests)
 - `src/core/` – GramFS (SQLite copy-on-write overlay), Code Mode (Worker sandbox), semantic AST graph, context compaction, worktrees.
 - `src/providers/` – model registry/router (Bedrock, Foundry, OpenRouter), LLM client, BYOK, secret guard.
 - `src/db/` – SQLite stores. `src/sync/` – AHP/Oberon sync. `src/services/externalContracts.ts` – pluggable TTS/STT/web providers.
-- `src/ui/` – React app (`App.tsx` (~4.2k lines, still holds all state/handlers) renders `features/shell/` panels (Sidebar, ChatHeader, MessageList, Composer, ContextPanel) via props; other features under `features/`). Alias `@` = `src/ui`.
+- `src/ui/` – React app (`App.tsx` (~3.6k lines; voice, layout, project hub and system checks live in `src/ui/hooks/`) renders `features/shell/` panels (Sidebar, ChatHeader, MessageList, Composer, ContextPanel) via props; other features under `features/`). Alias `@` = `src/ui`.
 - `src-tauri/` – Tauri shell; `crates/gram-core-rs/` – Rust hashing/patch.
 - `tests/` – integration-style tests; unit tests also live beside source.
 - `.gram/` – local runtime state (DBs, plans); not source.
