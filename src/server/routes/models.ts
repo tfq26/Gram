@@ -3,7 +3,9 @@
  */
 
 import type { GramAgentRuntime } from '../../runtime/agentRuntime';
+import { refreshModelCatalogIfStale } from '../../providers/modelCatalog';
 import { AUTO_MODEL_ID, getActivePrivacyMode, listAllowedModels, type PrivacyMode } from '../../providers/router';
+import { forwardAuthHeaders } from '../lyraClient';
 import { errorResponse, jsonResponse } from '../http';
 
 export async function handleModelRoutes(
@@ -43,6 +45,14 @@ export async function handleModelRoutes(
         hasApiKey: m.hasApiKey,
         source: 'byok' as const,
       }));
+    if (privacyMode !== 'local-only' && process.env.NODE_ENV !== 'test') {
+      // Lyra owns the catalog. Refresh it (bounded wait) when stale so the first load is complete.
+      const authorization = forwardAuthHeaders(req).authorization;
+      await refreshModelCatalogIfStale({
+        headers: authorization ? { Authorization: authorization } : undefined,
+        timeoutMs: 2500,
+      });
+    }
     const catalogModels =
       privacyMode === 'local-only'
         ? []

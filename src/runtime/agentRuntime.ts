@@ -41,7 +41,7 @@ import {
   getActivePrivacyMode,
   isAllowedModel,
   markModelUnavailable,
-  MODEL_REGISTRY,
+  getModelProfile,
   selectOptimalModel,
   type WorkflowKind,
 } from '../providers/router';
@@ -334,7 +334,7 @@ export class GramAgentRuntime extends EventEmitter {
 
     if (snippets.length === 0) return;
 
-    const cheapModel = MODEL_REGISTRY['us.amazon.nova-2-lite-v1:0'];
+    const cheapModel = getModelProfile('us.amazon.nova-2-lite-v1:0');
     if (!cheapModel) return;
 
     this.summarizingProjects.add(id);
@@ -486,7 +486,7 @@ export class GramAgentRuntime extends EventEmitter {
     const requestedModelId = input.modelId || 'auto';
     const byokRecord = requestedModelId !== 'auto' ? this.byok.getModel(requestedModelId) : null;
     const model =
-      (requestedModelId !== 'auto' && MODEL_REGISTRY[requestedModelId]) ||
+      (requestedModelId !== 'auto' && getModelProfile(requestedModelId)) ||
       (byokRecord ? this.byok.toModelProfile(byokRecord) : null) ||
       selectOptimalModel({ taskComplexity: 'simple', priority: 'cost' });
     const result = await streamLlmTurn({
@@ -1186,7 +1186,7 @@ export class GramAgentRuntime extends EventEmitter {
       capabilities: { coding: 95, reasoning: 95, speed: 90 },
     };
     const profile =
-      (requestedModel !== 'auto' && MODEL_REGISTRY[requestedModel]) ||
+      (requestedModel !== 'auto' && getModelProfile(requestedModel)) ||
       (byokRecord ? this.byok.toModelProfile(byokRecord) : null) ||
       (!useDirectLlm && getActivePrivacyMode() !== 'local-only'
         ? lyraAutoProfile
@@ -1344,7 +1344,7 @@ export class GramAgentRuntime extends EventEmitter {
         return null;
       }
       const cheapModel =
-        MODEL_REGISTRY['us.amazon.nova-2-lite-v1:0'] ||
+        getModelProfile('us.amazon.nova-2-lite-v1:0') ||
         selectOptimalModel({ taskComplexity: 'simple', priority: 'cost' });
       if (!cheapModel) return null;
       const res = await streamLlmTurn({

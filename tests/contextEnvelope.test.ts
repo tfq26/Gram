@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { ContextEnvelope } from '../src/core/contextEnvelope';
-import { selectOptimalModel, isAllowedModel, listAllowedModels } from '../src/providers/router';
+import { getModelProfile, selectOptimalModel, isAllowedModel, listAllowedModels } from '../src/providers/router';
 
 describe('Context Envelope & Multi-Provider Router', () => {
   it('detects model family and projects appropriate tools for Claude vs Codex', () => {
@@ -54,11 +54,18 @@ describe('Context Envelope & Multi-Provider Router', () => {
     expect(isAllowedModel('google/gemini-4-hydrogen')).toBe(true);
     expect(isAllowedModel('us.openai.gpt-6-luna')).toBe(true);
 
+    // The catalog is owned by Lyra, so assert on properties rather than a hard-coded winner.
     const frontier = selectOptimalModel({ taskComplexity: 'architecture', priority: 'frontier' });
-    expect(frontier.id).toBe('us.anthropic.claude-opus-5-5');
+    const frontierScore = (m: { capabilities: { coding: number; reasoning: number } }) =>
+      m.capabilities.coding + m.capabilities.reasoning;
+    for (const m of listAllowedModels().filter((x) => x.provider === 'bedrock' && x.autoEligible !== false)) {
+      expect(frontierScore(frontier)).toBeGreaterThanOrEqual(frontierScore(m));
+    }
 
     const frugal = selectOptimalModel({ taskComplexity: 'simple', priority: 'cost' });
-    expect(frugal.id).toBe('us.amazon.nova-2-lite-v1:0');
+    expect(frugal.id).toBe('nova-2-lite');
+    // Legacy Bedrock ids still resolve to the canonical profile.
+    expect(getModelProfile('us.amazon.nova-2-lite-v1:0')?.id).toBe('nova-2-lite');
 
     const balanced = selectOptimalModel({ taskComplexity: 'moderate', priority: 'balanced' });
     expect(['bedrock', 'openrouter']).toContain(balanced.provider);

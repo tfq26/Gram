@@ -1,0 +1,10 @@
+{
+  "privacyMode": "standard",
+  "catalogVersion": "builtin",
+  "models": [
+    {"id":"nova-2-lite","name":"Amazon Nova 2 Lite","family":"amazon","tier":1,"contextWindow":300000,"supportsPromptCaching":true,"zdrCompliant":true,"providers":["bedrock"],"primaryProvider":"bedrock","pricing":{"inputPerMillion":0.06,"outputPerMillion":0.24},"scores":{"coding":80,"reasoning":76,"toolProficiency":84,"speed":68},"workflowGroups":[],"aliases":["us.amazon.nova-2-lite-v1:0","amazon.nova-2-lite-v1:0"]},
+    {"id":"claude-haiku-5-5","name":"Claude Haiku 5.5","family":"anthropic","tier":1,"contextWindow":200000,"supportsPromptCaching":true,"zdrCompliant":true,"providers":["bedrock"],"primaryProvider":"bedrock","pricing":{"inputPerMillion":0.8,"outputPerMillion":4},"scores":{"coding":89,"reasoning":85,"toolProficiency":90,"speed":87},"workflowGroups":["fast-utility","triage-routing"],"aliases":["us.anthropic.claude-haiku-5-5","anthropic.claude-haiku-5-5"]},
+    {"id":"claude-sonnet-4-6","name":"Claude Sonnet 4.6","family":"anthropic","tier":3,"contextWindow":1000000,"supportsPromptCaching":true,"zdrCompliant":true,"providers":["bedrock","openrouter"],"primaryProvider":"bedrock","pricing":{"inputPerMillion":3,"outputPerMillion":15},"scores":{"coding":97,"reasoning":96,"toolProficiency":97,"speed":45},"workflowGroups":[],"aliases":["us.anthropic.claude-sonnet-4-6","us.anthropic.claude-sonnet-4-6-v1:0","anthropic.claude-sonnet-4-6","anthropic/claude-sonnet-4.6"]},
+    {"id":"claude-opus-4-6","name":"Claude Opus 4.6","family":"anthropic","tier":4,"contextWindow":1000000,"supportsPromptCaching":true,"zdrCompliant":true,"providers":["bedrock","openrouter"],"primaryProvider":"bedrock","pricing":{"inputPerMillion":5,"outputPerMillion":25},"scores":{"coding":98,"reasoning":99,"toolProficiency":98,"speed":32},"workflowGroups":[],"aliases":["us.anthropic.claude-opus-4-6-v1","anthropic.claude-opus-4-6-v1","anthropic/claude-opus-4.6"]}
+  ]
+}
