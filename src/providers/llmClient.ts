@@ -13,6 +13,7 @@ import {
   type Message,
   type Tool,
 } from '@aws-sdk/client-bedrock-runtime';
+import { resolveUpstreamModelId } from './modelCatalog';
 import { getActivePrivacyMode, markModelUnavailable, type ModelProfile, type PrivacyMode } from './router';
 import { redactSecretText } from './secretGuard';
 
@@ -251,7 +252,7 @@ async function streamBedrockTurn(params: {
 
   let response;
   try {
-    response = await sendCommand(params.model.id);
+    response = await sendCommand(resolveUpstreamModelId(params.model));
   } catch (err: any) {
     const fallbackModelId = process.env.BEDROCK_MODEL_ID;
     const code = String(err?.name || '');
@@ -456,7 +457,7 @@ async function streamOpenRouterTurn(params: {
   }
 
   const baseUrl = (byok?.baseUrl || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
-  const upstreamModelId = byok?.modelId || params.model.id;
+  const upstreamModelId = byok?.modelId || resolveUpstreamModelId(params.model);
   const maxTokens = params.effort === 'high' ? 8192 : params.effort === 'low' ? 2048 : 4096;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

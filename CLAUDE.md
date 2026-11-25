@@ -13,7 +13,7 @@ bun run build          # typecheck + vite build -> dist/studio
 bun run tauri:dev      # desktop app
 ./launch.sh --doctor   # check ports/runtime/env
 ```
-Run typecheck and `bun test` after changes. Both are currently clean (108 tests).
+Run typecheck and `bun test` after changes. Both are currently clean (126 tests).
 
 ## Layout
 - `src/server/` – Bun HTTP/SSE daemon (`index.ts`, `routes/`, `voice.ts`, Lyra client).
@@ -29,7 +29,7 @@ Run typecheck and `bun test` after changes. Both are currently clean (108 tests)
 ## Gotchas
 - Config via env (`.env.example`); `.env`/`.env.local` are gitignored. Key vars: `GRAM_PORT`, `LYRA_HUB_URL`, `GRAM_DIRECT_LLM`.
 - `gram.*` Code Mode SDK calls are async (RPC to a Worker). Scripts must `await` them; returning a Promise fails with "object can not be cloned".
-- Model allowlist lives in `MODEL_REGISTRY` in `src/providers/router.ts`; `/api/run` rejects ids not in it (or BYOK).
+- The model catalog is owned by Lyra (`/api/gateway/llm/models`). `src/providers/modelCatalog.ts` caches it (built-in 4-model fallback -> `.gram/model-catalog.json` -> live fetch, 6h TTL); `router.ts` does selection on top. `/api/run` rejects ids not in the catalog (or BYOK), but passes unknown ids through while only the built-in fallback is loaded. Legacy ids resolve via aliases (`getModelProfile`). Tests load `tests/fixtures/lyra-model-catalog.json` via `bunfig.toml` preload; regenerate it from Lyra's `listGatewayLlmModels('standard')` when the catalog changes.
 - Voice/web providers are global singletons in `externalServices`. Tests that register mocks must reset via `registerDefaultVoiceProviders()` / `registerDefaultWebProviders()` (both clear first).
 - `docs/archive/` holds docs for the older .NET codebase (e.g. the 2026-10-05 audit); they do not describe this repo.
 - macOS `sed -i` needs `-i ''`.

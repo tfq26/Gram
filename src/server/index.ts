@@ -17,6 +17,7 @@ import { handleSystemRoutes } from './routes/processes';
 import { handleAuthRoutes } from './routes/auth';
 import { handleLyraRoutes } from './routes/lyra';
 import { handleFileRoutes } from './routes/files';
+import { loadCachedModelCatalog, refreshModelCatalogIfStale } from '../providers/modelCatalog';
 import { handleModelRoutes } from './routes/models';
 import { handleUserContextRoutes } from './routes/userContext';
 import { errorResponse, jsonResponse } from './http';
@@ -35,6 +36,12 @@ const runtime = new GramAgentRuntime(cwd);
 const ahp = new AHPServer();
 const connect = new GramConnectManager();
 const classicAssetsRoot = path.resolve(cwd, 'src/server/classic-assets');
+
+// Model catalog: start from the last good copy on disk, then refresh from Lyra in the background.
+if (process.env.NODE_ENV !== 'test') {
+  loadCachedModelCatalog();
+  void refreshModelCatalogIfStale();
+}
 
 const PORT = parseInt(process.env.GRAM_PORT || (process.env.NODE_ENV === 'test' ? '0' : '7337'), 10);
 

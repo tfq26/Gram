@@ -48,7 +48,8 @@ In development, Vite (`vite.config.ts`) listens on `127.0.0.1:5174` and proxies 
   - `projectInit.ts`: Initializes `.gram/gram.md` and `.gram/context.json` for attached projects.
   - `worktreeManager.ts` and `workflows.ts`: Git worktree isolation for async runs and workflow matching.
 - `src/providers/`:
-  - `router.ts`: Model catalog (`MODEL_REGISTRY`), allowlist checks (`isAuthorizedModelId`), and `selectOptimalModel()` for `auto` routing.
+  - `modelCatalog.ts`: cached copy of Lyra's model catalog (built-in fallback, disk cache, refresh from `/api/gateway/llm/models`).
+  - `router.ts`: allowlist checks (`isAllowedModel`), alias lookup (`getModelProfile`), and `selectOptimalModel()` on top of that catalog.
   - `llmClient.ts`: `streamLlmTurn()` and `streamLyraGatewayTurn()`. Streams SSE from `${LYRA_HUB_URL}/api/gateway/llm/stream`, or calls Bedrock/OpenRouter directly when `GRAM_DIRECT_LLM=true` or when `local-only` Ollama falls back offline.
   - `byokStore.ts`: Encrypted storage for user-configured custom/OpenAI-compatible/Ollama models.
   - `secretGuard.ts`: `redactSecretText()` and path blocking for sensitive files.

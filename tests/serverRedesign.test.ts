@@ -80,7 +80,7 @@ describe('Gram v2 Web Interface Redesign (3-Step Developer Environment)', () => 
       new Request('http://localhost/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, modelId: 'us.amazon.nova-pro-v1:0' }),
+        body: JSON.stringify({ prompt, modelId: 'nova-2-pro' }),
       })
     );
     expect(runRes.status).toBe(200);
